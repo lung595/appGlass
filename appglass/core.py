@@ -1393,7 +1393,7 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
         warn_hand_files(app)
 
 
-def cmd_remove(app, only=None):
+def cmd_remove(app, only=None, keep_hook=False):
     if only:
         for name in _selected(app, only):
             if app.remove_owner(name):
@@ -1406,7 +1406,7 @@ def cmd_remove(app, only=None):
     for name in app.state.families():
         app.remove_owner(name)
         app.info("%s: removed" % name)
-    if "hook" in app.state.owners:
+    if "hook" in app.state.owners and not keep_hook:
         from . import hook
         hook.remove(app)
     from . import learn
@@ -1589,10 +1589,12 @@ def cmd_sync(app, settings_file, dry_run=False):
             app.info("settings: saved %s" % app.env.tilde(_settings.path(app.env)))
     _reload_settings(app, new)
     if not new["enabled"]:
+        # the hook stays: it applies nothing while glass is off, and turning
+        # glass on again from the plugin brings the regeneration back with it
         if dry_run:
-            app.info("glass off: would remove every appglass file")
+            app.info("glass off: would remove every appglass file but the hook")
         else:
-            cmd_remove(app)
+            cmd_remove(app, keep_hook=True)
         return
     cmd_apply_all(app, dry_run=dry_run)
 
@@ -1844,6 +1846,10 @@ def main(argv=None, environ=None, out=None, err=None):
     y.add_argument("--settings-file", required=True)
     y.add_argument("--dry-run", action="store_true")
     y.add_argument("--quiet", action="store_true")
+    pl = sub.add_parser("plugin", help="link the DMS plugin (dms-plugin) into the DMS "
+                        "plugins folder, or take the link out")
+    pl.add_argument("action", choices=("install", "remove"))
+    pl.add_argument("--dry-run", action="store_true")
     sub.add_parser("vibrancy", help="daemon: fade unfocused Alacritty windows (settings "
                                     "inactive; run by appglass-vibrancy.service)")
     args = ap.parse_args(argv)
@@ -1888,6 +1894,10 @@ def main(argv=None, environ=None, out=None, err=None):
             cmd_set(app, args.key, args.value, apply_after=args.apply)
         elif args.cmd == "sync":
             cmd_sync(app, args.settings_file, dry_run=args.dry_run)
+        elif args.cmd == "plugin":
+            from . import plugin
+            (plugin.install if args.action == "install" else plugin.remove)(
+                app, dry_run=args.dry_run)
         elif args.cmd == "hook":
             from . import hook
             if args.action == "install":
