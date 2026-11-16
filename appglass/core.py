@@ -326,10 +326,10 @@ class Palette:
 class Levels:
     """Alphas per level. content = DMS foregroundLayerTransparency."""
 
-    def __init__(self, content):
+    def __init__(self, content, bar=None):
         c = max(0.0, min(1.0, float(content)))
         self.content = c
-        self.bar = max(c, BAR_MIN)
+        self.bar = max(c, BAR_MIN) if bar is None else max(c, min(1.0, float(bar)))
         self.popup = 1.0
         # alpha a bar must be painted with, on top of the content, to land at `bar`
         self.bar_over_content = 0.0 if c >= 1.0 else (self.bar - c) / (1.0 - c)
@@ -338,16 +338,23 @@ class Levels:
         self.popup8 = 255
 
     @classmethod
-    def from_env(cls, env):
-        """The DMS window rule opacity wins (Settings > Window Rules, the global
-        rule with blur), then DMS foregroundLayerTransparency, then 0.60."""
+    def from_env(cls, env, settings=None):
+        """settings.json levels.content wins when set; else the DMS window rule
+        opacity (Settings > Window Rules, the global rule with blur), then DMS
+        foregroundLayerTransparency, then 0.60. levels.bar overrides the bars."""
+        if settings is None:
+            from . import settings as _s
+            settings = _s.load(env)[0]
+        lv = settings.get("levels", {})
+        if lv.get("content") is not None:
+            return cls(lv["content"], lv.get("bar"))
         v = dms_rule_opacity(env.config_path("niri", "dms", "windowrules.kdl"))
         if v is None:
             s = _load_json(env.config_path("dms", "settings.json"))
             v = DEFAULT_CONTENT
             if isinstance(s, dict) and isinstance(s.get("foregroundLayerTransparency"), (int, float)):
                 v = float(s["foregroundLayerTransparency"])
-        return cls(v)
+        return cls(v, lv.get("bar"))
 
     def as_dict(self):
         return {"content": self.content, "bar": self.bar, "popup": self.popup,
@@ -799,8 +806,13 @@ class App:
         self.err = err or sys.stderr
         self.quiet = quiet
         self.from_hook = False      # apply --from-hook (the matugen post_hook)
+        self.dry_run = False
+        from . import settings as _settings
+        self.settings, self.settings_error = _settings.load(self.env)
+        if self.settings_error:
+            self.warn("settings ignored (defaults used): %s" % self.settings_error)
         self.palette = Palette(self.env, warn=self.warn)
-        self.levels = Levels.from_env(self.env)
+        self.levels = Levels.from_env(self.env, self.settings)
         self.state = State(self.env)
         self.errors = 0
         self.families = discover(warn=self.warn)
@@ -1155,8 +1167,21 @@ def _selected(app, only):
     return names
 
 
+def _family_enabled(app, name):
+    from . import settings as _settings
+    return _settings.app_enabled(app.settings, name, True)
+
+
 def cmd_apply(app, only=None, dry_run=False, from_hook=False):
     app.from_hook = from_hook
+    app.dry_run = dry_run
+    if app.settings_error and not from_hook:
+        raise AppglassError("settings.json is invalid (%s); fix it with appglass set, "
+                            "or delete it for the defaults" % app.settings_error)
+    if not app.settings.get("enabled", True):
+        app.info("glass is off in settings.json (enabled false): nothing applied "
+                 "(appglass remove takes the files out)")
+        return
     if from_hook:
         # the matugen post_hook: refresh only what the user applied (state.json),
         # never bring back a family that was never applied or was removed
@@ -1173,15 +1198,20 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
     planned = []
     for name in names:
         fam = app.families[name]
+        why = None
         if not app.installed(fam):
+            why = "not installed"
+        elif not _family_enabled(app, name):
+            why = "off in settings"
+        if why:
             if name in app.state.owners:
                 if dry_run:
-                    app.info("%s: not installed, would remove its files" % name)
+                    app.info("%s: %s, would remove its files" % (name, why))
                 else:
                     app.remove_owner(name)
-                    app.info("%s: not installed, files removed" % name)
+                    app.info("%s: %s, files removed" % (name, why))
             else:
-                app.info("%s: not installed, skipped" % name)
+                app.info("%s: %s, skipped" % (name, why))
             continue
         ctx = app.ctx(name)
         try:
@@ -1251,6 +1281,76 @@ def cmd_status(app):
         p("%-10s %s" % (name, ("applied: " + ", ".join(sorted(o["files"]))) if o else "not applied"))
 
 
+def cmd_get(app, key=None):
+    from . import settings as _settings
+    try:
+        v = _settings.get_key(app.settings, key or "")
+    except _settings.SettingsError as ex:
+        raise AppglassError("get: %s" % ex)
+    print(json.dumps(v, indent=2, sort_keys=True), file=app.out)
+
+
+def _refuse_if_plugin(app):
+    from . import settings as _settings
+    if _settings.plugin_active(app.env):
+        raise AppglassError("settings are managed by the DMS plugin appGlass (%s): "
+                            "change them in DMS Settings > Plugins > appGlass"
+                            % app.env.tilde(_settings.plugin_dir(app.env)))
+
+
+def cmd_set(app, key, value, apply_after=False):
+    from . import settings as _settings
+    _refuse_if_plugin(app)
+    if app.settings_error:
+        raise AppglassError("settings.json is invalid (%s); delete it to start "
+                            "from the defaults" % app.settings_error)
+    try:
+        new = _settings.set_key(app.settings, key, _settings.parse_value(value))
+    except _settings.SettingsError as ex:
+        raise AppglassError("set %s: %s" % (key, ex))
+    changed = _settings.save(app.env, new)
+    _reload_settings(app, new)
+    app.info("%s = %s%s" % (key, json.dumps(_settings.get_key(new, key)),
+                            "" if changed else " (unchanged)"))
+    if apply_after:
+        cmd_apply_all(app)
+
+
+def _reload_settings(app, s):
+    app.settings, app.settings_error = s, None
+    app.levels = Levels.from_env(app.env, s)
+
+
+def cmd_sync(app, settings_file, dry_run=False):
+    """The DMS plugin's call: validate the full settings, save, apply."""
+    from . import settings as _settings
+    try:
+        with open(settings_file, "rb") as f:
+            obj = json.loads(f.read().decode("utf-8"))
+        new = _settings.validate(obj)
+    except FileNotFoundError:
+        raise AppglassError("sync: %s not found" % settings_file)
+    except (ValueError, UnicodeDecodeError) as ex:
+        raise AppglassError("sync: %s rejected, nothing saved: %s" % (settings_file, ex))
+    if dry_run:
+        app.info("settings: would save %s" % app.env.tilde(_settings.path(app.env)))
+    else:
+        if _settings.save(app.env, new):
+            app.info("settings: saved %s" % app.env.tilde(_settings.path(app.env)))
+    _reload_settings(app, new)
+    if not new["enabled"]:
+        if dry_run:
+            app.info("glass off: would remove every appglass file")
+        else:
+            cmd_remove(app)
+        return
+    cmd_apply_all(app, dry_run=dry_run)
+
+
+def cmd_apply_all(app, dry_run=False, adopt=False):
+    cmd_apply(app, dry_run=dry_run)
+
+
 def main(argv=None, environ=None, out=None, err=None):
     ap = argparse.ArgumentParser(prog="appglass",
                                  description="Glass for desktop apps on niri + DMS.")
@@ -1269,6 +1369,18 @@ def main(argv=None, environ=None, out=None, err=None):
     sub.add_parser("levels", help="print the current levels as JSON")
     h = sub.add_parser("hook", help="matugen hook: re-apply on every DMS theme change")
     h.add_argument("action", choices=("install", "remove"))
+    g = sub.add_parser("get", help="print settings.json (or one dotted key) as JSON")
+    g.add_argument("key", nargs="?")
+    s_ = sub.add_parser("set", help="change one setting (refused while the DMS plugin "
+                                    "manages them)")
+    s_.add_argument("key", help="dotted key, e.g. fallback.mode or apps.steam.enabled")
+    s_.add_argument("value", help="JSON value (true, 0.7, null) or a bare string")
+    s_.add_argument("--apply", action="store_true", help="apply --all afterwards")
+    y = sub.add_parser("sync", help="validate, save and apply full settings (the DMS "
+                                    "plugin's call)")
+    y.add_argument("--settings-file", required=True)
+    y.add_argument("--dry-run", action="store_true")
+    y.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
     err = err or sys.stderr
     quiet = getattr(args, "quiet", False)
@@ -1277,7 +1389,8 @@ def main(argv=None, environ=None, out=None, err=None):
     created = []
     try:
         env = Env(environ)
-        if args.cmd in ("apply", "remove", "hook") and not getattr(args, "dry_run", False):
+        if (args.cmd in ("apply", "remove", "hook", "set", "sync")
+                and not getattr(args, "dry_run", False)):
             lockf, created = _lock(env)
         app = App(environ, out=out, err=err, quiet=quiet)
         if args.cmd == "apply":
@@ -1288,6 +1401,12 @@ def main(argv=None, environ=None, out=None, err=None):
             cmd_status(app)
         elif args.cmd == "levels":
             print(json.dumps(app.levels.as_dict()), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
+        elif args.cmd == "get":
+            cmd_get(app, args.key)
+        elif args.cmd == "set":
+            cmd_set(app, args.key, args.value, apply_after=args.apply)
+        elif args.cmd == "sync":
+            cmd_sync(app, args.settings_file, dry_run=args.dry_run)
         elif args.cmd == "hook":
             from . import hook
             if args.action == "install":
