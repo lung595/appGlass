@@ -104,8 +104,8 @@
       "why": ""
     },
     {
-      "family": null,
-      "implemented": false,
+      "family": "vencord",
+      "implemented": true,
       "name": "electron-vencord",
       "risk": "medium",
       "summary": "a Vencord theme with transparency (Discord)",
@@ -293,8 +293,8 @@
       ],
       "effective": "fallback",
       "enabled": false,
-      "family": null,
-      "implemented": false,
+      "family": "vencord",
+      "implemented": true,
       "key": "discord",
       "name": "Discord",
       "reason": "mod adapter, off until enabled (risk medium)",
@@ -539,6 +539,11 @@
       "applied": [],
       "enabled": true,
       "installed": true
+    },
+    "vencord": {
+      "applied": [],
+      "enabled": false,
+      "installed": true
     }
   },
   "hand_files": [
@@ -760,11 +765,27 @@
     },
     {
       "adapter": "electron-vencord",
-      "implemented": false,
+      "implemented": true,
       "owner": null,
       "path": "~/.local/bin/appglass-vencord",
       "status": "absent",
-      "what": "Vencord re-inject + theme"
+      "what": "Vencord re-inject + theme (retired: the family and the sync unit do it)"
+    },
+    {
+      "adapter": "electron-vencord",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/share/appglass/appglass-discord.css.tmpl",
+      "status": "absent",
+      "what": "Discord theme template (retired: in the repo now)"
+    },
+    {
+      "adapter": "electron-vencord",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.config/Vencord/themes/appglass-discord.css",
+      "status": "absent",
+      "what": "the Discord glass theme"
     },
     {
       "adapter": null,

@@ -1,0 +1,49 @@
+/**
+ * @name appGlass
+ * @description appGlass layer for dank-discord.css (load AFTER it). Needs Vesktop/Equibop "Transparent window"
+ *              (Vencord settings.json "transparent": true) or a stock-client hook that sets backgroundColor #00000000.
+ *              Content 0.60 painted once on #app-mount, bars 0.125 over it (= 0.65), floating surfaces opaque, text untouched.
+ *              matugen template: install as a second [templates.*] entry -> CONFIG_DIR/vesktop/themes/dank-discord-glass.css
+ */
+:root {
+    --ag-content: color-mix(in srgb, {{colors.surface.default.hex}} {{appglass.content_pct}}%, transparent);
+    --ag-bar: color-mix(in srgb, {{colors.surface_container.default.hex}} {{appglass.bar_over_pct}}%, transparent);
+    --ag-menu: {{colors.surface_container_high.default.hex}};
+    --ag-modal: {{colors.surface_container_highest.default.hex}};
+}
+html, body { background: transparent !important; }
+#app-mount { background: var(--ag-content) !important; }
+.theme-dark, .theme-light, .visual-refresh.theme-dark, .visual-refresh.theme-light,
+.visual-refresh .theme-dark, .visual-refresh .theme-light {
+    --background-base-low: transparent !important;  --background-base-lower: transparent !important;
+    --background-base-lowest: transparent !important; --background-primary: transparent !important;
+    --background-secondary: transparent !important; --background-secondary-alt: transparent !important;
+    --background-tertiary: transparent !important;  --bg-base-primary: transparent !important;
+    --bg-base-secondary: transparent !important;    --bg-base-tertiary: transparent !important;
+    --chat-background: transparent !important;      --chat-background-default: transparent !important;
+    --home-background: transparent !important;      --app-frame-background: transparent !important;
+    --custom-channel-members-bg: transparent !important; --__header-bar-background: transparent !important;
+    --bg-overlay-app-frame: transparent !important;
+    --background-floating: var(--ag-menu) !important; --background-nested-floating: var(--ag-menu) !important;
+    --bg-surface-overlay: var(--ag-menu) !important;  --background-surface-higher: var(--ag-menu) !important;
+    --modal-background: var(--ag-modal) !important;
+    /* stock outline grey is < 2:1 on glass over a light wallpaper */
+    --channels-default: {{colors.on_surface_variant.default.hex}} !important;
+    --channel-icon: {{colors.on_surface_variant.default.hex}} !important;
+    --interactive-normal: {{colors.on_surface_variant.default.hex}} !important;
+    --text-link: {{colors.primary.default.hex}} !important; --text-brand: {{colors.primary.default.hex}} !important;
+    --control-brand-foreground: {{colors.primary.default.hex}} !important;
+    --control-brand-foreground-new: {{colors.primary.default.hex}} !important;
+}
+[class*="app_"], [class*="bg_"], [class*="layers_"], [class*="layer_"], [class*="container_"][class*="base_"],
+[class*="content_"], [class*="page_"], [class*="chat_"], [class*="chatContent_"], [class*="messagesWrapper_"],
+[class*="wrapper_"][class*="guilds_"], [class*="characterBackground_"], [class*="authBoxExpanded_"] {
+    background-color: transparent !important;
+}
+nav[class*="guilds_"], [class*="sidebar_"], [class*="sidebarList_"], [class*="title_"][class*="container_"],
+section[class*="title_"], [class*="bar_"][class*="trailing_"], [class*="membersWrap_"], [class*="panels_"],
+[class*="authBox_"] { background-color: var(--ag-bar) !important; }
+[class*="characterBackground_"] > svg, [class*="artwork_"], [class*="splashBackground_"] { display: none !important; }
+[class*="menu_"], [class*="popout_"], [class*="tooltip_"]:not([class*="tooltipPointer"]), [class*="modal_"],
+[class*="root_"][role="dialog"], [class*="autocomplete_"], [class*="userPopout"],
+[class*="layerContainer_"] [class*="focusLock_"] > div { background-color: var(--ag-menu) !important; }
