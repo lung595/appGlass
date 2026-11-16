@@ -46,7 +46,8 @@ class Status(unittest.TestCase):
         self.assertIs(routes["discord"]["enabled"], False)
         self.assertEqual(routes["solaar"]["family"], "gtk3")
         self.assertEqual(routes["vlc"]["adapter"], "qt-style")
-        self.assertFalse(routes["vlc"]["implemented"])
+        self.assertEqual(routes["vlc"]["family"], "qtstyle")
+        self.assertEqual(routes["vlc"]["effective"], "glass")
 
     def test_settings_switch_and_route(self):
         self.assertEqual(self.sb.run("set", "apps.solaar.enabled", "false")[0], 0)

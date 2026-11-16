@@ -70,8 +70,8 @@
       "why": ""
     },
     {
-      "family": null,
-      "implemented": false,
+      "family": "qtstyle",
+      "implemented": true,
       "name": "qt-style",
       "risk": "low",
       "summary": "QT_STYLE_OVERRIDE=appglass (a Qt style plugin) through a launcher override",
@@ -461,13 +461,13 @@
       "app_ids": [
         "^vlc$"
       ],
-      "effective": "fallback",
+      "effective": "glass",
       "enabled": true,
-      "family": null,
-      "implemented": false,
+      "family": "qtstyle",
+      "implemented": true,
       "key": "vlc",
       "name": "VLC",
-      "reason": "adapter qt-style not implemented yet",
+      "reason": "family qtstyle",
       "risk": "low",
       "source": "desktop",
       "tier": "native",
@@ -514,6 +514,11 @@
       "applied": [],
       "enabled": true,
       "installed": true
+    },
+    "qtstyle": {
+      "applied": [],
+      "enabled": true,
+      "installed": true
     }
   },
   "hand_files": [
@@ -527,11 +532,19 @@
     },
     {
       "adapter": "qt-style",
-      "implemented": false,
+      "implemented": true,
       "owner": null,
       "path": "~/.local/share/applications/vlc.desktop",
       "status": "conflict",
       "what": "VLC Qt style launcher"
+    },
+    {
+      "adapter": "qt-style",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/qt6/styles/libappglass.so",
+      "status": "absent",
+      "what": "the Qt style plugin"
     },
     {
       "adapter": "webkit-shim",
@@ -605,8 +618,8 @@
   "settings_error": null,
   "summary": {
     "delegated": 1,
-    "fallback": 6,
-    "glass": 6,
+    "fallback": 5,
+    "glass": 7,
     "opaque": 1
   },
   "version": 1
