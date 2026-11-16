@@ -1,11 +1,13 @@
 """The real appglass-ck.so (shims/ck-shim), built with the host gcc: the
-opaque-region hook against a fake libwayland-client, its exports and the
-pidfd_spawnp env scrub."""
+opaque-region hook against a fake and the real libwayland-client (variadic,
+array and dlsym() paths), the swap cap and trace against a fake libEGL, its
+exports and the pidfd_spawnp env scrub."""
 
 import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -72,6 +74,85 @@ int main(int argc, char **argv) {
 """
 
 
+FAKE_EGL = r"""
+void *eglGetCurrentContext(void) { return 0; }          /* EGL_NO_CONTEXT: the key pass skips */
+unsigned eglSwapBuffers(void *d, void *s) { return 1; }
+void *eglGetProcAddress(const char *n) { return 0; }
+unsigned eglQuerySurface(void *d, void *s, int a, int *v) { return 0; }
+"""
+
+SWAP = r"""
+#include <fcntl.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+unsigned eglSwapBuffers(void *, void *);
+static int n;
+static void *run(void *x) { for (int i = 0; i < n; i++) eglSwapBuffers(0, 0); return 0; }
+int main(int argc, char **argv) {          /* swap <threads> <swaps per thread> <trace path> */
+    int t = atoi(argv[1]); n = atoi(argv[2]); pthread_t th[8];
+    for (int i = 0; i < t; i++) pthread_create(&th[i], 0, run, 0);
+    for (int i = 0; i < t; i++) pthread_join(th[i], 0);
+    int cloexec = -1; char l[4096], q[64];  /* is the trace fd close-on-exec? */
+    for (int fd = 3; fd < 256; fd++) {
+        snprintf(q, sizeof q, "/proc/self/fd/%d", fd); ssize_t k = readlink(q, l, sizeof l - 1);
+        if (k > 0) { l[k] = 0; if (!strcmp(l, argv[3])) cloexec = !!(fcntl(fd, F_GETFD) & FD_CLOEXEC); }
+    }
+    printf("%d\n", cloexec); return 0;
+}
+"""
+
+REAL_WL = r"""
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <wayland-client.h>
+typedef struct wl_proxy *(*flags_fn)(struct wl_proxy *, uint32_t, const struct wl_interface *, uint32_t,
+                                     uint32_t, union wl_argument *);
+typedef struct wl_proxy *(*ctorv_fn)(struct wl_proxy *, uint32_t, union wl_argument *,
+                                     const struct wl_interface *, uint32_t);
+/* real <variadic|dlsym_flags|dlsym_ctor>: sends set_opaque_region and set_input_region with a
+ * region on a wl_surface over a socketpair, prints the region id each request carried (0 = NULL) */
+int main(int argc, char **argv) {
+    int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) return 2;
+    struct wl_display *d = wl_display_connect_to_fd(sv[0]); if (!d) return 2;
+    struct wl_registry *r = wl_display_get_registry(d);
+    struct wl_compositor *c = wl_registry_bind(r, 1, &wl_compositor_interface, 4);
+    struct wl_surface *s = wl_compositor_create_surface(c);
+    struct wl_region *g = wl_compositor_create_region(c);
+    union wl_argument a[1]; a[0].o = (struct wl_object *)g;
+    if (!strcmp(argv[1], "variadic")) {
+        wl_surface_set_opaque_region(s, g);
+    } else {
+        void *h = dlopen("libwayland-client.so.0", RTLD_NOW | RTLD_NOLOAD); if (!h) return 2;
+        if (!strcmp(argv[1], "dlsym_flags")) {
+            flags_fn f = (flags_fn)dlsym(h, "wl_proxy_marshal_array_flags");
+            f((struct wl_proxy *)s, WL_SURFACE_SET_OPAQUE_REGION, NULL, wl_proxy_get_version((struct wl_proxy *)s), 0, a);
+        } else {
+            ctorv_fn f = (ctorv_fn)dlsym(h, "wl_proxy_marshal_array_constructor_versioned");
+            f((struct wl_proxy *)s, WL_SURFACE_SET_OPAQUE_REGION, a, NULL, wl_proxy_get_version((struct wl_proxy *)s));
+        }
+    }
+    wl_surface_set_input_region(s, g);
+    if (wl_display_flush(d) < 0) return 2;
+    uint32_t buf[1024]; ssize_t k = recv(sv[1], buf, sizeof buf, MSG_DONTWAIT); if (k <= 0) return 2;
+    uint32_t sid = wl_proxy_get_id((struct wl_proxy *)s);
+    for (size_t i = 0; i + 2 <= (size_t)k / 4; ) {
+        uint32_t id = buf[i], op = buf[i + 1] & 0xffff, sz = buf[i + 1] >> 16; if (sz < 8) return 2;
+        if (id == sid && (op == 4 || op == 5)) printf("%s=%s ", op == 4 ? "opaque" : "input",
+                buf[i + 2] == 0 ? "null" : buf[i + 2] == wl_proxy_get_id((struct wl_proxy *)g) ? "region" : "?");
+        i += sz / 4;
+    }
+    printf("\n"); return a[0].o == (struct wl_object *)g ? 0 : 3;
+}
+"""
+
+
 @unittest.skipUnless(GCC, "no gcc")
 class CkShimReal(unittest.TestCase):
     """The real appglass-ck.so, built with the host gcc."""
@@ -88,6 +169,17 @@ class CkShimReal(unittest.TestCase):
         cls.client = os.path.join(cls.dir, "client")
         cls.cc([GCC, "-o", cls.client, cls.src("client.c", "#include <stdlib.h>\n" + CLIENT),
                 os.path.join(wl, "libwayland-client.so.0"), "-Wl,-rpath," + wl])
+        egl = os.path.join(cls.dir, "egl")
+        os.mkdir(egl)
+        cls.cc([GCC, "-shared", "-fPIC", "-Wl,-soname,libEGL.so.1", "-o",
+                os.path.join(egl, "libEGL.so.1"), cls.src("fakeegl.c", FAKE_EGL)])
+        cls.swap = os.path.join(cls.dir, "swap")
+        cls.cc([GCC, "-o", cls.swap, cls.src("swap.c", SWAP), os.path.join(egl, "libEGL.so.1"),
+                "-Wl,-rpath," + egl, "-lpthread"])
+        cls.real_wl = os.path.join(cls.dir, "realwl")
+        cls.real_wl_ok = subprocess.run([GCC, "-o", cls.real_wl, cls.src("realwl.c", REAL_WL),
+                                         "-lwayland-client", "-ldl"],
+                                        capture_output=True).returncode == 0
         cls.spawn = os.path.join(cls.dir, "spawn")
         cls.spawn_ok = subprocess.run([GCC, "-o", cls.spawn, cls.src("spawn.c", SPAWN)],
                                       capture_output=True).returncode == 0
@@ -136,11 +228,52 @@ class CkShimReal(unittest.TestCase):
         self.assertEqual(self.run_client("wl_surface", 5), "kept kept kept")   # set_input_region
         self.assertEqual(self.run_client("wl_subsurface", 4), "kept kept kept")
 
-    def test_maxfps_and_trace_in_source(self):
-        with open(SRC) as f:
-            s = f.read()
-        self.assertIn('getenv("APPGLASS_MAXFPS")', s)
-        self.assertIn('getenv("APPGLASS_TRACE")', s)
+    def run_swap(self, threads, swaps, **env):
+        trace = os.path.join(self.dir, "trace-%d-%d-%s" % (threads, swaps, env.get("APPGLASS_MAXFPS", "0")))
+        e = {"PATH": os.environ.get("PATH", os.defpath), "LD_PRELOAD": self.so,
+             "APPGLASS_KEYS": "121316:0.6", "APPGLASS_TRACE": trace}
+        e.update(env)
+        t = time.monotonic()
+        r = subprocess.run([self.swap, str(threads), str(swaps), trace], env=e,
+                           capture_output=True, text=True, timeout=60)
+        took = time.monotonic() - t
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(trace) as f:
+            rows = [[float(x) for x in l.split()] for l in f]
+        return r.stdout.strip(), rows, took
+
+    def test_maxfps_caps_the_whole_process(self):
+        # 2 threads x 8 swaps at 50 fps: one shared slot every 20 ms, whichever thread swaps
+        cloexec, rows, took = self.run_swap(2, 8, APPGLASS_MAXFPS="50")
+        self.assertEqual(len(rows), 16)
+        self.assertGreaterEqual(took, 15 * 0.020)
+        gaps = sorted(r[1] for r in rows)
+        self.assertEqual(gaps[0], 0)                        # the first swap has no previous one
+        self.assertGreaterEqual(gaps[1], 19.9, gaps)
+        self.assertEqual(cloexec, "1")                      # the trace fd is O_CLOEXEC
+
+    def test_no_cap_without_maxfps(self):
+        cloexec, rows, took = self.run_swap(1, 50)
+        self.assertEqual(len(rows), 50)
+        self.assertLess(took, 0.9)                           # 50 swaps at a 20 ms cap would be 1 s
+        self.assertEqual(cloexec, "1")
+
+    def run_real_wl(self, mode, keys=True):
+        if not self.real_wl_ok:
+            self.skipTest("no libwayland-client headers")
+        env = {"PATH": os.environ.get("PATH", os.defpath), "LD_PRELOAD": self.so}
+        if keys:
+            env["APPGLASS_KEYS"] = "121316:0.6"
+        r = subprocess.run([self.real_wl, mode], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def test_real_libwayland_paths(self):
+        # through the system libwayland-client: the variadic request (GTK, C clients) and the
+        # array functions a dlopen client (Rust wayland-sys) gets from dlsym()
+        for mode in ("variadic", "dlsym_flags", "dlsym_ctor"):
+            self.assertEqual(self.run_real_wl(mode), "opaque=null input=region", mode)
+            self.assertEqual(self.run_real_wl(mode, keys=False), "opaque=region input=region", mode)
 
     def test_pidfd_spawnp_scrubs(self):
         if not self.spawn_ok:

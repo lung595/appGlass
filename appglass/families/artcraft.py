@@ -4,9 +4,10 @@ A forced adapter (off until apps.artcraft or apps.ai.storyteller.artcraft-launch
 is enabled). The wrapper moves the launcher from Vulkan to Mesa EGL + wgpu's
 GL backend (llvmpipe) and LD_PRELOADs appglass-ck.so (built from shims/ck-shim
 with gcc), which colour-keys the launcher's dark background colours to the
-glass levels, drops the whole-window opaque region winit sends (with it niri
-skips the blur under the window on partial repaints: the window flashes dark
-on every clock tick) and caps swaps at APPGLASS_MAXFPS (60).
+glass levels, drops the whole-window opaque region winit sends (with it the
+window is glass when the launcher commits but dark when niri redraws it without
+a commit: a blinking cursor flashes the whole window) and caps swaps at
+APPGLASS_MAXFPS (60).
 
 Files (owned; adopted hand files restored by remove):
   ~/.local/lib/appglass/artcraft/appglass-ck.so   (stamp: source + gcc)

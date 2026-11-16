@@ -3,8 +3,8 @@
 # The launcher draws through Vulkan by default, whose buffers carry no alpha. This wrapper moves it to
 # Mesa EGL + wgpu's GL backend (llvmpipe: CPU rendering, NVIDIA GL makes wgpu fail adapter selection)
 # and LD_PRELOADs appglass-ck.so, which colour-keys the launcher's own dark background colours to
-# the DMS glass levels and sends no opaque region (so niri keeps the blur under the window on
-# partial repaints). llvmpipe is held to 4 threads and the shim caps swaps at APPGLASS_MAXFPS
+# the DMS glass levels and sends no opaque region (with one, niri leaves out the blur when it redraws
+# the window without a commit). llvmpipe is held to 4 threads and the shim caps swaps at APPGLASS_MAXFPS
 # (60 by default: the launcher otherwise renders as fast as the 240 Hz output asks, on the CPU).
 # APPGLASS_SCRUB keeps all of this out of the apps the launcher starts.
 # Keys are for the launcher's dark theme; with a light system theme it starts plain (opaque, GPU).

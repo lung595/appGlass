@@ -8,12 +8,13 @@
 //     out.a = 1 - (1 - a_t) * (1 - A)
 //     out.rgb (premultiplied) = P - (1 - a_t) * (1 - A) * K
 // Pixels that are already translucent (CSD shadow, earlier passes) are left alone,
-// so the pass is idempotent with buffer-age partial repaints.
+// so the pass is idempotent when the app redraws only part of a reused (buffer-age) buffer.
 //
 //   LD_PRELOAD=/path/appglass-ck.so APPGLASS_KEYS="f4fbf8:0.60,e6ede9:0.65" [APPGLASS_TOL=0.02] [APPGLASS_SNAP=0.75] [APPGLASS_DEBUG=1] app
 //   [APPGLASS_MAXFPS=60]   cap swaps per second (software GL on a 240 Hz output otherwise renders and keys every
 //                          animation frame on the CPU: 4x the work for no visible gain). 0 or unset = no cap.
-//   [APPGLASS_TRACE=file]  append one line per swap: CLOCK_MONOTONIC ms, gap to the previous swap, pass ms.
+//                          The cap is per process: all windows and render threads share it.
+//   [APPGLASS_TRACE=file]  append (O_CLOEXEC) one line per swap: CLOCK_MONOTONIC ms, gap to the previous swap, pass ms.
 //                          Gaps that sit on ~1000 ms during an animation mean the compositor is only sending
 //                          throttled frame callbacks (it treats the window as not visible).
 //
@@ -27,9 +28,9 @@
 // While keys are set, the app's wl_surface.set_opaque_region requests are sent with a NULL
 // (empty) region. An app that thinks it is opaque (winit with transparent: false marks the
 // whole surface opaque) would otherwise tell the compositor that the keyed, translucent pixels
-// are opaque: niri then skips what lies below them (blur, wallpaper) on partial repaints but not
-// on full ones, so the whole window flashes between glass and dark on every output repaint
-// elsewhere (a bar clock with seconds: once a second, even when the app is idle).
+// are opaque. Measured with winit's full-surface region: the window is glass when the app commits,
+// but when niri redraws it without a commit it leaves out the blur and backdrop and the whole window
+// turns dark (alpha ~210). A blinking cursor plus such a redraw flashes the window once a second.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdio.h>
@@ -118,9 +119,10 @@ static struct {
 } gl;
 
 #define MAXK 8
-static float keys[MAXK * 3], alphas[MAXK]; static int nkeys = -1; static float tol = 0.02f, snap = 0.75f;
+static float keys[MAXK * 3], alphas[MAXK]; static int nkeys; static float tol = 0.02f, snap = 0.75f;
+/* runs once per process (pthread_once): the render thread and the Wayland thread may both ask first */
 static void parse_keys(void) {
-    nkeys = 0; const char *s = getenv("APPGLASS_KEYS"); if (!s) return;
+    const char *s = getenv("APPGLASS_KEYS"); if (!s) return;
     const char *e = getenv("APPGLASS_TOL"); if (e) tol = strtof(e, NULL);
     e = getenv("APPGLASS_SNAP"); if (e) snap = strtof(e, NULL);  /* colour-to-alpha opacity >= snap -> fully opaque (glyph cores) */
     while (*s && nkeys < MAXK) {
@@ -131,6 +133,8 @@ static void parse_keys(void) {
     }
     LOG("%d keys, tol %.3f snap %.2f", nkeys, tol, snap);
 }
+static pthread_once_t keys_once = PTHREAD_ONCE_INIT;
+static int nkeys_get(void) { pthread_once(&keys_once, parse_keys); return nkeys; }
 
 static const char *FS_BODY =
     "uniform sampler2D t; uniform vec3 K[8]; uniform float A[8]; uniform int N; uniform float tol; uniform float snap;\n"
@@ -180,8 +184,7 @@ static ctxstate *state_for(EGLContext c) {
 }
 
 static void pass(EGLDisplay dpy, EGLSurface surf) {
-    if (nkeys < 0) parse_keys();
-    if (nkeys == 0) return;
+    if (!nkeys_get()) return;
     resolve();
     EGLContext (*getctx)(void) = (EGLContext (*)(void))real_dlsym(egl_lib(), "eglGetCurrentContext");
     EGLBoolean (*qs)(EGLDisplay, EGLSurface, EGLint, EGLint *) = (EGLBoolean (*)(EGLDisplay, EGLSurface, EGLint, EGLint *))real_dlsym(egl_lib(), "eglQuerySurface");
@@ -241,23 +244,31 @@ static void pass(EGLDisplay dpy, EGLSurface surf) {
 #include <time.h>
 #include <errno.h>
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
-/* pace + key + trace, shared by the three swap entry points. Runs on the app's render thread. */
-static double min_gap = -1, last_swap; static FILE *trace_f;
+/* pace + key + trace, shared by the three swap entry points. Runs on the app's render thread(s).
+ * The cap is per process: each swap reserves the next free slot (last + 1/MAXFPS) under a lock and
+ * sleeps outside it, so two windows or threads share the rate instead of each getting it. */
+static double min_gap, last_swap; static FILE *trace_f;
+static pthread_once_t swap_once = PTHREAD_ONCE_INIT; static pthread_mutex_t swap_mu = PTHREAD_MUTEX_INITIALIZER;
+static void swap_init(void) {
+    const char *e = getenv("APPGLASS_MAXFPS"); double f = e ? strtod(e, NULL) : 0; min_gap = f > 0 ? 1000.0 / f : 0;
+    e = getenv("APPGLASS_TRACE"); if (e && *e) trace_f = fopen(e, "ae");   /* "e": O_CLOEXEC, children do not inherit it */
+}
 static void pre_swap(EGLDisplay d, EGLSurface s) {
-    if (min_gap < 0) {
-        const char *e = getenv("APPGLASS_MAXFPS"); double f = e ? strtod(e, NULL) : 0; min_gap = f > 0 ? 1000.0 / f : 0;
-        e = getenv("APPGLASS_TRACE"); if (e && *e) trace_f = fopen(e, "a");
-    }
+    pthread_once(&swap_once, swap_init);
     double t0 = now_ms();
-    if (min_gap > 0 && last_swap > 0 && t0 - last_swap < min_gap) {
-        double w = min_gap - (t0 - last_swap); struct timespec ts = { (time_t)(w / 1e3), (long)(((long long)(w * 1e6)) % 1000000000LL) };
+    pthread_mutex_lock(&swap_mu);
+    double prev = last_swap, at = t0;
+    if (min_gap > 0 && prev > 0 && at - prev < min_gap) at = prev + min_gap;
+    last_swap = at;
+    pthread_mutex_unlock(&swap_mu);
+    if (at > t0) {
+        double w = at - t0; struct timespec ts = { (time_t)(w / 1e3), (long)(((long long)(w * 1e6)) % 1000000000LL) };
         while (nanosleep(&ts, &ts) && errno == EINTR) ;
         t0 = now_ms();
     }
     pass(d, s);
     double t1 = now_ms();
-    if (trace_f) { fprintf(trace_f, "%.2f %.2f %.2f\n", t0, last_swap > 0 ? t0 - last_swap : 0, t1 - t0); fflush(trace_f); }
-    last_swap = t0;
+    if (trace_f) { fprintf(trace_f, "%.2f %.2f %.2f\n", t0, prev > 0 ? t0 - prev : 0, t1 - t0); fflush(trace_f); }
 }
 EGLBoolean eglSwapBuffers(EGLDisplay d, EGLSurface s) { resolve(); pre_swap(d, s); return r_swap(d, s); }
 static EGLBoolean swap_ext(EGLDisplay d, EGLSurface s, const EGLint *r, EGLint n) { pre_swap(d, s); return r_swap_ext(d, s, r, n); }
@@ -277,17 +288,24 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *n) {
     resolve();
     return (__eglMustCastToProperFunctionPointerType)wrap(n, (void *)r_gpa(n));
 }
+static void *wrap_wl(const char *n, void *real);
 void *dlsym(void *h, const char *n) {
     void *p = real_dlsym(h, n);
     if (n && n[0] == 'e' && n[1] == 'g' && n[2] == 'l') { void *q = wrap(n, p); if (q != p) LOG("dlsym %s hooked", n); return q; }
+    if (n && !strncmp(n, "wl_proxy_marshal_array", 22)) { void *q = wrap_wl(n, p); if (q != p) LOG("dlsym %s hooked", n); return q; }
     return p;
 }
 
 /* ---------------- opaque region (see the header) ----------------
  * Every libwayland-client request goes through one of these three exported functions: the
  * variadic wl_proxy_marshal*() and wl_proxy_marshal_array() call them through libwayland's own
- * PLT, so a preloaded definition catches C clients (GTK) and dlopen()ed ones (Rust wayland-sys)
- * alike. Only wl_surface opcode 4 (set_opaque_region) is touched, and only while keys are set. */
+ * PLT (checked on Fedora's libwayland-client 1.26: wl_proxy_marshal_flags and the two constructors
+ * reach wl_proxy_marshal_array_flags@plt), so a preloaded definition catches C clients (GTK) and
+ * dlopen()ed ones (Rust wayland-sys with dlopen) alike. A client that dlsym()s one of the three
+ * array functions gets the hook too (wrap_wl), so a libwayland built without that PLT hop still
+ * goes through it for those; the variadic ones are left to the PLT (no portable way to forward
+ * a va_list to them). Only wl_surface opcode 4 (set_opaque_region) is touched, and only while
+ * keys are set. */
 #include <stdint.h>
 struct wl_proxy; struct wl_interface;
 union wl_argument { int32_t i; uint32_t u; int32_t f; const char *s; void *o; uint32_t n; void *a; int32_t h; };
@@ -303,8 +321,7 @@ static void *wl_real(const char *n) {
 /* the args to send: a copy with the region dropped for set_opaque_region on a wl_surface */
 static union wl_argument *opaque_args(struct wl_proxy *p, uint32_t op, union wl_argument *a, union wl_argument *tmp) {
     if (op != WL_SURFACE_SET_OPAQUE_REGION || !a || !a[0].o) return a;
-    if (nkeys < 0) parse_keys();
-    if (nkeys == 0) return a;
+    if (!nkeys_get()) return a;
     static const char *(*cls)(struct wl_proxy *);
     if (!cls) cls = (const char *(*)(struct wl_proxy *))wl_real("wl_proxy_get_class");
     const char *c = cls ? cls(p) : NULL;
@@ -326,6 +343,15 @@ struct wl_proxy *wl_proxy_marshal_array_constructor(struct wl_proxy *p, uint32_t
 struct wl_proxy *wl_proxy_marshal_array_constructor_versioned(struct wl_proxy *p, uint32_t op, union wl_argument *a, const struct wl_interface *i, uint32_t v) {
     static mctorv_fn r; if (!r) r = (mctorv_fn)wl_real("wl_proxy_marshal_array_constructor_versioned");
     union wl_argument t[1]; return r(p, op, opaque_args(p, op, a, t), i, v);
+}
+
+/* dlsym() of the real array functions (the same ones the hooks forward to) returns the hook */
+static void *wrap_wl(const char *n, void *real) {
+    if (!real || real != wl_real(n)) return real;
+    if (!strcmp(n, "wl_proxy_marshal_array_flags")) return (void *)wl_proxy_marshal_array_flags;
+    if (!strcmp(n, "wl_proxy_marshal_array_constructor")) return (void *)wl_proxy_marshal_array_constructor;
+    if (!strcmp(n, "wl_proxy_marshal_array_constructor_versioned")) return (void *)wl_proxy_marshal_array_constructor_versioned;
+    return real;
 }
 
 /* ---------------- child env scrub (APPGLASS_SCRUB) ----------------
