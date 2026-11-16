@@ -1257,6 +1257,9 @@ def cmd_remove(app, only=None):
     if "hook" in app.state.owners:
         app.remove_owner("hook")
         app.info("hook: removed")
+    from . import learn
+    if learn.forget(app.env):
+        app.info("learned: cache removed")
 
 
 def cmd_status(app):
@@ -1351,9 +1354,38 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
     cmd_apply(app, dry_run=dry_run)
 
 
-def cmd_detect(app, as_json=False):
-    from . import detect
+def detected(app):
+    """detect records with the learned cache and the open windows merged in."""
+    from . import detect, learn
     recs = detect.scan(app.env)
+    learned = learn.load(app.env)
+    live = learn.learn(app.env)
+    if live:
+        learned.update(live)
+    return learn.merge(recs, learned)
+
+
+def cmd_learn(app, as_json=False, dry_run=False):
+    from . import learn
+    found = learn.learn(app.env)
+    if found is None:
+        raise AppglassError("learn: no niri session (niri msg -j windows failed)")
+    if as_json:
+        print(json.dumps(found, indent=2, sort_keys=True), file=app.out)
+    else:
+        for app_id in sorted(found):
+            r = found[app_id]
+            app.info("%-36s %-13s %s" % (app_id[:36], r["toolkit"],
+                                         (r["evidence"] or ["no toolkit library mapped"])[0]))
+    if dry_run or as_json:
+        return
+    p = learn.save(app.env, found)
+    app.info("learned %d window%s: %s" % (len(found), "" if len(found) == 1 else "s",
+                                         app.env.tilde(p)))
+
+
+def cmd_detect(app, as_json=False):
+    recs = detected(app)
     if as_json:
         print(json.dumps(recs, indent=2, sort_keys=True), file=app.out)
         return
@@ -1384,6 +1416,9 @@ def main(argv=None, environ=None, out=None, err=None):
     h.add_argument("action", choices=("install", "remove"))
     d = sub.add_parser("detect", help="which toolkit draws each installed app (read-only)")
     d.add_argument("--json", action="store_true")
+    lr = sub.add_parser("learn", help="record the toolkit of each open window (niri + /proc)")
+    lr.add_argument("--json", action="store_true", help="print, do not save")
+    lr.add_argument("--dry-run", action="store_true")
     g = sub.add_parser("get", help="print settings.json (or one dotted key) as JSON")
     g.add_argument("key", nargs="?")
     s_ = sub.add_parser("set", help="change one setting (refused while the DMS plugin "
@@ -1404,8 +1439,8 @@ def main(argv=None, environ=None, out=None, err=None):
     created = []
     try:
         env = Env(environ)
-        if (args.cmd in ("apply", "remove", "hook", "set", "sync")
-                and not getattr(args, "dry_run", False)):
+        if (args.cmd in ("apply", "remove", "hook", "set", "sync", "learn")
+                and not getattr(args, "dry_run", False) and not getattr(args, "json", False)):
             lockf, created = _lock(env)
         app = App(environ, out=out, err=err, quiet=quiet)
         if args.cmd == "apply":
@@ -1418,6 +1453,8 @@ def main(argv=None, environ=None, out=None, err=None):
             print(json.dumps(app.levels.as_dict()), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
         elif args.cmd == "detect":
             cmd_detect(app, as_json=args.json)
+        elif args.cmd == "learn":
+            cmd_learn(app, as_json=args.json, dry_run=args.dry_run)
         elif args.cmd == "get":
             cmd_get(app, args.key)
         elif args.cmd == "set":
