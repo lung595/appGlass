@@ -227,6 +227,15 @@ class SyncScript(unittest.TestCase):
         self.sync()                               # injected: nothing to do
         self.assertEqual(len(self.installs()), 1)
 
+    def test_refuses_a_shared_runtime_dir(self):
+        os.chmod(self.run_dir, 0o777)
+        env = dict(self.w.sb.env, XDG_RUNTIME_DIR=self.run_dir, APPGLASS_SYNC_SETTLE="0")
+        r = subprocess.run([os.path.join(REPO, "bin", "appglass-sync")], env=env,
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("refusing: no private runtime dir", r.stdout)
+        self.assertEqual(os.listdir(self.run_dir), [])
+
     def test_discord_writes_exit_at_once(self):
         """--discord (appglass-discord.service, ~/.config/discord changed): no
         lock, no apply, no output unless the newest host dir lacks Vencord."""

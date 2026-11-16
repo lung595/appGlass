@@ -40,7 +40,14 @@ if [ "$MODE" = discord ] && ! needs_vencord; then
     exit 0
 fi
 
-exec 8>"${XDG_RUNTIME_DIR:-/tmp}/appglass-sync.lock"
+# the lock in a runtime dir only we can write to; no /tmp fallback
+RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if ! { [ -d "$RT" ] && [ ! -L "$RT" ] && [ -O "$RT" ]; } ||
+        case $(stat -c %a "$RT" 2>/dev/null || echo 2) in *[2367] | *[2367]?) true ;; *) false ;; esac; then
+    log "refusing: no private runtime dir ($RT) for the lock"
+    exit 1
+fi
+exec 8>"$RT/appglass-sync.lock"
 flock -w 60 8 || exit 0
 [ "$MODE" = discord ] || sleep "${APPGLASS_SYNC_SETTLE:-1}"   # let DMS finish writing
 
