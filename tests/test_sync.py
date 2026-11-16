@@ -113,12 +113,66 @@ class SyncUnits(unittest.TestCase):
         self.assertIn("bin/appglass-sync", self.w.sb.read(script))
         open(self.log, "w").close()
         self.run_ok("hook", "remove")
-        self.assertEqual(self.calls(), ["--user daemon-reload"])   # were enabled: kept
+        # the hand path unit was enabled: kept; the units appglass created go
+        self.assertEqual(self.calls(), ["--user disable --now appglass-discord.path",
+                                        "--user disable --now appglass-vibrancy.service",
+                                        "--user daemon-reload"])
         self.assertEqual(self.w.sb.read(script), "#!/usr/bin/sh\nhand\n")
         self.assertEqual(self.w.mode(script), 0o755)
         for n, p in hand.items():
             with open(p, "rb") as f:
                 self.assertEqual(f.read(), repo_unit(n))
+
+
+    def ctl_units(self, enabled):
+        """A systemctl whose is-enabled says yes for the units in enabled."""
+        p = os.path.join(self.tmp, "systemctl")
+        cases = "".join('*"is-enabled --quiet %s"*) exit 0 ;; ' % u for u in enabled)
+        with open(p, "w") as f:
+            f.write('#!/bin/sh\necho "$*" >> "%s"\ncase "$*" in %s*is-enabled*) exit 1 ;; '
+                    'esac\nexit 0\n' % (self.log, cases))
+        os.chmod(p, 0o755)
+        self.w.sb.env["APPGLASS_SYSTEMCTL"] = p
+
+    def test_adopt_records_what_was_enabled(self):
+        for n in HAND_UNITS:
+            self.w.hand(".config/systemd/user/" + n, repo_unit(n))
+        self.w.hand(".local/bin/appglass-sync", "#!/usr/bin/sh\nhand\n", 0o755)
+        self.ctl_units(["appglass-sync.path"])
+        self.run_ok("adopt")
+        self.assertEqual(self.w.state()["owners"]["hook"]["systemd"], {
+            "was_enabled": True, "discord_was_enabled": False,
+            "vibrancy_was_enabled": False})
+        self.run_ok("hook", "install")
+        open(self.log, "w").close()
+        self.run_ok("hook", "remove")
+        self.assertEqual(self.calls(), DISABLE[1:] + ["--user daemon-reload"])
+
+    def test_remove_without_a_systemd_record(self):
+        """An owner adopted before the is-enabled record: the units appglass
+        created are still disabled, and systemd reloaded."""
+        for n in HAND_UNITS:
+            self.w.hand(".config/systemd/user/" + n, repo_unit(n))
+        self.w.hand(".local/bin/appglass-sync", "#!/usr/bin/sh\nhand\n", 0o755)
+        self.run_ok("adopt")
+        self.run_ok("hook", "install")            # sandbox: no systemctl, no record
+        self.assertNotIn("systemd", self.w.state()["owners"]["hook"])
+        self.ctl(enabled=0)
+        self.run_ok("hook", "remove")
+        self.assertEqual(self.calls(), DISABLE[1:] + ["--user daemon-reload"])
+
+    def test_install_dry_run_changes_nothing(self):
+        self.ctl(enabled=1)
+        out = self.run_ok("hook", "install", "--dry-run")
+        self.assertEqual(self.w.sb.tree_hash(), self.before)
+        self.assertEqual(self.calls(), [])
+        for n in UNITS:
+            self.assertIn("would create ~/.config/systemd/user/" + n, out)
+        self.assertIn("would create ~/.config/matugen/config.toml", out)
+        self.assertIn("enable --now appglass-discord.path", out)
+        code, out, err = self.w.run("hook", "remove", "--dry-run")
+        self.assertEqual(code, 1, err)
+        self.assertIn("--dry-run goes with install", err)
 
 
 class SyncScript(unittest.TestCase):

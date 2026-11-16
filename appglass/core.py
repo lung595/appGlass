@@ -1646,6 +1646,12 @@ def adopt_path(app, p, owner, dry_run=False):
     o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
     o.setdefault("files", {})[p] = dict(backup, kind="modified", how="owned",
                                        sha256=sha(cur), adopted=True, orig_mode=_mode(p))
+    if owner == "hook" and not dry_run:
+        # hand-made units: hook remove keeps the ones enabled now enabled
+        from . import hook
+        sd = hook.record_enabled(app, dict(o.get("systemd") or {}))
+        if sd:
+            o["systemd"] = sd
     st.save()
     return p
 
@@ -1842,6 +1848,8 @@ def main(argv=None, environ=None, out=None, err=None):
     sub.add_parser("levels", help="print the current levels as JSON")
     h = sub.add_parser("hook", help="matugen hook: re-apply on every DMS theme change")
     h.add_argument("action", choices=("install", "remove"))
+    h.add_argument("--dry-run", action="store_true",
+                   help="install: show what it would write, change nothing")
     d = sub.add_parser("detect", help="which toolkit draws each installed app (read-only)")
     d.add_argument("--json", action="store_true")
     lr = sub.add_parser("learn", help="record the toolkit of each open window (niri + /proc)")
@@ -1886,9 +1894,6 @@ def main(argv=None, environ=None, out=None, err=None):
             if args.adopt:
                 raise AppglassError("apply: --adopt goes with --all")
             cmd_apply(app, args.only, args.dry_run, from_hook=args.from_hook)
-        if args.cmd == "apply" and args.list_changed and not args.dry_run:
-            for p in app.changed:
-                print(p, file=app.out)
         elif args.cmd == "adopt":
             cmd_adopt(app, args.paths, dry_run=args.dry_run)
         elif args.cmd == "remove":
@@ -1917,9 +1922,14 @@ def main(argv=None, environ=None, out=None, err=None):
         elif args.cmd == "hook":
             from . import hook
             if args.action == "install":
-                hook.install(app)
+                hook.install(app, dry_run=args.dry_run)
+            elif args.dry_run:
+                raise AppglassError("hook: --dry-run goes with install")
             else:
                 hook.remove(app)
+        if args.cmd == "apply" and args.list_changed and not args.dry_run:
+            for p in app.changed:
+                print(p, file=app.out)
         if lockf is not None:
             _unlock(env, lockf, created, app)
             lockf = None

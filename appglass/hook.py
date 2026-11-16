@@ -169,7 +169,18 @@ def undo_for(app, path):
     return None
 
 
-def install(app):
+def record_enabled(app, sd):
+    """Fill in sd[key] (was the unit enabled?) for every unit not known yet;
+    nothing without systemctl. Returns sd."""
+    if systemctl(app.env):
+        for key, unit, _ in ENABLED:
+            if key not in sd:
+                r = _ctl(app, "is-enabled", "--quiet", unit)
+                sd[key] = r is not None and r.returncode == 0
+    return sd
+
+
+def install(app, dry_run=False):
     env = app.env
     for p in (template_path(), bin_path()):
         if not os.path.exists(p):
@@ -189,12 +200,18 @@ def install(app):
         return
     had = "hook" in app.state.owners
     tool = systemctl(env)
-    sd = dict((app.state.owners.get("hook") or {}).get("systemd") or {})
-    if tool:
-        for key, unit, _ in ENABLED:
-            if key not in sd:
-                r = _ctl(app, "is-enabled", "--quiet", unit)
-                sd[key] = r is not None and r.returncode == 0
+    if dry_run:
+        changed = app.commit(ctx, dry_run=True)
+        for p in changed:
+            app.info("hook: would %s %s" % ("write" if os.path.lexists(p) else "create",
+                                           env.tilde(p)))
+        if not changed:
+            app.info("hook: already installed in %s" % config_path(env))
+        app.info("hook: would run systemctl --user daemon-reload, %s"
+                 % ", ".join(" ".join(c + (u,)) for _, u, calls in ENABLED for c in calls)
+                 if tool else "hook: systemctl skipped (sandbox)")
+        return changed
+    sd = record_enabled(app, dict((app.state.owners.get("hook") or {}).get("systemd") or {}))
     changed = app.commit(ctx)
     o = app.state.owners.get("hook")
     if o is not None and tool and o.get("systemd") != sd:
@@ -219,20 +236,25 @@ def install(app):
         app.info("hook: already installed in %s" % config_path(env))
     app.info("hook: matugen renders %s, then runs %s %s"
              % (output_path(env), bin_path(), HOOK_ARGS))
+    return changed
 
 
 def remove(app):
     env = app.env
     out = output_path(env)
     o = app.state.owners.get("hook") or {}
-    sd = o.get("systemd")
+    sd = o.get("systemd") or {}
+    recs = {n: o.get("files", {}).get(unit_path(env, n)) for n in UNITS}
     for key, unit, _ in ENABLED:
-        # stopping the vibrancy daemon puts back the Alacritty windows it faded
-        if sd is not None and not sd.get(key):
+        # disabled when its file goes (appglass created it) or it was off
+        # before install; stopping the vibrancy daemon puts back the
+        # Alacritty windows it faded
+        rec = recs[unit]
+        if (rec is not None and rec.get("kind") == "created") or sd.get(key) is False:
             _ctl(app, "disable", "--now", unit)
     removed = app.remove_owner("hook")
-    if removed and sd is not None:
-        _ctl(app, "daemon-reload")
+    if removed and any(recs.values()):
+        _ctl(app, "daemon-reload")      # unit files deleted or restored
     if os.path.exists(out):
         env.guard(out)
         os.remove(out)
