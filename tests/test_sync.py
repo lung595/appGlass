@@ -10,7 +10,11 @@ import unittest
 from fixtures.sandbox import REPO
 from fixtures.shimworld import ShimWorld
 
-UNITS = ("appglass-sync.path", "appglass-sync.service")
+UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service")
+HAND_UNITS = UNITS[:2]
+ENABLE = ["--user daemon-reload", "--user enable --now appglass-sync.path",
+          "--user enable appglass-vibrancy.service",
+          "--user restart appglass-vibrancy.service"]
 CTL = """#!/bin/sh
 echo "$*" >> "%(log)s"
 case "$*" in *is-enabled*) exit %(enabled)d ;; esac
@@ -69,6 +73,9 @@ class SyncUnits(unittest.TestCase):
         text = self.w.sb.read(shim)
         self.assertIn('exec "', text)
         self.assertTrue(text.rstrip().endswith('/bin/appglass-sync" "$@"'), text)
+        vib = self.w.sb.read(self.w.user(".local/bin/appglass-vibrancy"))
+        self.assertTrue(vib.rstrip().endswith('/bin/appglass" vibrancy "$@"'), vib)
+        self.assertEqual(self.w.mode(self.w.user(".local/bin/appglass-vibrancy")), 0o755)
         self.run_ok("hook", "remove")
         self.assertEqual(self.w.sb.tree_hash(), self.before)
 
@@ -76,19 +83,19 @@ class SyncUnits(unittest.TestCase):
         self.ctl(enabled=1)
         self.run_ok("hook", "install")
         self.assertEqual(self.calls(), ["--user is-enabled --quiet appglass-sync.path",
-                                        "--user daemon-reload",
-                                        "--user enable --now appglass-sync.path"])
+                                        "--user is-enabled --quiet appglass-vibrancy.service"]
+                         + ENABLE)
         self.run_ok("hook", "install")           # again: no new is-enabled
-        self.assertEqual(self.calls()[3:], ["--user daemon-reload",
-                                            "--user enable --now appglass-sync.path"])
+        self.assertEqual(self.calls()[6:], ENABLE)
         open(self.log, "w").close()
         self.run_ok("remove")
         self.assertEqual(self.calls(), ["--user disable --now appglass-sync.path",
+                                        "--user disable --now appglass-vibrancy.service",
                                         "--user daemon-reload"])
         self.assertEqual(self.w.sb.tree_hash(), self.before)
 
     def test_hand_units_conflict_then_adopt(self):
-        hand = {n: self.w.hand(".config/systemd/user/" + n, repo_unit(n)) for n in UNITS}
+        hand = {n: self.w.hand(".config/systemd/user/" + n, repo_unit(n)) for n in HAND_UNITS}
         script = self.w.hand(".local/bin/appglass-sync", "#!/usr/bin/sh\nhand\n", 0o755)
         self.ctl(enabled=0)
         code, out, err = self.w.run("hook", "install")
@@ -102,7 +109,7 @@ class SyncUnits(unittest.TestCase):
         self.assertIn("bin/appglass-sync", self.w.sb.read(script))
         open(self.log, "w").close()
         self.run_ok("hook", "remove")
-        self.assertEqual(self.calls(), ["--user daemon-reload"])   # was enabled: kept
+        self.assertEqual(self.calls(), ["--user daemon-reload"])   # were enabled: kept
         self.assertEqual(self.w.sb.read(script), "#!/usr/bin/sh\nhand\n")
         self.assertEqual(self.w.mode(script), 0o755)
         for n, p in hand.items():

@@ -1489,6 +1489,14 @@ def hand_files(app):
     return out
 
 
+def _inactive_doc(app):
+    from . import inactive
+    p = inactive.params(app.settings)
+    return dict(p, level=inactive.level(app.levels.content, p["factor"]),
+                active=inactive.active(app.settings, app.levels.content),
+                fades=[n for n in inactive.LEVER_FAMILIES if n in app.state.owners])
+
+
 def status_doc(app):
     from . import adapters
     st, lv = app.state, app.levels
@@ -1513,6 +1521,7 @@ def status_doc(app):
         "settings_error": app.settings_error,
         "levels": {"content": lv.content, "bar": lv.bar},
         "fallback": app.settings["fallback"],
+        "inactive": _inactive_doc(app),
         "families": fams,
         "core": core_owners,
         "apps": apps,
@@ -1835,6 +1844,8 @@ def main(argv=None, environ=None, out=None, err=None):
     y.add_argument("--settings-file", required=True)
     y.add_argument("--dry-run", action="store_true")
     y.add_argument("--quiet", action="store_true")
+    sub.add_parser("vibrancy", help="daemon: fade unfocused Alacritty windows (settings "
+                                    "inactive; run by appglass-vibrancy.service)")
     args = ap.parse_args(argv)
     err = err or sys.stderr
     quiet = getattr(args, "quiet", False)
@@ -1843,6 +1854,9 @@ def main(argv=None, environ=None, out=None, err=None):
     created = []
     try:
         env = Env(environ)
+        if args.cmd == "vibrancy":
+            from . import vibrancy
+            return vibrancy.run(env, err=err)
         if (args.cmd in ("apply", "remove", "hook", "set", "sync", "learn", "adopt")
                 and not getattr(args, "dry_run", False) and not getattr(args, "json", False)):
             lockf, created = _lock(env)
