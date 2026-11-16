@@ -1,0 +1,13 @@
+/* appGlass for Lian Li Linux (Vue + Naive UI), injected as a WebKit USER stylesheet by appglass-wk.so.
+   Generated at launch by appglass-lianli: {{content}} / {{bar_over}} come from `appglass levels` (DMS).
+   Glass colours derive from the app's own theme variables (light and dark both work). Text is never alpha'd. */
+html { background: transparent !important; }
+/* content: the only root with alpha */
+body { background-color: color-mix(in srgb, var(--bg-base) {{content}}%, transparent) !important; }
+/* bars + in-page cards drawn over content */
+aside.sidebar, header.header, div.card, .n-card:not(.n-modal):not(.n-dialog) {
+  background-color: color-mix(in srgb, var(--bg-surface) {{bar_over}}%, transparent) !important; }
+/* popups/modals/menus stay opaque (not touched) */
+/* text floors on glass (solid colours, no alpha) */
+html[data-theme="light"] { --text-muted: #4a515e !important; --text-secondary: #363c48 !important; }
+html[data-theme="dark"]  { --text-muted: #b4bac6 !important; --text-secondary: #c9ced8 !important; }

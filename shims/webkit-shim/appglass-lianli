@@ -1,0 +1,19 @@
+#!/usr/bin/sh
+# appglass-lianli: start Lian Li Linux (lianli-gui, Tauri/WebKitGTK) with a glass window.
+# appglass-wk.so (LD_PRELOAD) clears the WebView background, gives the window an RGBA visual and
+# injects the glass CSS. Levels come from `appglass levels` (DMS) at every launch.
+# Undo: rm ~/.local/bin/appglass-lianli ~/.local/share/applications/com.sgtaziz.lianlilinux.desktop
+#       rm -r ~/.local/lib/appglass/lianli
+set -u
+LIB="$HOME/.local/lib/appglass/lianli"
+APP=/usr/bin/lianli-gui
+lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
+[ -n "$lv" ] || lv='{"content":0.6,"bar_over_content":0.125}'
+c=$(printf '%s' "$lv" | jq -r '(.content * 1000 | round) / 10')
+b=$(printf '%s' "$lv" | jq -r '(.bar_over_content * 1000 | round) / 10')
+css="$LIB/lianli-glass.css"
+if [ -f "$LIB/appglass-wk.so" ] && sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" "$LIB/lianli-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css"; then
+    exec env LD_PRELOAD="$LIB/appglass-wk.so${LD_PRELOAD:+:$LD_PRELOAD}" APPGLASS_CSS="$css" "$APP" "$@"
+fi
+echo "appglass-lianli: shim missing, starting without glass" >&2
+exec "$APP" "$@"

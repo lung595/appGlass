@@ -188,13 +188,14 @@ def stamp(sources, parts):
     return h.hexdigest()
 
 
-def build(ctx, adapter, dest, sources, steps, tools, qt=()):
-    """ctx.artifact at dest (absolute, mode 0755) built from sources
+def build(ctx, adapter, dest, sources, steps, tools, qt=(), extra=(), mode=0o755):
+    """ctx.artifact at dest (absolute, mode 0755 by default) built from sources
     ({name: bytes}, written to a temp dir) by steps(tc, dir) -> [argv...],
     run in that dir; the output is the file named basename(dest) there.
 
     tools: the Toolchain attributes the build needs ("cc", "cxx", "moc",
-    "pkgconfig"); qt: pkg-config modules whose versions go into the stamp.
+    "pkgconfig"); qt: pkg-config modules whose versions go into the stamp;
+    extra: more stamp parts (a flatpak runtime the shim is loaded into).
     Raises Conflict (the family is skipped) when a tool is missing.
     """
     tc = Toolchain(ctx.env)
@@ -212,7 +213,7 @@ def build(ctx, adapter, dest, sources, steps, tools, qt=()):
             raise Conflict("cannot build %s: pkg-config does not know %s"
                            % (os.path.basename(dest), m))
         parts.append("%s %s" % (m, v))
-    st = stamp(sources, parts)
+    st = stamp(sources, parts + list(extra))
     name = os.path.basename(dest)
 
     def run():
@@ -230,9 +231,37 @@ def build(ctx, adapter, dest, sources, steps, tools, qt=()):
                 return f.read()
         finally:
             shutil.rmtree(d, ignore_errors=True)
-    return ctx.artifact(name, run, st, dest=dest, mode=0o755)
+    return ctx.artifact(name, run, st, dest=dest, mode=mode)
 
 
 def pkg_flags(tc, *mods, only_i=False):
     args = ["--cflags-only-I"] if only_i else ["--cflags", "--libs"]
     return tc.pkg(*(args + list(mods))).split()
+
+
+def installed_flatpak(env, app_id):
+    return flatpak_info(env, app_id) is not None
+
+
+def flatpak_info(env, app_id):
+    from . import detect
+    return detect.flatpak_app(env, app_id)
+
+
+def launcher(ctx, desktop_id, wrapper_path, app_id=None, command=None):
+    """The launcher override that starts wrapper_path; a warning (and
+    None) without a system launcher."""
+    p = ctx.desktop_override(desktop_id, lambda t: exec_to(t, wrapper_path, app_id, command))
+    if p is None:
+        ctx.warn("no system launcher %s: start %s by hand" % (desktop_id,
+                                                              ctx.env.tilde(wrapper_path)))
+    return p
+
+
+def c_shim(ctx, adapter, app, src, out):
+    """gcc -shared -fPIC -O2 -Wall -o <out> <src> -ldl into lib/<app>/<out>."""
+    return build(ctx, adapter, lib_dir(ctx.env, app, out),
+                 {src: source(adapter, src)},
+                 lambda tc, d: [[tc.cc, "-shared", "-fPIC", "-O2", "-Wall", "-o", out, src,
+                                 "-ldl"]],
+                 ("cc",))

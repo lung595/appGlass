@@ -126,8 +126,8 @@
       "why": "may break on app updates"
     },
     {
-      "family": null,
-      "implemented": false,
+      "family": "lianli",
+      "implemented": true,
       "name": "webkit-shim",
       "risk": "medium",
       "summary": "a preload that makes the WebKit view transparent, plus page CSS",
@@ -510,6 +510,11 @@
       "enabled": true,
       "installed": false
     },
+    "lianli": {
+      "applied": [],
+      "enabled": false,
+      "installed": false
+    },
     "obsidian": {
       "applied": [],
       "enabled": true,
@@ -548,11 +553,51 @@
     },
     {
       "adapter": "webkit-shim",
-      "implemented": false,
+      "implemented": true,
       "owner": null,
       "path": "~/.local/share/applications/com.sgtaziz.lianlilinux.desktop",
       "status": "absent",
       "what": "Lian Li shim launcher"
+    },
+    {
+      "adapter": "webkit-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/bin/appglass-lianli",
+      "status": "absent",
+      "what": "Lian Li launch wrapper"
+    },
+    {
+      "adapter": "webkit-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/lianli/appglass-wk.so",
+      "status": "absent",
+      "what": "the WebKit shim"
+    },
+    {
+      "adapter": "webkit-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/lianli/appglass-wk.c",
+      "status": "absent",
+      "what": "the WebKit shim source"
+    },
+    {
+      "adapter": "webkit-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/lianli/lianli-glass.css.tmpl",
+      "status": "absent",
+      "what": "Lian Li CSS template"
+    },
+    {
+      "adapter": "webkit-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/lianli/lianli-glass.css",
+      "status": "absent",
+      "what": "Lian Li CSS (rendered)"
     },
     {
       "adapter": "ck-shim",
