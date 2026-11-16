@@ -1282,6 +1282,92 @@ def cmd_status(app):
     for name in CORE_OWNERS:
         o = st.owners.get(name)
         p("%-10s %s" % (name, ("applied: " + ", ".join(sorted(o["files"]))) if o else "not applied"))
+    try:
+        routes = app_routes(app)
+    except Exception as ex:  # status must not die on a detection bug
+        app.warn("detect failed: %s" % ex)
+        routes = []
+    if routes:
+        p("apps:")
+        for r, route in routes:
+            p("  %-34s %-12s %-16s %-9s %s" % (r["key"][:34], r["toolkit"], route["adapter"],
+                                             route["effective"], route["reason"]))
+    for h in hand_files(app):
+        if h["status"] != "absent":
+            p("hand file %s: %s (%s)" % (h["path"], h["status"], h["adapter"] or "no adapter"))
+
+
+def app_routes(app, records=None):
+    """[(record, route)] for every installed, shown app: route = adapters.resolve()."""
+    from . import adapters
+    records = detected(app) if records is None else records
+    out = []
+    for r in records:
+        if not r.get("installed") or r.get("nodisplay"):
+            continue
+        route = adapters.resolve(r, app.families, app.settings)
+        fam = route.get("family")
+        if fam and route["effective"] == "glass" and not app.installed(app.families[fam]):
+            route.update(effective="fallback", reason="family %s: not installed" % fam)
+        out.append((r, route))
+    return out
+
+
+def hand_files(app):
+    """The hand-made files appglass knows: [{path, adapter, what, exists,
+    status}] with status adopted | owned | conflict | absent."""
+    from . import adapters
+    env, st = app.env, app.state
+    out = []
+    for rel, adapter, what in adapters.HAND_FILES:
+        p = os.path.join(env.home, rel)
+        owner = st.owner_of(p)
+        rec = st.owners.get(owner, {}).get("files", {}).get(p) if owner else None
+        if rec and rec.get("adopted"):
+            status = "adopted"
+        elif owner:
+            status = "owned"
+        elif os.path.lexists(p):
+            status = "conflict"
+        else:
+            status = "absent"
+        impl = bool(adapter) and adapters.BY_NAME[adapter].implemented
+        out.append({"path": env.tilde(p), "adapter": adapter, "what": what,
+                    "implemented": impl, "owner": owner, "status": status})
+    return out
+
+
+def status_doc(app):
+    from . import adapters
+    st, lv = app.state, app.levels
+    fams = {}
+    for name in sorted(app.families):
+        o = st.owners.get(name)
+        fams[name] = {"installed": app.installed(app.families[name]),
+                      "enabled": _family_enabled(app, name),
+                      "applied": sorted(app.env.tilde(f) for f in o.get("files", {})) if o else []}
+    core_owners = {n: sorted(app.env.tilde(f) for f in st.owners[n]["files"])
+                   if n in st.owners else [] for n in CORE_OWNERS}
+    apps = []
+    counts = {}
+    for r, route in app_routes(app):
+        counts[route["effective"]] = counts.get(route["effective"], 0) + 1
+        apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
+                          "app_ids": r["app_ids"], "source": r.get("source", "desktop")},
+                         **route))
+    return {
+        "version": 1,
+        "enabled": app.settings["enabled"],
+        "settings_error": app.settings_error,
+        "levels": {"content": lv.content, "bar": lv.bar},
+        "fallback": app.settings["fallback"],
+        "families": fams,
+        "core": core_owners,
+        "apps": apps,
+        "summary": dict(sorted(counts.items())),
+        "hand_files": hand_files(app),
+        "adapters": [a.as_dict() for a in adapters.CATALOGUE],
+    }
 
 
 def cmd_get(app, key=None):
@@ -1410,7 +1496,8 @@ def main(argv=None, environ=None, out=None, err=None):
     a.add_argument("--quiet", action="store_true")
     r = sub.add_parser("remove", help="restore every file appglass touched")
     r.add_argument("--only", help="comma-separated family names")
-    sub.add_parser("status", help="show colours, levels and applied families")
+    sp = sub.add_parser("status", help="show colours, levels, applied families and app routes")
+    sp.add_argument("--json", action="store_true", help="machine-readable status")
     sub.add_parser("levels", help="print the current levels as JSON")
     h = sub.add_parser("hook", help="matugen hook: re-apply on every DMS theme change")
     h.add_argument("action", choices=("install", "remove"))
@@ -1448,7 +1535,10 @@ def main(argv=None, environ=None, out=None, err=None):
         elif args.cmd == "remove":
             cmd_remove(app, args.only)
         elif args.cmd == "status":
-            cmd_status(app)
+            if args.json:
+                print(json.dumps(status_doc(app), indent=2, sort_keys=True), file=app.out)
+            else:
+                cmd_status(app)
         elif args.cmd == "levels":
             print(json.dumps(app.levels.as_dict()), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
         elif args.cmd == "detect":

@@ -1,0 +1,613 @@
+{
+  "adapters": [
+    {
+      "family": "alacritty",
+      "implemented": true,
+      "name": "terminal",
+      "risk": "none",
+      "summary": "the terminal's own background opacity key",
+      "tier": "native",
+      "toolkits": [
+        "terminal"
+      ],
+      "why": ""
+    },
+    {
+      "family": "gtk4",
+      "implemented": true,
+      "name": "gtk4",
+      "risk": "low",
+      "summary": "gtk-4.0/gtk.css alpha on the background colours",
+      "tier": "native",
+      "toolkits": [
+        "gtk4-adw",
+        "gtk4"
+      ],
+      "why": "every GTK4 app reads the file; unlisted ones get double translucency"
+    },
+    {
+      "family": "gtk3",
+      "implemented": true,
+      "name": "gtk3",
+      "risk": "low",
+      "summary": "GTK_THEME=AppGlass through a launcher override",
+      "tier": "native",
+      "toolkits": [
+        "gtk3"
+      ],
+      "why": ""
+    },
+    {
+      "family": "obsidian",
+      "implemented": true,
+      "name": "electron-builtin",
+      "risk": "low",
+      "summary": "the app's own CSS snippets plus its translucency switch",
+      "tier": "native",
+      "toolkits": [],
+      "why": ""
+    },
+    {
+      "family": "herdr",
+      "implemented": true,
+      "name": "gpui-json",
+      "risk": "none",
+      "summary": "theme file with alpha colours",
+      "tier": "native",
+      "toolkits": [
+        "gpui"
+      ],
+      "why": ""
+    },
+    {
+      "family": "dux",
+      "implemented": true,
+      "name": "dux-json",
+      "risk": "none",
+      "summary": "the app's ui-settings window colour",
+      "tier": "native",
+      "toolkits": [],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "qt-style",
+      "risk": "low",
+      "summary": "QT_STYLE_OVERRIDE=appglass (a Qt style plugin) through a launcher override",
+      "tier": "native",
+      "toolkits": [
+        "qt-widgets"
+      ],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "kvantum",
+      "risk": "low",
+      "summary": "a Kvantum theme with translucency",
+      "tier": "native",
+      "toolkits": [],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "gecko",
+      "risk": "low",
+      "summary": "userChrome/userContent for non-browser Gecko apps (Thunderbird)",
+      "tier": "native",
+      "toolkits": [
+        "gecko"
+      ],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "electron-vencord",
+      "risk": "medium",
+      "summary": "a Vencord theme with transparency (Discord)",
+      "tier": "mod",
+      "toolkits": [],
+      "why": "client mods break Discord's terms of service"
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "electron-hook",
+      "risk": "medium",
+      "summary": "a main-process hook (NODE_OPTIONS when the fuse allows it) plus CSS",
+      "tier": "forced",
+      "toolkits": [
+        "electron"
+      ],
+      "why": "may break on app updates"
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "webkit-shim",
+      "risk": "medium",
+      "summary": "a preload that makes the WebKit view transparent, plus page CSS",
+      "tier": "forced",
+      "toolkits": [
+        "webkitgtk"
+      ],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "qtquick-shim",
+      "risk": "medium-high",
+      "summary": "a preload that sets the QML window alpha (Jellyfin)",
+      "tier": "forced",
+      "toolkits": [
+        "qt-webengine",
+        "qt-quick"
+      ],
+      "why": "video playback breaks until the shim re-shows mpv"
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "ck-shim",
+      "risk": "high",
+      "summary": "a colour-key EGL shim",
+      "tier": "forced",
+      "toolkits": [
+        "flutter",
+        "egui",
+        "winit",
+        "iced",
+        "slint"
+      ],
+      "why": "may force software rendering"
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "steam-cdp",
+      "risk": "medium",
+      "summary": "Steam launch flags plus CSS injected over the local debug port",
+      "tier": "forced",
+      "toolkits": [
+        "cef"
+      ],
+      "why": "any local process can drive the logged-in client while it runs"
+    },
+    {
+      "family": null,
+      "implemented": false,
+      "name": "obs-plugin",
+      "risk": "medium",
+      "summary": "an OBS plugin plus theme",
+      "tier": "forced",
+      "toolkits": [],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": true,
+      "name": "niri-fallback",
+      "risk": "none",
+      "summary": "niri opacity only (fallback.mode)",
+      "tier": "fallback",
+      "toolkits": [],
+      "why": "text fades too in value mode"
+    },
+    {
+      "family": null,
+      "implemented": true,
+      "name": "games",
+      "risk": "none",
+      "summary": "niri opacity 1.0, blur off, popups 1.0",
+      "tier": "opaque",
+      "toolkits": [
+        "game",
+        "sdl"
+      ],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": true,
+      "name": "browserglass",
+      "risk": "none",
+      "summary": "the browserGlass DMS plugin owns Firefox-family browsers",
+      "tier": "delegated",
+      "toolkits": [
+        "gecko"
+      ],
+      "why": ""
+    },
+    {
+      "family": null,
+      "implemented": true,
+      "name": "excluded",
+      "risk": "none",
+      "summary": "DMS paints these windows itself",
+      "tier": "excluded",
+      "toolkits": [],
+      "why": ""
+    }
+  ],
+  "apps": [
+    {
+      "adapter": "terminal",
+      "app_ids": [
+        "^Alacritty$"
+      ],
+      "effective": "glass",
+      "enabled": true,
+      "family": "alacritty",
+      "implemented": true,
+      "key": "Alacritty",
+      "name": "Alacritty",
+      "reason": "family alacritty",
+      "risk": "none",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "terminal"
+    },
+    {
+      "adapter": "gtk4",
+      "app_ids": [
+        "^com\\.github\\.tchx84\\.Flatseal$"
+      ],
+      "effective": "glass",
+      "enabled": true,
+      "family": "gtk4",
+      "implemented": true,
+      "key": "com.github.tchx84.Flatseal",
+      "name": "Flatseal",
+      "reason": "family gtk4",
+      "risk": "low",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "gtk4"
+    },
+    {
+      "adapter": "dux-json",
+      "app_ids": [
+        "^dev\\.duxlabs\\.files$"
+      ],
+      "effective": "glass",
+      "enabled": true,
+      "family": "dux",
+      "implemented": true,
+      "key": "dev.duxlabs.files",
+      "name": "Files",
+      "reason": "family dux",
+      "risk": "none",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "go-launcher"
+    },
+    {
+      "adapter": "electron-vencord",
+      "app_ids": [
+        "^discord$"
+      ],
+      "effective": "fallback",
+      "enabled": false,
+      "family": null,
+      "implemented": false,
+      "key": "discord",
+      "name": "Discord",
+      "reason": "mod adapter, off until enabled (risk medium)",
+      "risk": "medium",
+      "source": "desktop",
+      "tier": "mod",
+      "toolkit": "electron"
+    },
+    {
+      "adapter": "gpui-json",
+      "app_ids": [
+        "^herdr-app$"
+      ],
+      "effective": "fallback",
+      "enabled": true,
+      "family": "herdr",
+      "implemented": true,
+      "key": "herdr-app",
+      "name": "herdr",
+      "reason": "family herdr: not installed",
+      "risk": "none",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "gpui"
+    },
+    {
+      "adapter": "electron-hook",
+      "app_ids": [
+        "^md\\.example\\.Electron$"
+      ],
+      "effective": "fallback",
+      "enabled": false,
+      "family": null,
+      "implemented": false,
+      "key": "md.example.Electron",
+      "name": "md.example.Electron",
+      "reason": "forced adapter, off until enabled (risk medium)",
+      "risk": "medium",
+      "source": "desktop",
+      "tier": "forced",
+      "toolkit": "electron"
+    },
+    {
+      "adapter": "gtk3",
+      "app_ids": [
+        "^nvidia-settings$"
+      ],
+      "effective": "glass",
+      "enabled": true,
+      "family": "gtk3",
+      "implemented": true,
+      "key": "nvidia-settings",
+      "name": "NVIDIA",
+      "reason": "family gtk3",
+      "risk": "low",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "gtk3"
+    },
+    {
+      "adapter": "ck-shim",
+      "app_ids": [
+        "^org\\.example\\.Flutter$"
+      ],
+      "effective": "fallback",
+      "enabled": false,
+      "family": null,
+      "implemented": false,
+      "key": "org.example.Flutter",
+      "name": "org.example.Flutter",
+      "reason": "forced adapter, off until enabled (risk high)",
+      "risk": "high",
+      "source": "desktop",
+      "tier": "forced",
+      "toolkit": "flutter"
+    },
+    {
+      "adapter": "gtk4",
+      "app_ids": [
+        "^org\\.gnome\\.Nautilus$"
+      ],
+      "effective": "glass",
+      "enabled": true,
+      "family": "gtk4",
+      "implemented": true,
+      "key": "org.gnome.Nautilus",
+      "name": "Files",
+      "reason": "family gtk4",
+      "risk": "low",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "gtk4-adw"
+    },
+    {
+      "adapter": "browserglass",
+      "app_ids": [
+        "^org\\.mozilla\\.firefox$"
+      ],
+      "effective": "delegated",
+      "enabled": null,
+      "family": null,
+      "implemented": true,
+      "key": "org.mozilla.firefox",
+      "name": "Firefox",
+      "reason": "browserGlass owns this browser",
+      "risk": "none",
+      "source": "desktop",
+      "tier": "delegated",
+      "toolkit": "gecko"
+    },
+    {
+      "adapter": "games",
+      "app_ids": [
+        "^steam_app_480$"
+      ],
+      "effective": "opaque",
+      "enabled": null,
+      "family": null,
+      "implemented": true,
+      "key": "Pinball",
+      "name": "Pinball",
+      "reason": "game: always opaque",
+      "risk": "none",
+      "source": "desktop",
+      "tier": "opaque",
+      "toolkit": "game"
+    },
+    {
+      "adapter": "gtk3",
+      "app_ids": [
+        "^solaar$"
+      ],
+      "effective": "glass",
+      "enabled": true,
+      "family": "gtk3",
+      "implemented": true,
+      "key": "solaar",
+      "name": "Solaar",
+      "reason": "family gtk3",
+      "risk": "low",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "gtk3"
+    },
+    {
+      "adapter": "steam-cdp",
+      "app_ids": [
+        "^steam$"
+      ],
+      "effective": "fallback",
+      "enabled": false,
+      "family": null,
+      "implemented": false,
+      "key": "steam",
+      "name": "Steam",
+      "reason": "forced adapter, off until enabled (risk medium)",
+      "risk": "medium",
+      "source": "desktop",
+      "tier": "forced",
+      "toolkit": "cef"
+    },
+    {
+      "adapter": "qt-style",
+      "app_ids": [
+        "^vlc$"
+      ],
+      "effective": "fallback",
+      "enabled": true,
+      "family": null,
+      "implemented": false,
+      "key": "vlc",
+      "name": "VLC",
+      "reason": "adapter qt-style not implemented yet",
+      "risk": "low",
+      "source": "desktop",
+      "tier": "native",
+      "toolkit": "qt-widgets"
+    }
+  ],
+  "core": {
+    "hook": [],
+    "niri": []
+  },
+  "enabled": true,
+  "fallback": {
+    "inactive": null,
+    "mode": "opaque",
+    "value": 0.7
+  },
+  "families": {
+    "alacritty": {
+      "applied": [],
+      "enabled": true,
+      "installed": true
+    },
+    "dux": {
+      "applied": [],
+      "enabled": true,
+      "installed": true
+    },
+    "gtk3": {
+      "applied": [],
+      "enabled": true,
+      "installed": true
+    },
+    "gtk4": {
+      "applied": [],
+      "enabled": true,
+      "installed": true
+    },
+    "herdr": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
+    "obsidian": {
+      "applied": [],
+      "enabled": true,
+      "installed": true
+    }
+  },
+  "hand_files": [
+    {
+      "adapter": "niri-fallback",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.config/niri/appglass-test.kdl",
+      "status": "absent",
+      "what": "the opaque catch-all and discord/vlc rules, now fallback.mode = opaque"
+    },
+    {
+      "adapter": "qt-style",
+      "implemented": false,
+      "owner": null,
+      "path": "~/.local/share/applications/vlc.desktop",
+      "status": "conflict",
+      "what": "VLC Qt style launcher"
+    },
+    {
+      "adapter": "webkit-shim",
+      "implemented": false,
+      "owner": null,
+      "path": "~/.local/share/applications/com.sgtaziz.lianlilinux.desktop",
+      "status": "absent",
+      "what": "Lian Li shim launcher"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": false,
+      "owner": null,
+      "path": "~/.local/share/applications/org.localsend.localsend_app.desktop",
+      "status": "absent",
+      "what": "LocalSend shim launcher"
+    },
+    {
+      "adapter": "electron-hook",
+      "implemented": false,
+      "owner": null,
+      "path": "~/.local/share/applications/org.jeffvli.feishin.desktop",
+      "status": "absent",
+      "what": "Feishin shim launcher"
+    },
+    {
+      "adapter": "qtquick-shim",
+      "implemented": false,
+      "owner": null,
+      "path": "~/.local/share/applications/org.jellyfin.JellyfinDesktop.desktop",
+      "status": "absent",
+      "what": "Jellyfin shim launcher"
+    },
+    {
+      "adapter": null,
+      "implemented": false,
+      "owner": null,
+      "path": "~/.local/bin/appglass-sync",
+      "status": "absent",
+      "what": "the regeneration script (sync path unit)"
+    },
+    {
+      "adapter": "electron-vencord",
+      "implemented": false,
+      "owner": null,
+      "path": "~/.local/bin/appglass-vencord",
+      "status": "absent",
+      "what": "Vencord re-inject + theme"
+    },
+    {
+      "adapter": null,
+      "implemented": false,
+      "owner": null,
+      "path": "~/.config/systemd/user/appglass-sync.path",
+      "status": "absent",
+      "what": "watches the theme files"
+    },
+    {
+      "adapter": null,
+      "implemented": false,
+      "owner": null,
+      "path": "~/.config/systemd/user/appglass-sync.service",
+      "status": "absent",
+      "what": "runs appglass-sync"
+    }
+  ],
+  "levels": {
+    "bar": 0.65,
+    "content": 0.6
+  },
+  "settings_error": null,
+  "summary": {
+    "delegated": 1,
+    "fallback": 6,
+    "glass": 6,
+    "opaque": 1
+  },
+  "version": 1
+}
