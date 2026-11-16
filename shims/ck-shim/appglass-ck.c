@@ -11,11 +11,25 @@
 // so the pass is idempotent with buffer-age partial repaints.
 //
 //   LD_PRELOAD=/path/appglass-ck.so APPGLASS_KEYS="f4fbf8:0.60,e6ede9:0.65" [APPGLASS_TOL=0.02] [APPGLASS_SNAP=0.75] [APPGLASS_DEBUG=1] app
+//   [APPGLASS_MAXFPS=60]   cap swaps per second (software GL on a 240 Hz output otherwise renders and keys every
+//                          animation frame on the CPU: 4x the work for no visible gain). 0 or unset = no cap.
+//   [APPGLASS_TRACE=file]  append one line per swap: CLOCK_MONOTONIC ms, gap to the previous swap, pass ms.
+//                          Gaps that sit on ~1000 ms during an animation mean the compositor is only sending
+//                          throttled frame callbacks (it treats the window as not visible).
+//
+//   [APPGLASS_SCRUB="VAR VAR"] children started with exec*/posix_spawn*/pidfd_spawn* lose the shim, APPGLASS_* and VAR.
 //
 // The EGL surface must have an alpha channel (check the wl_buffer format: AR24
 // works, XR24 does not). Hooks are reached through the PLT, through dlsym()
 // (libepoxy resolves eglSwapBuffers with dlsym on its own libEGL handle) and
 // through eglGetProcAddress (the *WithDamage* extensions).
+//
+// While keys are set, the app's wl_surface.set_opaque_region requests are sent with a NULL
+// (empty) region. An app that thinks it is opaque (winit with transparent: false marks the
+// whole surface opaque) would otherwise tell the compositor that the keyed, translucent pixels
+// are opaque: niri then skips what lies below them (blur, wallpaper) on partial repaints but not
+// on full ones, so the whole window flashes between glass and dark on every output repaint
+// elsewhere (a bar clock with seconds: once a second, even when the app is idle).
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdio.h>
@@ -224,9 +238,30 @@ static void pass(EGLDisplay dpy, EGLSurface surf) {
     static int once; if (!once++) LOG("first pass done %dx%d", w, h);
 }
 
-EGLBoolean eglSwapBuffers(EGLDisplay d, EGLSurface s) { resolve(); pass(d, s); return r_swap(d, s); }
-static EGLBoolean swap_ext(EGLDisplay d, EGLSurface s, const EGLint *r, EGLint n) { pass(d, s); return r_swap_ext(d, s, r, n); }
-static EGLBoolean swap_khr(EGLDisplay d, EGLSurface s, const EGLint *r, EGLint n) { pass(d, s); return r_swap_khr(d, s, r, n); }
+#include <time.h>
+#include <errno.h>
+static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
+/* pace + key + trace, shared by the three swap entry points. Runs on the app's render thread. */
+static double min_gap = -1, last_swap; static FILE *trace_f;
+static void pre_swap(EGLDisplay d, EGLSurface s) {
+    if (min_gap < 0) {
+        const char *e = getenv("APPGLASS_MAXFPS"); double f = e ? strtod(e, NULL) : 0; min_gap = f > 0 ? 1000.0 / f : 0;
+        e = getenv("APPGLASS_TRACE"); if (e && *e) trace_f = fopen(e, "a");
+    }
+    double t0 = now_ms();
+    if (min_gap > 0 && last_swap > 0 && t0 - last_swap < min_gap) {
+        double w = min_gap - (t0 - last_swap); struct timespec ts = { (time_t)(w / 1e3), (long)(((long long)(w * 1e6)) % 1000000000LL) };
+        while (nanosleep(&ts, &ts) && errno == EINTR) ;
+        t0 = now_ms();
+    }
+    pass(d, s);
+    double t1 = now_ms();
+    if (trace_f) { fprintf(trace_f, "%.2f %.2f %.2f\n", t0, last_swap > 0 ? t0 - last_swap : 0, t1 - t0); fflush(trace_f); }
+    last_swap = t0;
+}
+EGLBoolean eglSwapBuffers(EGLDisplay d, EGLSurface s) { resolve(); pre_swap(d, s); return r_swap(d, s); }
+static EGLBoolean swap_ext(EGLDisplay d, EGLSurface s, const EGLint *r, EGLint n) { pre_swap(d, s); return r_swap_ext(d, s, r, n); }
+static EGLBoolean swap_khr(EGLDisplay d, EGLSurface s, const EGLint *r, EGLint n) { pre_swap(d, s); return r_swap_khr(d, s, r, n); }
 
 EGLBoolean eglSwapBuffers(EGLDisplay, EGLSurface);
 __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *);
@@ -246,4 +281,120 @@ void *dlsym(void *h, const char *n) {
     void *p = real_dlsym(h, n);
     if (n && n[0] == 'e' && n[1] == 'g' && n[2] == 'l') { void *q = wrap(n, p); if (q != p) LOG("dlsym %s hooked", n); return q; }
     return p;
+}
+
+/* ---------------- opaque region (see the header) ----------------
+ * Every libwayland-client request goes through one of these three exported functions: the
+ * variadic wl_proxy_marshal*() and wl_proxy_marshal_array() call them through libwayland's own
+ * PLT, so a preloaded definition catches C clients (GTK) and dlopen()ed ones (Rust wayland-sys)
+ * alike. Only wl_surface opcode 4 (set_opaque_region) is touched, and only while keys are set. */
+#include <stdint.h>
+struct wl_proxy; struct wl_interface;
+union wl_argument { int32_t i; uint32_t u; int32_t f; const char *s; void *o; uint32_t n; void *a; int32_t h; };
+#define WL_SURFACE_SET_OPAQUE_REGION 4
+static void *wl_lib(void) {
+    static void *h; if (!h) h = dlopen("libwayland-client.so.0", RTLD_LAZY | RTLD_NOLOAD);
+    return h;
+}
+static void *wl_real(const char *n) {
+    void *p = wl_lib() ? real_dlsym(wl_lib(), n) : NULL;
+    return p ? p : real_dlsym(RTLD_NEXT, n);
+}
+/* the args to send: a copy with the region dropped for set_opaque_region on a wl_surface */
+static union wl_argument *opaque_args(struct wl_proxy *p, uint32_t op, union wl_argument *a, union wl_argument *tmp) {
+    if (op != WL_SURFACE_SET_OPAQUE_REGION || !a || !a[0].o) return a;
+    if (nkeys < 0) parse_keys();
+    if (nkeys == 0) return a;
+    static const char *(*cls)(struct wl_proxy *);
+    if (!cls) cls = (const char *(*)(struct wl_proxy *))wl_real("wl_proxy_get_class");
+    const char *c = cls ? cls(p) : NULL;
+    if (!c || strcmp(c, "wl_surface")) return a;
+    static int once; if (!once++) LOG("wl_surface.set_opaque_region -> NULL (the keyed pixels are translucent)");
+    tmp[0].o = NULL; return tmp;
+}
+typedef struct wl_proxy *(*mflags_fn)(struct wl_proxy *, uint32_t, const struct wl_interface *, uint32_t, uint32_t, union wl_argument *);
+typedef struct wl_proxy *(*mctor_fn)(struct wl_proxy *, uint32_t, union wl_argument *, const struct wl_interface *);
+typedef struct wl_proxy *(*mctorv_fn)(struct wl_proxy *, uint32_t, union wl_argument *, const struct wl_interface *, uint32_t);
+struct wl_proxy *wl_proxy_marshal_array_flags(struct wl_proxy *p, uint32_t op, const struct wl_interface *i, uint32_t v, uint32_t fl, union wl_argument *a) {
+    static mflags_fn r; if (!r) r = (mflags_fn)wl_real("wl_proxy_marshal_array_flags");
+    union wl_argument t[1]; return r(p, op, i, v, fl, opaque_args(p, op, a, t));
+}
+struct wl_proxy *wl_proxy_marshal_array_constructor(struct wl_proxy *p, uint32_t op, union wl_argument *a, const struct wl_interface *i) {
+    static mctor_fn r; if (!r) r = (mctor_fn)wl_real("wl_proxy_marshal_array_constructor");
+    union wl_argument t[1]; return r(p, op, opaque_args(p, op, a, t), i);
+}
+struct wl_proxy *wl_proxy_marshal_array_constructor_versioned(struct wl_proxy *p, uint32_t op, union wl_argument *a, const struct wl_interface *i, uint32_t v) {
+    static mctorv_fn r; if (!r) r = (mctorv_fn)wl_real("wl_proxy_marshal_array_constructor_versioned");
+    union wl_argument t[1]; return r(p, op, opaque_args(p, op, a, t), i, v);
+}
+
+/* ---------------- child env scrub (APPGLASS_SCRUB) ----------------
+ * A launcher (ArtCraft) starts other apps; they must not inherit the shim, its keys or the
+ * renderer overrides the wrapper set for the launcher alone. With APPGLASS_SCRUB="VAR VAR ..."
+ * set, every exec/posix_spawn of another binary gets an envp without: our .so in LD_PRELOAD, APPGLASS_* and the
+ * listed vars. No malloc (a forked child may call exec), only stack buffers. */
+#include <spawn.h>
+#include <unistd.h>
+extern char **environ;
+static int scrub_on(void) { static int s = -1; if (s < 0) s = getenv("APPGLASS_SCRUB") != NULL; return s; }
+static int listed(const char *e, const char *list) {
+    size_t n = strcspn(e, "="); const char *p = list;
+    while (p && *p) { while (*p == ' ') p++; size_t m = strcspn(p, " "); if (m && m == n && !strncmp(p, e, n)) return 1; p += m; }
+    return 0;
+}
+/* fills out[] (cap entries incl. NULL); ld is a caller buffer for the rewritten LD_PRELOAD */
+static char *const *scrub(char *const *envp, char **out, size_t cap, char *ld, size_t ldcap) {
+    if (!envp || !scrub_on()) return envp;
+    static char list[1024]; static int got;
+    if (!got) { const char *l = getenv("APPGLASS_SCRUB"); snprintf(list, sizeof list, "%s", l ? l : ""); got = 1; }
+    size_t k = 0;
+    for (size_t i = 0; envp[i] && k + 1 < cap; i++) {
+        const char *e = envp[i];
+        if (!strncmp(e, "APPGLASS_", 9) || listed(e, list)) continue;
+        if (!strncmp(e, "LD_PRELOAD=", 11)) {
+            size_t o = snprintf(ld, ldcap, "LD_PRELOAD="); const char *p = e + 11; int any = 0;
+            while (*p) { while (*p == ' ' || *p == ':') p++; size_t m = strcspn(p, " :"); if (!m) break;
+                if (!memmem(p, m, "appglass-", 9) && o + m + 2 < ldcap) { if (any) ld[o++] = ' '; memcpy(ld + o, p, m); o += m; any = 1; }
+                p += m; }
+            ld[o] = 0; if (any) out[k++] = ld; continue;
+        }
+        out[k++] = (char *)e;
+    }
+    out[k] = NULL; return out;
+}
+/* the launcher re-execs itself once at startup: that exec keeps the env (or it would lose its glass) */
+#include <sys/stat.h>
+static int is_self(const char *f) {
+    struct stat a, b; if (!f || !strchr(f, '/')) return 0;
+    return !stat(f, &a) && !stat("/proc/self/exe", &b) && a.st_dev == b.st_dev && a.st_ino == b.st_ino;
+}
+static size_t envc(char *const *e) { size_t n = 0; while (e && e[n]) n++; return n + 1; }
+#define SCRUBBED(envp, name) if (dbg()) { static const char m[] = "[appglass-ck] exec/spawn: "; write(2, m, sizeof m - 1); write(2, f, strlen(f)); { const char *w = is_self(f) ? " (self)" : " (other)"; write(2, w, strlen(w)); } for (size_t q = 0; envp && envp[q]; q++) if (!strncmp(envp[q], "LD_PRELOAD=", 11) || !strncmp(envp[q], "WGPU_", 5) || !strncmp(envp[q], "APPGLASS_SCRUB", 14)) { write(2, " ", 1); write(2, envp[q], strcspn(envp[q], "=")); } write(2, "\n", 1); } size_t name##_n = envc(envp); char *name##_v[name##_n]; char name##_ld[4096]; \
+    char *const *name = !scrub_on() || is_self(f) ? envp : scrub(envp, name##_v, name##_n, name##_ld, sizeof name##_ld)
+typedef int (*execve_fn)(const char *, char *const[], char *const[]);
+int execve(const char *f, char *const a[], char *const e[]) {
+    static execve_fn r; if (!r) r = (execve_fn)real_dlsym(RTLD_NEXT, "execve"); SCRUBBED(e, ne); return r(f, a, ne);
+}
+int execvpe(const char *f, char *const a[], char *const e[]) {
+    static execve_fn r; if (!r) r = (execve_fn)real_dlsym(RTLD_NEXT, "execvpe"); SCRUBBED(e, ne); return r(f, a, ne);
+}
+int execv(const char *f, char *const a[]) { return execve(f, a, environ); }
+int execvp(const char *f, char *const a[]) { return execvpe(f, a, environ); }
+typedef int (*spawn_fn)(pid_t *, const char *, const posix_spawn_file_actions_t *, const posix_spawnattr_t *, char *const[], char *const[]);
+int posix_spawn(pid_t *p, const char *f, const posix_spawn_file_actions_t *fa, const posix_spawnattr_t *at, char *const a[], char *const e[]) {
+    static spawn_fn r; if (!r) r = (spawn_fn)real_dlsym(RTLD_NEXT, "posix_spawn"); SCRUBBED(e, ne); return r(p, f, fa, at, a, ne);
+}
+int posix_spawnp(pid_t *p, const char *f, const posix_spawn_file_actions_t *fa, const posix_spawnattr_t *at, char *const a[], char *const e[]) {
+    static spawn_fn r; if (!r) r = (spawn_fn)real_dlsym(RTLD_NEXT, "posix_spawnp"); SCRUBBED(e, ne); return r(p, f, fa, at, a, ne);
+}
+/* glibc 2.39+; Rust's Command may use it. Absent from older runtimes: ENOSYS like a libc without it. */
+typedef int (*pidfd_spawn_fn)(int *, const char *, const posix_spawn_file_actions_t *, const posix_spawnattr_t *, char *const[], char *const[]);
+#include <errno.h>
+int pidfd_spawn(int *p, const char *f, const posix_spawn_file_actions_t *fa, const posix_spawnattr_t *at, char *const a[], char *const e[]) {
+    static pidfd_spawn_fn r; if (!r) r = (pidfd_spawn_fn)real_dlsym(RTLD_NEXT, "pidfd_spawn"); if (!r) return ENOSYS;
+    SCRUBBED(e, ne); return r(p, f, fa, at, a, ne);
+}
+int pidfd_spawnp(int *p, const char *f, const posix_spawn_file_actions_t *fa, const posix_spawnattr_t *at, char *const a[], char *const e[]) {
+    static pidfd_spawn_fn r; if (!r) r = (pidfd_spawn_fn)real_dlsym(RTLD_NEXT, "pidfd_spawnp"); if (!r) return ENOSYS;
+    SCRUBBED(e, ne); return r(p, f, fa, at, a, ne);
 }
