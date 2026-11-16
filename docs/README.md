@@ -46,7 +46,7 @@ Alphas stack. A bar drawn on top of the 0.60 content needs `a = (0.65 - 0.60) / 
    GNOME Web is in the rule: the global `gtk-4.0/gtk.css` already makes its chrome glass, so without the rule the chrome would get both alphas. The page stays opaque; see [webkit.md](webkit.md).
 
    The rule and the app setting go together. App glass without the rule multiplies with the global 0.60 (content 153 becomes 92, text at most 153). The rule without app glass makes the window fully opaque.
-4. **Fallback.** An app that cannot paint its own alpha gets no rule and keeps the global niri `opacity 0.60`, as today.
+4. **Fallback.** An app that cannot paint its own alpha is opaque by default: `appglass.kdl` starts with a catch-all `opacity 1.0` rule (browserGlass browsers excluded), so its text stays sharp. `fallback.mode` in settings.json switches this to `value` (the detected fallback apps get `opacity fallback.value`, 0.70 by default) or `off` (no rule, the global niri `opacity 0.60` applies, as before). Games (`steam_app_*`, gamescope) are always opaque with the blur off.
 
 The category docs use separate example file names for the rules (`appglass-gtk4.kdl`, `app-glass.kdl`, ...). One file is enough.
 
@@ -114,7 +114,7 @@ Tested: run in a nested niri session, with the window alpha measured from window
 
 ### Fallback apps
 
-These keep the global niri `opacity 0.60` and get no `opacity 1.0` rule (it would make them fully opaque):
+These get the fallback rule (opaque by default, see Method step 4), not the glass rule:
 
 - **Chrome, Discord, Feishin, Steam, VS Code, Element, Signal, Slack, Spotify**: an Electron/Chromium window is see-through only if the app's own code sets a transparent background colour.
 - **Lian Li Linux** and other WebKitGTK/Tauri apps: transparency is compiled in (Tauri `transparent: true`, `webkit_web_view_set_background_color`). Lian Li has a light UI, so a higher per-app value (0.80-0.85) is suggested, untested.
@@ -123,6 +123,26 @@ These keep the global niri `opacity 0.60` and get no `opacity 1.0` rule (it woul
 - **ArtCraft Launcher**: egui transparency is a compile-time option.
 - **Timeshift**: runs as root through XWayland, no RGBA visual.
 - **GIMP, LibreOffice, Thunderbird**: they paint their own opaque surfaces.
+
+## CLI
+
+```sh
+appglass detect [--json]            # every launcher with its toolkit and the evidence (read-only)
+appglass learn [--json|--dry-run]   # toolkit of each open window from niri + /proc, cached
+appglass status [--json]            # levels, families, the adapter route of every app, hand-made files
+appglass apply [--only a,b] [--dry-run]
+appglass apply --all [--adopt] [--dry-run]   # every detected app with a working adapter
+appglass adopt [PATH...] [--dry-run]         # hand a known hand-made file to appglass (backed up)
+appglass remove [--only a,b]
+appglass get [key] | set key value [--apply]
+appglass sync --settings-file F [--dry-run]  # the DMS plugin's one call
+appglass hook install | remove
+```
+
+- **detect** reads the `.desktop` launchers (XDG_DATA_DIRS and flatpak exports), resolves the binary (flatpak `/app` paths remapped, wrapper scripts followed), and classifies it from ELF `NEEDED`, Electron fuses, static markers and directory markers. A user override in `~/.local/share/applications` shadows the system file; the record says so.
+- **learn** reads `niri msg -j windows` (app-id and pid only, never titles) and `/proc/<pid>/maps`; a process that loads several toolkits gets the toplevel one (a gjs app with WebKitGTK is GTK4, Electron is not GTK3). detect merges the cache.
+- **status** resolves every app to an adapter (`appglass/adapters`): its tier (native, forced, mod, fallback, opaque, delegated, excluded), its risk, and what apply does with it today. Forced and mod adapters stay off until `appglass set apps.<key>.enabled true`.
+- **Hand-made files.** A launcher or rules file appglass did not write is left alone and reported; `adopt` backs it up and records it, the owner regenerates it from then on, and `remove` puts the original back byte-identical. Launcher overrides made by appglass are regenerated from the system file on every apply, so they follow package updates.
 
 ## Findings
 

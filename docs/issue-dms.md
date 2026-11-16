@@ -57,7 +57,8 @@ A small Python CLI with one module per app family (Alacritty, GTK4, GTK3, Obsidi
 ```sh
 appglass apply [--only gtk4,alacritty] [--dry-run]   # write the glass files for the installed apps + the niri rule
 appglass remove [--only ...]                         # undo every file it touched
-appglass status                                      # colours, levels, applied families
+appglass status [--json]                             # colours, levels, applied families, app routes
+appglass detect --json | apply --all [--dry-run]     # detected toolkits; apply every app with an adapter
 appglass hook install | remove                       # matugen user template + post_hook
 ```
 
@@ -65,7 +66,7 @@ appglass hook install | remove                       # matugen user template + p
 - The niri rule goes into `~/.config/niri/appglass.kdl`, and the include line goes right after the `dms/windowrules.kdl` include. After a change, `niri validate` runs; if it fails, the rule is taken out again.
 - `hook install` adds a `[templates.appglass]` section to `~/.config/matugen/config.toml`. matugen renders a colours JSON and runs `appglass apply --from-hook --quiet`, which refreshes only the families already applied, and does nothing before the first manual `apply`.
 - An existing user file is merged into or edited, never replaced. A GTK4 `gtk.css` that holds more than the DMS import line is left alone, and the family is skipped with a warning.
-- 229 unit tests cover the generated files, the state handling and remove. Each family also has an end-to-end script that runs the app in a nested niri session, checks the window alpha per region, opaque glyphs and at least 2:1 text contrast from window screenshots, then checks that `remove` leaves the files byte-identical.
+- 286 unit tests cover the generated files, the state handling and remove. Each family also has an end-to-end script that runs the app in a nested niri session, checks the window alpha per region, opaque glyphs and at least 2:1 text contrast from window screenshots, then checks that `remove` leaves the files byte-identical.
 
 ## Apps
 

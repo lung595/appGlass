@@ -524,13 +524,14 @@ def _unmerge_json(cur, keys):
 
 
 class Op:
-    __slots__ = ("kind", "data", "undo", "keys")
+    __slots__ = ("kind", "data", "undo", "keys", "meta")
 
-    def __init__(self, kind, data, undo=None, keys=None):
+    def __init__(self, kind, data, undo=None, keys=None, meta=None):
         self.kind = kind      # owned | edit | json
         self.data = data      # bytes to write
         self.undo = undo      # edit: fn(text)->text for a diverged remove
         self.keys = keys      # json: {key: {"present": bool, "value": ...}}
+        self.meta = meta      # owned: extra record fields (desktop source, artifact stamp)
 
 
 class Ctx:
@@ -661,8 +662,10 @@ class Ctx:
         return path
 
     # writes (planned; the core commits them)
-    def write_owned(self, path, text):
-        """A file appglass creates and owns: deleted on remove.
+    def write_owned(self, path, text, meta=None):
+        """A file appglass creates and owns: deleted on remove. An adopted
+        file (``appglass adopt``) is owned too, and restored from its backup
+        on remove.
 
         Raises Conflict when the path exists and is not appglass's.
         """
@@ -671,14 +674,70 @@ class Ctx:
         rec = self._record(path)
         if rec is None and os.path.lexists(path):
             raise Conflict("%s exists and is not appglass's (left untouched)" % path)
-        if rec is not None and rec["kind"] != "created":
+        if rec is not None and rec["kind"] != "created" and not rec.get("adopted"):
             raise Conflict("%s is a user file, not an appglass file" % path)
         if self.app.from_hook and self.deleted_since_apply(path):
             # the user deleted a file appglass owns: the theme hook must not
             # bring it back; a manual apply does
             return self._keep_deleted(path, "appglass apply writes it again")
         data = text.encode("utf-8") if isinstance(text, str) else bytes(text)
-        return self._add(path, Op("owned", data))
+        return self._add(path, Op("owned", data, meta=meta))
+
+    # launcher overrides and artifacts
+    def system_desktop(self, desktop_id):
+        """Path of the system launcher desktop_id (XDG_DATA_DIRS and flatpak
+        exports, $XDG_DATA_HOME left out), or None."""
+        from . import detect
+        for d in detect.data_dirs(self.env):
+            if d == os.path.abspath(self.env.data_home):
+                continue
+            p = os.path.join(d, "applications", desktop_id)
+            if os.path.isfile(p):
+                return p
+        return None
+
+    def desktop_override(self, desktop_id, fn):
+        """$XDG_DATA_HOME/applications/<desktop_id>, owned, generated as
+        fn(system text) on every apply (so it follows package updates; the
+        record keeps the source path and its sha256). Removed on remove.
+
+        Returns the path, or None without a system launcher. Raises Conflict
+        for a launcher the user made (``appglass adopt`` hands it over) and
+        for a symlink.
+        """
+        dest = os.path.abspath(os.path.join(self.env.data_home, "applications", desktop_id))
+        src = self.system_desktop(desktop_id)
+        if src is None:
+            return None
+        if os.path.islink(dest):
+            raise Conflict("%s is a symlink; left untouched" % self.env.tilde(dest))
+        rec = self._record(dest)
+        if rec is None and os.path.lexists(dest) and self.app.state.owner_of(dest) is None:
+            raise Conflict("%s is a hand-made launcher (appglass adopt %s hands it to "
+                           "appglass, backed up)" % (self.env.tilde(dest),
+                                                     self.env.tilde(dest)))
+        raw = _read(src)
+        text = fn(raw.decode("utf-8", "replace"))
+        return self.write_owned(dest, text, meta={"source": src, "source_sha256": sha(raw)})
+
+    @property
+    def cache_dir(self):
+        """$XDG_CACHE_HOME/appglass/<owner>: where artifacts go."""
+        return self.env.cache_path("appglass", self.owner)
+
+    def artifact(self, name, build, stamp):
+        """An owned file in cache_dir built by build() -> bytes. build runs
+        only when the recorded stamp differs from stamp or the file changed
+        (a built shim survives applies without a rebuild). Removed on remove."""
+        path = os.path.abspath(os.path.join(self.cache_dir, name))
+        rec = self._record(path)
+        cur = _read(path)
+        if (rec is not None and rec.get("meta", {}).get("stamp") == stamp
+                and cur is not None and sha(cur) == rec.get("sha256")):
+            data = cur
+        else:
+            data = build()
+        return self.write_owned(path, data, meta={"artifact": True, "stamp": stamp})
 
     def edit_text(self, path, fn, undo=None):
         """Edit a user text file: fn(text) -> new text ('' when absent).
@@ -853,6 +912,19 @@ class App:
             raise AppglassError("backup %s is missing" % p)
         return b
 
+    def backup(self, p, cur):
+        """Save cur (p's bytes) in the state backup dir: {"backup", "orig_sha256"}."""
+        env, st = self.env, self.state
+        bname = hashlib.sha1(p.encode()).hexdigest()[:16] + ".orig"
+        bpath = os.path.join(self.backup_dir(), bname)
+        env.guard(bpath)
+        if not os.path.isdir(self.backup_dir()):
+            st.save()  # creates the state dir (records created parents)
+            os.makedirs(self.backup_dir(), exist_ok=True)
+        with open(bpath, "wb") as f:
+            f.write(cur)
+        return {"backup": os.path.join("backup", bname), "orig_sha256": sha(cur)}
+
     # ---- commit
     def commit(self, ctx, app_ids=None, dry_run=False):
         """Write a ctx's plan; revert files this owner had but no longer plans."""
@@ -901,16 +973,7 @@ class App:
                 else:
                     if op.kind == "owned":
                         raise Conflict("%s appeared during apply" % p)
-                    bname = hashlib.sha1(p.encode()).hexdigest()[:16] + ".orig"
-                    bpath = os.path.join(self.backup_dir(), bname)
-                    env.guard(bpath)
-                    if not os.path.isdir(self.backup_dir()):
-                        st.save()  # creates the state dir (records created parents)
-                        os.makedirs(self.backup_dir(), exist_ok=True)
-                    with open(bpath, "wb") as f:
-                        f.write(cur)
-                    rec = {"kind": "modified", "how": op.kind,
-                           "backup": os.path.join("backup", bname), "orig_sha256": sha(cur)}
+                    rec = dict(self.backup(p, cur), kind="modified", how=op.kind)
             elif (rec.get("how") in ("json", "edit") and cur is not None
                   and sha(cur) != rec.get("sha256")):
                 # the app or the user rewrote the file since the last apply:
@@ -919,6 +982,10 @@ class App:
                 rec["app_rewrote"] = True
             if op.keys is not None:
                 rec["keys"] = op.keys
+            if op.meta:
+                rec["meta"] = op.meta
+            else:
+                rec.pop("meta", None)
             if (rec["kind"] == "created" and rec.get("how") == "edit"
                     and not rec.get("app_rewrote")):
                 # built from empty: what the owner's undo leaves of it is not
@@ -1014,7 +1081,8 @@ class App:
                 return
             except (ValueError, AttributeError):
                 pass
-        undo = self._undo_for(owner_name, p)
+        # an adopted file is ours whole: no undo, the user's version is saved aside
+        undo = None if rec.get("how") == "owned" else self._undo_for(owner_name, p)
         if undo is not None:
             try:
                 _inplace_write(p, undo(cur.decode("utf-8")).encode("utf-8"))
@@ -1239,6 +1307,8 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
         else:
             app.info("%s: up to date" % name)
     app.sync_niri(dry_run=dry_run, extra_ids=planned)
+    if not from_hook:
+        warn_hand_files(app)
 
 
 def cmd_remove(app, only=None):
@@ -1436,7 +1506,123 @@ def cmd_sync(app, settings_file, dry_run=False):
     cmd_apply_all(app, dry_run=dry_run)
 
 
+def adopt_owner(app, adapter):
+    """The owner name that takes a hand file of adapter, or None."""
+    from . import adapters
+    a = adapters.BY_NAME.get(adapter) if adapter else None
+    if a is None:
+        return None
+    if a.NAME == "niri-fallback":
+        return "niri"
+    if a.FAMILY and a.FAMILY in app.families:
+        return a.FAMILY
+    return None
+
+
+def adopt_path(app, p, owner):
+    """Record p (a regular file) as owner's, backed up: an owned file that
+    remove restores byte-identical."""
+    env, st = app.env, app.state
+    p = os.path.abspath(p)
+    other = st.owner_of(p)
+    if other is not None:
+        raise Conflict("%s is managed by appglass '%s'" % (env.tilde(p), other))
+    if os.path.islink(p) or not os.path.isfile(p):
+        raise Conflict("%s is not a regular file" % env.tilde(p))
+    env.guard(p)
+    env.guard(st.path)
+    cur = _read(p)
+    o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
+    o.setdefault("files", {})[p] = dict(app.backup(p, cur), kind="modified", how="owned",
+                                       sha256=sha(cur), adopted=True)
+    st.save()
+    return p
+
+
+def cmd_adopt(app, paths=None, dry_run=False):
+    """Hand the known hand-made files to appglass: each is backed up and
+    recorded as its owner's (restored byte-identical on remove); the owner
+    regenerates it on the next apply. Returns the adopted paths."""
+    env, st = app.env, app.state
+    from . import adapters
+    known = {os.path.join(env.home, rel): h
+             for (rel, _, _), h in zip(adapters.HAND_FILES, hand_files(app))}
+    if paths:
+        todo = []
+        for p in paths:
+            ap = os.path.join(env.home, p[2:]) if p.startswith("~/") else os.path.abspath(p)
+            if ap not in known:
+                raise AppglassError("adopt: %s is not a hand-made file appglass knows "
+                                    "(appglass status lists them)" % env.tilde(ap))
+            todo.append(ap)
+    else:
+        todo = [p for p, h in sorted(known.items()) if h["status"] == "conflict"]
+    done = []
+    verb = "would adopt" if dry_run else "adopted"
+    for p in todo:
+        h = known[p]
+        t = env.tilde(p)
+        if h["status"] in ("adopted", "owned"):
+            app.info("adopt: %s is already appglass's (%s)" % (t, h["owner"]))
+            continue
+        if h["status"] == "absent":
+            app.info("adopt: %s does not exist" % t)
+            continue
+        owner = adopt_owner(app, h["adapter"])
+        if owner is None:
+            app.warn("adopt: %s: its owner (%s) is not implemented yet; left as is"
+                     % (t, h["adapter"] or "no adapter"))
+            continue
+        if os.path.islink(p) or not os.path.isfile(p):
+            app.warn("adopt: %s is not a regular file; left as is" % t)
+            continue
+        if dry_run:
+            app.info("adopt: %s %s (owner %s, original backed up)" % (verb, t, owner))
+            done.append(p)
+            continue
+        adopt_path(app, p, owner)
+        app.info("adopt: %s %s (owner %s, original backed up)" % (verb, t, owner))
+        done.append(p)
+    return done
+
+
+def warn_hand_files(app):
+    for h in hand_files(app):
+        if h["status"] != "conflict":
+            continue
+        if adopt_owner(app, h["adapter"]):
+            app.warn("%s is a hand-made file (%s); appglass leaves it alone until "
+                     "appglass adopt %s" % (h["path"], h["what"], h["path"]))
+        else:
+            app.warn("%s is a hand-made file (%s); its owner (%s) is not implemented "
+                     "yet, left alone" % (h["path"], h["what"], h["adapter"] or "none"))
+
+
 def cmd_apply_all(app, dry_run=False, adopt=False):
+    """apply for every detected app with a working adapter: the families,
+    the niri fallback (detected fallback apps get the value-mode block) and
+    games (opaque); hand files adopted first with --adopt."""
+    from . import niri
+    if app.settings_error:
+        raise AppglassError("settings.json is invalid (%s)" % app.settings_error)
+    routes = app_routes(app)
+    fb, games = [], []
+    for r, route in routes:
+        if route["effective"] == "fallback":
+            fb.extend(x for x in r["app_ids"] if x not in fb)
+        elif route["effective"] == "opaque":
+            games.extend(x for x in r["app_ids"]
+                         if x not in games and not niri.is_game_id(x))
+    app.fallback_ids, app.game_ids = fb, games
+    counts = {}
+    for r, route in routes:
+        counts[route["effective"]] = counts.get(route["effective"], 0) + 1
+    app.info("apps: %s" % ", ".join("%d %s" % (n, k) for k, n in sorted(counts.items())))
+    for r, route in routes:
+        app.info("  %-34s %-12s %-16s %-9s %s" % (r["key"][:34], r["toolkit"], route["adapter"],
+                                                route["effective"], route["reason"]))
+    if adopt:
+        cmd_adopt(app, None, dry_run=dry_run)
     cmd_apply(app, dry_run=dry_run)
 
 
@@ -1492,8 +1678,17 @@ def main(argv=None, environ=None, out=None, err=None):
     scope.add_argument("--from-hook", action="store_true",
                        help="re-apply only the families already applied (the "
                             "matugen post_hook runs this on every theme change)")
+    scope.add_argument("--all", action="store_true",
+                       help="every detected app with a working adapter (families, "
+                            "niri fallback, games)")
+    a.add_argument("--adopt", action="store_true",
+                   help="with --all: adopt the known hand-made files first")
     a.add_argument("--dry-run", action="store_true")
     a.add_argument("--quiet", action="store_true")
+    ad = sub.add_parser("adopt", help="hand known hand-made files to appglass (backed up)")
+    ad.add_argument("paths", nargs="*", help="files to adopt (default: every one appglass "
+                                             "has an owner for)")
+    ad.add_argument("--dry-run", action="store_true")
     r = sub.add_parser("remove", help="restore every file appglass touched")
     r.add_argument("--only", help="comma-separated family names")
     sp = sub.add_parser("status", help="show colours, levels, applied families and app routes")
@@ -1526,12 +1721,18 @@ def main(argv=None, environ=None, out=None, err=None):
     created = []
     try:
         env = Env(environ)
-        if (args.cmd in ("apply", "remove", "hook", "set", "sync", "learn")
+        if (args.cmd in ("apply", "remove", "hook", "set", "sync", "learn", "adopt")
                 and not getattr(args, "dry_run", False) and not getattr(args, "json", False)):
             lockf, created = _lock(env)
         app = App(environ, out=out, err=err, quiet=quiet)
-        if args.cmd == "apply":
+        if args.cmd == "apply" and args.all:
+            cmd_apply_all(app, dry_run=args.dry_run, adopt=args.adopt)
+        elif args.cmd == "apply":
+            if args.adopt:
+                raise AppglassError("apply: --adopt goes with --all")
             cmd_apply(app, args.only, args.dry_run, from_hook=args.from_hook)
+        elif args.cmd == "adopt":
+            cmd_adopt(app, args.paths, dry_run=args.dry_run)
         elif args.cmd == "remove":
             cmd_remove(app, args.only)
         elif args.cmd == "status":

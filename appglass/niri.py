@@ -168,18 +168,43 @@ def validate(env, cfg):
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
+ADOPTED_STUB = """\
+// appglass: this file was hand-made; appglass adopted it and keeps it empty.
+// Its rules live in appglass.kdl now (fallback.mode in appglass settings).
+// appglass remove puts the original back.
+"""
+
+
+def is_game_id(rx):
+    return rx in GAME_IDS or bool(re.match(r"^\^steam_app_\d+\$$", rx))
+
+
+def _adopted(app):
+    o = app.state.owners.get("niri", {})
+    return sorted(p for p, r in o.get("files", {}).items() if r.get("adopted"))
+
+
 def rule_inputs(app):
-    """render() keyword arguments from settings.json and the detected apps."""
+    """render() keyword arguments from settings.json and the detected apps
+    (apply --all sets app.fallback_ids/game_ids; other runs reuse the ones
+    recorded at the last apply --all)."""
     from . import settings as _settings
     fb = app.settings.get("fallback", {})
+    rec = app.state.owners.get("niri", {})
+    fallback_ids = getattr(app, "fallback_ids", None)
+    game_ids = getattr(app, "game_ids", None)
+    if fallback_ids is None:
+        fallback_ids = rec.get("fallback_ids", [])
+    if game_ids is None:
+        game_ids = rec.get("game_ids", [])
     return {
         "fallback": fb.get("mode", "opaque"),
         "value": fb.get("value", 0.70),
         "inactive": fb.get("inactive"),
-        "fallback_ids": list(getattr(app, "fallback_ids", ())),
-        "games": list(getattr(app, "game_ids", ())),
+        "fallback_ids": list(fallback_ids),
+        "games": list(game_ids),
         "_wanted": os.path.isfile(_settings.path(app.env))
-        or bool(getattr(app, "fallback_ids", ())) or bool(getattr(app, "game_ids", ())),
+        or bool(fallback_ids) or bool(game_ids) or bool(_adopted(app)),
     }
 
 
@@ -215,7 +240,19 @@ def sync(app, dry_run=False, extra_ids=()):
                 fn = _same
         # a deleted config.kdl stays deleted (the core warns once)
         ctx.edit_text(cfg, fn, undo=strip_include)
+        for p in _adopted(app):
+            ctx.write_owned(p, ADOPTED_STUB)
         changed = app.commit(ctx, dry_run=dry_run)
+        if not dry_run and "niri" in app.state.owners:
+            o = app.state.owners["niri"]
+            for k in ("fallback_ids", "game_ids"):
+                v = getattr(app, k, None)
+                if v is not None:
+                    if v:
+                        o[k] = list(v)
+                    else:
+                        o.pop(k, None)
+            app.state.save()
     except Conflict as ex:
         app.warn("niri: skipped: %s" % ex)
         return []
