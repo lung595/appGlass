@@ -165,6 +165,20 @@ class Adopt(unittest.TestCase):
         self.assertEqual(self.sb.run("remove")[0], 0)
         self.assertEqual(self.sb.readb(self.hand), before_adopt)
 
+    def test_apply_all_adopt_dry_run(self):
+        before = self.sb.tree_hash()
+        code, out, err = self.sb.run("apply", "--all", "--adopt", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("would adopt ~/.config/niri/appglass-test.kdl", out)
+        self.assertIn("niri: would write ~/.config/niri/appglass-test.kdl (a comment stub", out)
+        self.assertNotIn("leaves it alone", err)
+        self.assertEqual(self.sb.tree_hash(), before)
+        code, out, err = self.sb.run("apply", "--all", "--adopt")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.read(self.hand), niri.ADOPTED_STUB)
+        self.assertEqual(self.sb.run("remove")[0], 0)
+        self.assertEqual(self.sb.read(self.hand), HAND_KDL)
+
     def test_adopt_unknown_and_unimplemented(self):
         code, out, err = self.sb.run("adopt", self.sb.cfg("niri", "config.kdl"))
         self.assertEqual(code, 1)

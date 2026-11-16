@@ -1587,6 +1587,8 @@ def cmd_adopt(app, paths=None, dry_run=False):
 
 
 def warn_hand_files(app):
+    if getattr(app, "hand_files_reported", False):
+        return          # apply --all --adopt said it per file already
     for h in hand_files(app):
         if h["status"] != "conflict":
             continue
@@ -1621,9 +1623,15 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
     for r, route in routes:
         app.info("  %-34s %-12s %-16s %-9s %s" % (r["key"][:34], r["toolkit"], route["adapter"],
                                                 route["effective"], route["reason"]))
+    would = []
     if adopt:
-        cmd_adopt(app, None, dry_run=dry_run)
+        would = cmd_adopt(app, None, dry_run=dry_run)
+        app.hand_files_reported = True
     cmd_apply(app, dry_run=dry_run)
+    if dry_run:
+        for p in would:
+            app.info("niri: would write %s (a comment stub; its rules are in appglass.kdl)"
+                     % app.env.tilde(p))
 
 
 def detected(app):
