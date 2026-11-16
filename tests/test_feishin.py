@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -68,6 +69,22 @@ exit 0
         self.assertTrue(any("--inspect=127.0.0.1:0" in c for c in calls), calls)
         self.assertEqual(os.listdir(os.path.join(rt, "appglass")), [])
         self.assertEqual(os.stat(os.path.join(rt, "appglass")).st_mode & 0o777, 0o700)
+
+    def test_css_takes_only_hex_colours(self):
+        self.enable()
+        self.apply()
+        p = os.path.join(self.w.sb.cache, "dms", "dms-colors.json")
+        d = json.loads(self.w.sb.read(p))
+        d["mode"] = "dark"
+        d["colors"]["dark"]["surface"] = "#1/;w x"
+        with open(p, "w") as f:
+            json.dump(d, f)
+        rt = self.w.sb.path("run")
+        os.makedirs(rt, mode=0o700)
+        self.wrapper(rt)
+        css = self.w.sb.read(self.w.user(self.CSS))
+        self.assertIn("#root { background: rgba(16, 20, 24, ", css)   # 101418, the fallback
+        self.assertFalse(os.path.exists(os.path.join(self.w.sb.root, " x")))
 
     def test_no_private_runtime_dir_no_inspector(self):
         self.enable()

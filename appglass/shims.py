@@ -113,6 +113,22 @@ def levels(ctx):
 _FIELD = {"@@", "@@u", "@@f"}
 
 
+_RESERVED = set(" \t\n\"'\\><~|&;$*?#()`")
+
+
+def desktop_quote(arg):
+    """One Exec= argument, quoted as the Desktop Entry spec says: in double
+    quotes when it holds a reserved character, with " ` $ \\ escaped by a
+    backslash; then the string-value escape doubles every backslash; a
+    literal % is %%."""
+    if "\n" in arg or "\r" in arg:
+        raise ValueError("no Exec= argument can hold a line break: %r" % arg)
+    if any(c in _RESERVED for c in arg) or not arg:
+        arg = '"%s"' % re.sub(r'(["`$\\])', r"\\\1", arg)
+        arg = arg.replace("\\", "\\\\")
+    return arg.replace("%", "%%")
+
+
 def exec_to(text, wrapper_path, app_id=None, command=None):
     """Point every Exec= at wrapper_path, keeping the arguments after the
     app (flatpak: after app_id, with the @@ file-forwarding marks dropped;
@@ -128,7 +144,7 @@ def exec_to(text, wrapper_path, app_id=None, command=None):
                 return m.group(0)
             rest = words[1:]
         rest = [w for w in rest if w not in _FIELD]
-        return "Exec=" + " ".join([wrapper_path] + rest)
+        return "Exec=" + " ".join([desktop_quote(wrapper_path)] + rest)
     return re.sub(r"(?m)^Exec=(.*)$", one, text)
 
 

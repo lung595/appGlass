@@ -10,7 +10,7 @@ b=$(printf '%s' "$lv" | jq -r '.bar_over_content // empty' 2>/dev/null); [ -n "$
 mode=$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null) || mode=dark
 rgb() {  # DMS colour key -> "r, g, b"
     h=$(jq -r --arg m "$mode" --arg k "$1" '.colors[$m][$k] // empty' "$COLORS" 2>/dev/null | tr -d '#')
-    [ ${#h} -eq 6 ] || h=$2
+    printf '%s' "$h" | grep -qxE '[0-9a-fA-F]{6}' || h=$2   # nothing else reaches sed
     printf '%d, %d, %d' "0x$(echo $h | cut -c1-2)" "0x$(echo $h | cut -c3-4)" "0x$(echo $h | cut -c5-6)"
 }
 os=$(rgb on_surface e4e3d6)

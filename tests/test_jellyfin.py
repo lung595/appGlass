@@ -1,5 +1,7 @@
+import json
 import os
 import re
+import subprocess
 import unittest
 
 from fixtures.shimcase import ShimCase
@@ -43,6 +45,29 @@ class Jellyfin(ShimCase, unittest.TestCase):
         css = self.w.sb.read(self.w.user(self.CSS))
         self.assertNotIn("{{", css)
         self.assertRegex(css, r"\d+, \d+, \d+")
+
+    def test_gen_css_takes_only_hex_colours(self):
+        """A colour that is not 6 hex digits (here one that would end the
+        sed expression and add a command) falls back to the built-in one."""
+        self.enable()
+        self.apply()
+        p = os.path.join(self.w.sb.cache, "dms", "dms-colors.json")
+        d = json.loads(self.w.sb.read(p))
+        d["mode"] = "dark"
+        d["colors"]["dark"]["surface_container"] = "#1/;w x"
+        d["colors"]["dark"]["on_surface"] = "#ABCDEF"
+        with open(p, "w") as f:
+            json.dump(d, f)
+        lib = self.w.user(L)
+        out = os.path.join(self.w.sb.root, "gen.css")
+        r = subprocess.run([os.path.join(lib, "gen-css.sh"),
+                            os.path.join(lib, "jellyfin-glass.css.tmpl"), out],
+                           env=self.w.sb.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        css = self.w.sb.read(out)
+        self.assertIn("rgb(33, 34, 26)", css)                    # 21221a, the fallback
+        self.assertIn("rgb(171, 205, 239)", css)                 # ABCDEF taken
+        self.assertFalse(os.path.exists(os.path.join(self.w.sb.root, " x")))
 
 
 if __name__ == "__main__":
