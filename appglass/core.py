@@ -1374,10 +1374,15 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
             continue
         if dry_run:
             planned.extend(ids)
-        verb = "would write" if dry_run else "wrote"
-        if changed:
-            app.info("%s: %s %s" % (name, verb, ", ".join(changed)))
-        else:
+        gone = [p for p in changed if p in ctx.ops and ctx.ops[p].kind == "retire"]
+        wrote = [p for p in changed if p not in gone]
+        if wrote:
+            app.info("%s: %s %s" % (name, "would write" if dry_run else "wrote",
+                                    ", ".join(wrote)))
+        if gone:
+            app.info("%s: %s %s (retired, restored by remove)"
+                     % (name, "would delete" if dry_run else "deleted", ", ".join(gone)))
+        if not changed:
             app.info("%s: up to date" % name)
     app.sync_niri(dry_run=dry_run, extra_ids=planned)
     if not from_hook:
