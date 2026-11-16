@@ -1,0 +1,40 @@
+#!/usr/bin/sh
+# appglass-artcraft: start the ArtCraft Launcher (egui/wgpu) with a glass window.
+# The launcher draws through Vulkan by default, whose buffers carry no alpha. This wrapper moves it to
+# Mesa EGL + wgpu's GL backend (llvmpipe: CPU rendering, NVIDIA GL makes wgpu fail adapter selection)
+# and LD_PRELOADs appglass-ck.so, which colour-keys the launcher's own dark background colours to
+# the DMS glass levels and sends no opaque region (so niri keeps the blur under the window on
+# partial repaints). llvmpipe is held to 4 threads and the shim caps swaps at APPGLASS_MAXFPS
+# (60 by default: the launcher otherwise renders as fast as the 240 Hz output asks, on the CPU).
+# APPGLASS_SCRUB keeps all of this out of the apps the launcher starts.
+# Keys are for the launcher's dark theme; with a light system theme it starts plain (opaque, GPU).
+# Plain start on demand: APPGLASS_ARTCRAFT=off appglass-artcraft
+# Undo: appglass remove --only artcraft
+set -u
+LIB="$HOME/.local/lib/appglass/artcraft"
+BIN=/usr/bin/artcraft-launcher
+MESA=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
+plain() { exec "$BIN" "$@"; }
+[ "${APPGLASS_ARTCRAFT:-on}" = off ] && plain "$@"
+[ -f "$LIB/appglass-ck.so" ] && [ -f "$MESA" ] || plain "$@"
+case "$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" in
+    *prefer-light*) plain "$@" ;;
+    *prefer-dark*) ;;
+    *) [ "$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null)" = light ] && plain "$@" ;;
+esac
+lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
+[ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
+c=$(printf '%s' "$lv" | jq -r '.content')
+b=$(printf '%s' "$lv" | jq -r '.bar')
+# only scrub what this wrapper adds: a value the user already set is passed on as before
+scrub=''
+[ -n "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" ] || scrub="$scrub __EGL_VENDOR_LIBRARY_FILENAMES"
+[ -n "${WGPU_BACKEND:-}" ] || scrub="$scrub WGPU_BACKEND"
+[ -n "${LP_NUM_THREADS:-}" ] || scrub="$scrub LP_NUM_THREADS"
+[ -n "${APPGLASS_MAXFPS:-}" ] || scrub="$scrub APPGLASS_MAXFPS"
+exec env __EGL_VENDOR_LIBRARY_FILENAMES="$MESA" WGPU_BACKEND=gl LP_NUM_THREADS="${LP_NUM_THREADS:-4}" \
+    LD_PRELOAD="$LIB/appglass-ck.so${LD_PRELOAD:+ $LD_PRELOAD}" \
+    APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 \
+    APPGLASS_MAXFPS="${APPGLASS_MAXFPS:-60}" APPGLASS_SCRUB="${scrub# }" \
+    "$BIN" "$@"

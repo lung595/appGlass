@@ -1644,8 +1644,8 @@ def cmd_sync(app, settings_file, dry_run=False):
     cmd_apply_all(app, dry_run=dry_run)
 
 
-def adopt_owner(app, adapter):
-    """The owner name that takes a hand file of adapter, or None."""
+def adopt_owner(app, adapter, path=""):
+    """The owner name that takes the hand file path of adapter, or None."""
     from . import adapters
     if adapter == "hook":
         return "hook"         # the sync units and script: appglass hook install
@@ -1654,9 +1654,8 @@ def adopt_owner(app, adapter):
         return None
     if a.NAME == "niri-fallback":
         return "niri"
-    if a.FAMILY and a.FAMILY in app.families:
-        return a.FAMILY
-    return None
+    return adapters.hand_family(a, os.path.relpath(path, app.env.home) if path else "",
+                                app.families)
 
 
 def adopt_path(app, p, owner, dry_run=False):
@@ -1721,7 +1720,7 @@ def cmd_adopt(app, paths=None, dry_run=False):
         if h["status"] == "absent":
             app.info("adopt: %s does not exist" % t)
             continue
-        owner = adopt_owner(app, h["adapter"])
+        owner = adopt_owner(app, h["adapter"], p)
         if owner is None:
             app.warn("adopt: %s: its owner (%s) is not implemented yet; left as is"
                      % (t, h["adapter"] or "no adapter"))
@@ -1793,7 +1792,9 @@ def warn_hand_files(app):
     for h in hand_files(app):
         if h["status"] != "conflict":
             continue
-        if adopt_owner(app, h["adapter"]):
+        t = h["path"]
+        if adopt_owner(app, h["adapter"], os.path.join(app.env.home, t[2:])
+                       if t.startswith("~/") else t):
             app.warn("%s is a hand-made file (%s); appglass leaves it alone until "
                      "appglass adopt %s" % (h["path"], h["what"], h["path"]))
         else:

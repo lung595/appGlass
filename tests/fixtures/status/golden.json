@@ -1,6 +1,9 @@
 {
   "adapters": [
     {
+      "families": [
+        "alacritty"
+      ],
       "family": "alacritty",
       "implemented": true,
       "name": "terminal",
@@ -13,6 +16,9 @@
       "why": ""
     },
     {
+      "families": [
+        "gtk4"
+      ],
       "family": "gtk4",
       "implemented": true,
       "name": "gtk4",
@@ -26,6 +32,9 @@
       "why": "every GTK4 app reads the file; unlisted ones get double translucency"
     },
     {
+      "families": [
+        "gtk3"
+      ],
       "family": "gtk3",
       "implemented": true,
       "name": "gtk3",
@@ -38,6 +47,9 @@
       "why": ""
     },
     {
+      "families": [
+        "obsidian"
+      ],
       "family": "obsidian",
       "implemented": true,
       "name": "electron-builtin",
@@ -48,6 +60,9 @@
       "why": ""
     },
     {
+      "families": [
+        "herdr"
+      ],
       "family": "herdr",
       "implemented": true,
       "name": "gpui-json",
@@ -60,6 +75,9 @@
       "why": ""
     },
     {
+      "families": [
+        "dux"
+      ],
       "family": "dux",
       "implemented": true,
       "name": "dux-json",
@@ -70,6 +88,9 @@
       "why": ""
     },
     {
+      "families": [
+        "qtstyle"
+      ],
       "family": "qtstyle",
       "implemented": true,
       "name": "qt-style",
@@ -82,6 +103,7 @@
       "why": ""
     },
     {
+      "families": [],
       "family": null,
       "implemented": false,
       "name": "kvantum",
@@ -92,6 +114,7 @@
       "why": ""
     },
     {
+      "families": [],
       "family": null,
       "implemented": false,
       "name": "gecko",
@@ -104,6 +127,9 @@
       "why": ""
     },
     {
+      "families": [
+        "vencord"
+      ],
       "family": "vencord",
       "implemented": true,
       "name": "electron-vencord",
@@ -114,6 +140,9 @@
       "why": "client mods break Discord's terms of service"
     },
     {
+      "families": [
+        "feishin"
+      ],
       "family": "feishin",
       "implemented": true,
       "name": "electron-hook",
@@ -126,6 +155,9 @@
       "why": "may break on app updates"
     },
     {
+      "families": [
+        "lianli"
+      ],
       "family": "lianli",
       "implemented": true,
       "name": "webkit-shim",
@@ -138,6 +170,9 @@
       "why": ""
     },
     {
+      "families": [
+        "jellyfin"
+      ],
       "family": "jellyfin",
       "implemented": true,
       "name": "qtquick-shim",
@@ -151,6 +186,10 @@
       "why": "video playback breaks until the shim re-shows mpv"
     },
     {
+      "families": [
+        "localsend",
+        "artcraft"
+      ],
       "family": "localsend",
       "implemented": true,
       "name": "ck-shim",
@@ -167,6 +206,7 @@
       "why": "may force software rendering"
     },
     {
+      "families": [],
       "family": null,
       "implemented": false,
       "name": "steam-cdp",
@@ -179,6 +219,7 @@
       "why": "any local process can drive the logged-in client while it runs"
     },
     {
+      "families": [],
       "family": null,
       "implemented": false,
       "name": "obs-plugin",
@@ -189,6 +230,7 @@
       "why": ""
     },
     {
+      "families": [],
       "family": null,
       "implemented": true,
       "name": "niri-fallback",
@@ -199,6 +241,7 @@
       "why": "text fades too in value mode"
     },
     {
+      "families": [],
       "family": null,
       "implemented": true,
       "name": "games",
@@ -212,6 +255,7 @@
       "why": ""
     },
     {
+      "families": [],
       "family": null,
       "implemented": true,
       "name": "browserglass",
@@ -224,6 +268,7 @@
       "why": ""
     },
     {
+      "families": [],
       "family": null,
       "implemented": true,
       "name": "excluded",
@@ -491,6 +536,11 @@
       "enabled": true,
       "installed": true
     },
+    "artcraft": {
+      "applied": [],
+      "enabled": false,
+      "installed": false
+    },
     "dux": {
       "applied": [],
       "enabled": true,
@@ -651,6 +701,38 @@
       "path": "~/.local/lib/appglass/localsend/appglass-ck.c",
       "status": "absent",
       "what": "the colour-key shim source"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/share/applications/ai.storyteller.artcraft-launcher.desktop",
+      "status": "absent",
+      "what": "ArtCraft shim launcher"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/bin/appglass-artcraft",
+      "status": "absent",
+      "what": "ArtCraft launch wrapper"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/artcraft/appglass-ck.so",
+      "status": "absent",
+      "what": "the colour-key shim (ArtCraft)"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/artcraft/appglass-ck.c",
+      "status": "absent",
+      "what": "the colour-key shim source (ArtCraft)"
     },
     {
       "adapter": "electron-hook",

@@ -67,9 +67,10 @@ class Status(unittest.TestCase):
         fams = core.discover()
         for a in adapters.CATALOGUE:
             self.assertIn(a.TIER, adapters.TIERS)
-            if a.FAMILY:
-                self.assertIn(a.FAMILY, fams, a.NAME)
-        self.assertEqual({a.FAMILY for a in adapters.CATALOGUE if a.FAMILY}, set(fams))
+            for f in a.FAMILIES:
+                self.assertIn(f, fams, a.NAME)
+            self.assertEqual(a.FAMILY, a.FAMILIES[0] if a.FAMILIES else None, a.NAME)
+        self.assertEqual({f for a in adapters.CATALOGUE for f in a.FAMILIES}, set(fams))
         for rel, ad, what in adapters.HAND_FILES:
             self.assertTrue(ad in (None, "hook") or ad in adapters.BY_NAME, rel)
 

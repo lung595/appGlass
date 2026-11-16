@@ -12,8 +12,8 @@ Files (owned; adopted hand files restored by remove):
   ~/.local/bin/appglass-localsend                  the launch wrapper (levels at launch)
   ~/.local/share/applications/org.localsend.localsend_app.desktop -> the wrapper
 
-Only LocalSend: other apps the catalogue routes to ck-shim (egui, winit...)
-need their own keys and are not handled here.
+Only LocalSend (ArtCraft is the artcraft family): other apps the catalogue
+routes to ck-shim (egui, winit...) need their own keys and are not handled here.
 """
 
 from .. import shims

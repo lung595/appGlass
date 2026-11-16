@@ -1,21 +1,21 @@
 # GPU-native Rust UIs (gpui, egui/wgpu)
 
 Herdr (gpui) reaches all three levels: 0.60 content, 0.65 bars and sidebar, 1.0 popups. It needs a theme file, one custom layout and a niri rule. One ANSI palette entry still needs a fix. Zed (gpui) is expected to work the same way, but this is documented only.
-ArtCraft Launcher (egui/wgpu) cannot be made transparent without a rebuild, so it keeps the global niri opacity.
+ArtCraft Launcher (egui/wgpu) gets glass through the forced `ck-shim` adapter (family `artcraft`, off until enabled): Mesa EGL + wgpu's GL backend plus the colour-key shim.
 
 ## Apps
 
 | App | Tested / Documented | Works | Method | niri rule needed |
 |---|---|---|---|---|
 | Herdr 0.1.16 (gpui) | Tested in a nested niri session, then re-checked from scratch | partial: all three levels work; ANSI bright-black is unreadable over light backdrops | Theme `themes/dankglass.json` with `#rrggbbaa` colours, plus a custom layout `layouts/glass.json` (`window_blur`, transparent root, `terminal_opacity: 0`), plus `shared.json` `layout: glass` | `match app-id="^herdr-app$"` + `opacity 1.0` |
-| ArtCraft Launcher 0.19.2 (eframe/egui + wgpu) | Tested (baseline only) | no | None. No theme or config file exists, and egui transparency is set at compile time | None: the global `opacity 0.60` rule is the fallback |
+| ArtCraft Launcher 0.19.2 (eframe/egui + wgpu) | Tested in a nested niri session (glass rules, scale 1.5, 1 Hz clock) | yes (forced, software GL) | `ck-shim` family `artcraft`: wrapper `appglass-artcraft` (Mesa EGL, `WGPU_BACKEND=gl`, llvmpipe 4 threads, 60 fps cap) + `appglass-ck.so` colour keys `121316`/`151517` (content) and `060607` (bar) | `opacity 1.0` (the shim supplies the alpha) |
 | Zed (gpui) | Documented (not installed) | expected yes, unverified | User copy of the DMS matugen template `dank-zed.json`, with `background.appearance` and alpha set per level | `match app-id="^dev\\.zed\\.Zed$"` + `opacity 1.0` (unverified) |
 
 ## Levels
 
 | Surface | Herdr (tested) | Zed (documented) | ArtCraft |
 |---|---|---|---|
-| Content 0.60 (alpha 153) | yes: work area, pane interior, pane header, gaps between panes, Files panel | expected: editor, terminal, gutter | no: whole window 255; fallback dims it all, text included |
+| Content 0.60 (alpha 153) | yes: work area, pane interior, pane header, gaps between panes, Files panel | expected: editor, terminal, gutter | yes with the shim (keys `121316`, `151517`) |
 | Bars / sidebar 0.65 (alpha 166) | yes: sidebar, brand bar, sidebar footer, tab bar, status bar | expected: panel, title bar, status bar, tab bar, toolbar, tabs | no |
 | Menus / popups 1.0 (alpha 255) | yes: command palette, `+` new-menu, Settings window, toast | expected: `elevated_surface.background` kept solid | n/a |
 | Text / icons / logos (255) | yes: glyph cores and the sheep logo at 255 | expected: text colours kept solid. The shipped template has alpha on `text.placeholder` and `text.disabled` | faded to 0.60 by the fallback |
@@ -153,13 +153,13 @@ Contrast ratios: to re-measure. The composites made so far treated the premultip
 - **Light mode.** Untested. The tested theme is dark only (`"appearance": "dark"`). A light theme needs its own `surface` values with the same alpha suffixes, plus solid muted text colours checked on light glass.
 - **Window width.** In a narrow window, opening the Files panel pushes the terminal out of view. This is a layout matter, not a glass one; the panel itself measured 0.60.
 
-## ArtCraft Launcher (fallback)
+## ArtCraft Launcher (ck-shim, family artcraft)
 
-- Binary `/usr/bin/artcraft-launcher` (rpm `artcraft-launcher-0.19.2`), built with eframe/egui, winit and wgpu.
-- Tested in a nested niri session: the window is fully opaque (alpha 255 everywhere). It has a dark UI with light text and greyscale app icons.
-- No config or theme file exists: only `.instance-token` and logs under `~/.local/share/artcraft-launcher`. The light/dark toggle has no opacity option. Its env vars (`ARTCRAFT_LAUNCHER_LOCALE`, `ARTCRAFT_LAUNCHER_PRETEND_VERSION`, `CRAFT_UPDATE_DEV`, `WINIT_*`) do not control transparency.
-- egui transparency (`ViewportBuilder::with_transparent(true)` plus a clear colour with alpha) is set at compile time, so it is out of scope.
-- Result: keep the global niri `opacity 0.60` rule, and add no app rule. Text, logos and icons fade with the window. The light-on-dark UI should stay readable, but this was not measured.
+- Binary `/usr/bin/artcraft-launcher` (rpm `artcraft-launcher-0.19.2`), built with eframe/egui, winit and wgpu. No config or theme file, and egui transparency is compile-time, so the glass comes from the shim.
+- `appglass apply --only artcraft` (after `apps.artcraft.enabled = true`, or `appglass adopt` of the hand-made files) builds `~/.local/lib/appglass/artcraft/appglass-ck.so`, writes `~/.local/bin/appglass-artcraft` and points the launcher's `Exec` at it. `APPGLASS_ARTCRAFT=off appglass-artcraft` starts it plain; a light system theme also starts it plain.
+- Vulkan buffers carry no alpha, so the wrapper moves the launcher to Mesa EGL + wgpu GL (llvmpipe). `APPGLASS_MAXFPS=60` caps swaps (it otherwise renders every frame a high-refresh output asks for, on the CPU); at idle it does not swap at all.
+- **Whole-window flash (fixed).** winit with `transparent: false` sends `wl_surface.set_opaque_region` covering the whole surface. niri then skips the blur and backdrop under the window on partial repaints but not on full ones. Any repaint elsewhere on the output (the DMS bar clock with seconds) re-rendered the window area over nothing: about 827k pixels went from glass to dark (alpha 207) once a second while the app was idle. The shim now sends a NULL opaque region for the app's own `wl_surface` while keys are set (all `wl_proxy_marshal_array*` entry points, so both C and dlopen clients are covered). After the fix only the clock pixels change per frame.
+- `APPGLASS_SCRUB` keeps the shim, its keys and the renderer overrides out of the apps the launcher starts (exec, posix_spawn and pidfd_spawn).
 - Note: the launcher ignores `--help` and starts normally, including its update check.
 
 ## Zed (documented only, unverified)

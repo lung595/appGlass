@@ -28,11 +28,15 @@ TIERS = (NATIVE, FORCED, MOD, FALLBACK, OPAQUE, DELEGATED, EXCLUDED)
 
 
 class Adapter:
-    __slots__ = ("NAME", "TIER", "RISK", "WHY", "TOOLKITS", "FAMILY", "SUMMARY")
+    __slots__ = ("NAME", "TIER", "RISK", "WHY", "TOOLKITS", "FAMILY", "FAMILIES", "SUMMARY")
 
     def __init__(self, name, tier, risk, toolkits=(), family=None, summary="", why=""):
+        # family: one family name, or a tuple when several apps share the
+        # adapter (FAMILY is the first, the toolkit default's family)
+        fams = (family,) if isinstance(family, str) else tuple(family or ())
         self.NAME, self.TIER, self.RISK, self.WHY = name, tier, risk, why
-        self.TOOLKITS, self.FAMILY, self.SUMMARY = tuple(toolkits), family, summary
+        self.TOOLKITS, self.SUMMARY = tuple(toolkits), summary
+        self.FAMILIES, self.FAMILY = fams, (fams[0] if fams else None)
 
     @property
     def implemented(self):
@@ -41,6 +45,7 @@ class Adapter:
     def as_dict(self):
         return {"name": self.NAME, "tier": self.TIER, "risk": self.RISK, "why": self.WHY,
                 "toolkits": list(self.TOOLKITS), "family": self.FAMILY,
+                "families": list(self.FAMILIES),
                 "implemented": self.implemented, "summary": self.SUMMARY}
 
 
@@ -74,7 +79,8 @@ CATALOGUE = (
     Adapter("qtquick-shim", FORCED, "medium-high", ["qt-webengine", "qt-quick"], "jellyfin",
             "a preload that sets the QML window alpha (Jellyfin)",
             "video playback breaks until the shim re-shows mpv"),
-    Adapter("ck-shim", FORCED, "high", ["flutter", "egui", "winit", "iced", "slint"], "localsend",
+    Adapter("ck-shim", FORCED, "high", ["flutter", "egui", "winit", "iced", "slint"],
+            ("localsend", "artcraft"),
             "a colour-key EGL shim",
             "may force software rendering"),
     Adapter("steam-cdp", FORCED, "medium", ["cef"], None,
@@ -123,6 +129,12 @@ HAND_FILES = (
     (".local/bin/appglass-localsend", "ck-shim", "LocalSend launch wrapper"),
     (".local/lib/appglass/localsend/appglass-ck.so", "ck-shim", "the colour-key shim"),
     (".local/lib/appglass/localsend/appglass-ck.c", "ck-shim", "the colour-key shim source"),
+    (".local/share/applications/ai.storyteller.artcraft-launcher.desktop", "ck-shim",
+     "ArtCraft shim launcher"),
+    (".local/bin/appglass-artcraft", "ck-shim", "ArtCraft launch wrapper"),
+    (".local/lib/appglass/artcraft/appglass-ck.so", "ck-shim", "the colour-key shim (ArtCraft)"),
+    (".local/lib/appglass/artcraft/appglass-ck.c", "ck-shim",
+     "the colour-key shim source (ArtCraft)"),
     (".local/share/applications/org.jeffvli.feishin.desktop", "electron-hook",
      "Feishin shim launcher"),
     (".local/bin/appglass-feishin", "electron-hook", "Feishin launch wrapper"),
@@ -163,6 +175,17 @@ def _any(rxs, names):
     return False
 
 
+def hand_family(adapter, rel, families):
+    """The family of adapter that owns the hand file rel: the only one, or
+    (an adapter several apps share) the one whose name is a word of the
+    path (.local/lib/appglass/artcraft/..., appglass-artcraft)."""
+    fams = [f for f in adapter.FAMILIES if f in families]
+    if len(adapter.FAMILIES) <= 1:
+        return fams[0] if fams else None
+    return next((f for f in fams if re.search(r"(^|[/._-])%s([/._-]|$)" % re.escape(f), rel)),
+                None)
+
+
 def family_for(rec, families):
     names = rec.get("names") or []
     for name in sorted(families):
@@ -194,10 +217,10 @@ def resolve(rec, families, settings=None):
         return out("games", OPAQUE, "game: always opaque")
     route = (settings.get("apps", {}).get(key) or {}).get("route")
     fam = family_for(rec, families)
-    if fam and route in BY_NAME and BY_NAME[route].FAMILY != fam:
+    if fam and route in BY_NAME and fam not in BY_NAME[route].FAMILIES:
         fam = None            # the user picked another adapter for this app
     if fam:
-        a = next((x for x in CATALOGUE if x.FAMILY == fam), None)
+        a = next((x for x in CATALOGUE if fam in x.FAMILIES), None)
         if getattr(families[fam], "OPT_IN", False):
             # forced / mod: off until apps.<family> or apps.<key> switches it on
             own = settings.get("apps", {}).get(fam) or {}

@@ -27,8 +27,7 @@ class LocalSend(ShimCase, unittest.TestCase):
     def test_other_ck_shim_apps_not_listed(self):
         from appglass import adapters
         from appglass.core import discover
-        rec = {"key": "ai.storyteller.artcraft-launcher", "toolkit": "egui",
-               "names": ["ai.storyteller.artcraft-launcher"]}
+        rec = {"key": "org.example.Iced", "toolkit": "iced", "names": ["org.example.Iced"]}
         r = adapters.resolve(rec, discover())
         self.assertEqual(r["adapter"], "ck-shim")
         self.assertIsNone(r["family"])
