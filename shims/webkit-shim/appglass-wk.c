@@ -10,6 +10,10 @@
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
 // Everything is resolved with dlsym, so in processes without GTK/WebKit
 // (WebKitWebProcess, NetworkProcess, helpers) the shim is inert.
+// At load (a constructor) it keeps its APPGLASS_* settings and takes them and
+// its own LD_PRELOAD entry out of the environment: the UI process does all the
+// work, so no child (the WebKit helpers, anything the app runs) inherits the
+// shim or the paths; other LD_PRELOAD entries stay.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdio.h>
@@ -19,7 +23,34 @@
 typedef struct { double r, g, b, a; } GdkRGBA;
 typedef int gboolean;
 
-static int dbg(void) { static int d = -1; if (d < 0) d = getenv("APPGLASS_DEBUG") != NULL; return d; }
+static int g_dbg;
+static char *g_css, *g_js, *g_js_start;   // APPGLASS_CSS, APPGLASS_JS, APPGLASS_JS_START
+static int dbg(void) { return g_dbg; }
+
+static char *take(const char *name) {   // the value, out of the environment
+    const char *v = getenv(name); char *c = v ? strdup(v) : NULL;
+    unsetenv(name); return c;
+}
+
+// LD_PRELOAD without the entries named appglass-wk.so (':' or ' ' separated)
+static void drop_preload(void) {
+    const char *v = getenv("LD_PRELOAD"); if (!v) return;
+    char *in = strdup(v), *out = calloc(1, strlen(v) + 1); if (!in || !out) { free(in); free(out); return; }
+    for (char *save = NULL, *t = strtok_r(in, ": ", &save); t; t = strtok_r(NULL, ": ", &save)) {
+        const char *b = strrchr(t, '/'); b = b ? b + 1 : t;
+        if (strcmp(b, "appglass-wk.so") == 0) continue;
+        if (*out) strcat(out, ":");
+        strcat(out, t);
+    }
+    if (*out) setenv("LD_PRELOAD", out, 1); else unsetenv("LD_PRELOAD");
+    free(in); free(out);
+}
+
+__attribute__((constructor)) static void appglass_wk_init(void) {
+    char *d = take("APPGLASS_DEBUG"); g_dbg = d != NULL; free(d);
+    g_css = take("APPGLASS_CSS"); g_js = take("APPGLASS_JS"); g_js_start = take("APPGLASS_JS_START");
+    drop_preload();
+}
 #define LOG(...) do { if (dbg()) { fprintf(stderr, "[appglass-wk] " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
 static void *sym(const char *n) { void *p = dlsym(RTLD_DEFAULT, n); if (!p) LOG("missing %s", n); return p; }
@@ -83,7 +114,7 @@ static void glassify(void *view) {
     void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
     void *ucm = get_ucm ? get_ucm(view) : NULL;
     if (!ucm) { LOG("no user content manager"); return; }
-    char *css = slurp(getenv("APPGLASS_CSS"));
+    char *css = slurp(g_css);
     if (css) {
         // webkit_user_style_sheet_new(src, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES=0, WEBKIT_USER_STYLE_LEVEL_USER=0, allow, block)
         void *(*ss_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_style_sheet_new");
@@ -93,7 +124,7 @@ static void glassify(void *view) {
         free(css);
     }
     for (int at = 0; at < 2; at++) {  // APPGLASS_JS_START: document start (0); APPGLASS_JS: document end (1)
-        char *js = slurp(getenv(at ? "APPGLASS_JS" : "APPGLASS_JS_START"));
+        char *js = slurp(at ? g_js : g_js_start);
         if (!js) continue;
         // webkit_user_script_new(src, ALL_FRAMES=0, INJECT_AT_DOCUMENT_START=0 / END=1, allow, block)
         void *(*sc_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_script_new");
