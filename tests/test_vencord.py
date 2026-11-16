@@ -117,6 +117,80 @@ class Vencord(unittest.TestCase):
         self.assertEqual(self.w.sb.read(tmpl), "old {{x}}\n")
         self.assertEqual(self.w.sb.read(theme), "hand theme\n")
 
+    HAND_SYNC = "#!/bin/sh\n~/.local/bin/appglass-vencord\nsed -i s/x/y/ vlc.desktop\n"
+
+    def hand_pieces(self):
+        script = self.w.hand(".local/bin/appglass-vencord", "#!/bin/sh\nold\n", 0o755)
+        tmpl = self.w.hand(".local/share/appglass/appglass-discord.css.tmpl", "old {{x}}\n")
+        return script, tmpl
+
+    def test_kept_while_the_hand_sync_runs(self):
+        """Adopted pieces stay while a hand-made appglass-sync (which calls
+        appglass-vencord) is not replaced by the hook."""
+        script, tmpl = self.hand_pieces()
+        sync = self.w.hand(".local/bin/appglass-sync", self.HAND_SYNC, 0o755)
+        self.enable()
+        out, err = self.run_ok("adopt", "~/.local/bin/appglass-vencord",
+                               "~/.local/share/appglass/appglass-discord.css.tmpl")
+        self.assertIn("hand-made ~/.local/bin/appglass-sync still runs", err)
+        out, err = self.run_ok("apply", "--only", "vencord")
+        self.assertIn("kept ~/.local/bin/appglass-vencord, "
+                      "~/.local/share/appglass/appglass-discord.css.tmpl", err)
+        self.assertEqual(self.w.sb.read(script), "#!/bin/sh\nold\n")
+        self.assertEqual(self.w.sb.read(tmpl), "old {{x}}\n")
+        st = self.w.state()["owners"]["vencord"]["files"]
+        self.assertTrue(st[script]["adopted"])              # still adopted
+        # adopting the hand sync script installs the hook over it at once
+        out, err = self.run_ok("adopt", "~/.local/bin/appglass-sync")
+        self.assertIn("replacing the hand-made sync script", out + err)
+        self.assertIn("bin/appglass-sync", self.w.sb.read(sync))
+        self.assertTrue(os.path.exists(self.w.user(".config/matugen/config.toml")))
+        self.run_ok("apply", "--only", "vencord")
+        self.assertFalse(os.path.exists(script))
+        self.assertFalse(os.path.exists(tmpl))
+        self.run_ok("remove")
+        self.assertEqual(self.w.sb.read(sync), self.HAND_SYNC)
+        self.assertEqual(self.w.sb.read(script), "#!/bin/sh\nold\n")
+        self.assertEqual(self.w.sb.read(tmpl), "old {{x}}\n")
+        self.assertEqual(self.w.sb.tree_hash(), self.before)
+
+    def test_adopt_all_replaces_the_hand_sync_in_the_same_run(self):
+        script, tmpl = self.hand_pieces()
+        sync = self.w.hand(".local/bin/appglass-sync", self.HAND_SYNC, 0o755)
+        self.enable()
+        before = self.w.sb.tree_hash()
+        out, err = self.run_ok("adopt", "--dry-run")
+        self.assertIn("would replace the hand-made sync script", out + err)
+        self.assertIn("hook: would write ~/.local/bin/appglass-sync", out + err)
+        self.assertEqual(self.w.sb.tree_hash(), before)
+        self.run_ok("adopt")
+        self.assertIn("bin/appglass-sync", self.w.sb.read(sync))
+        out, err = self.run_ok("apply", "--only", "vencord")
+        self.assertNotIn("kept", err)
+        self.assertFalse(os.path.exists(script))
+        self.run_ok("remove")
+        self.assertEqual(self.w.sb.read(sync), self.HAND_SYNC)
+        self.assertEqual(self.w.sb.tree_hash(), self.before)
+
+    def test_apply_all_adopt_dry_run_then_real(self):
+        script, tmpl = self.hand_pieces()
+        sync = self.w.hand(".local/bin/appglass-sync", self.HAND_SYNC, 0o755)
+        before = self.w.sb.tree_hash()
+        code, out, err = self.w.run("apply", "--all", "--adopt", "--dry-run", assume="vencord")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.w.sb.tree_hash(), before)
+        self.assertIn("hook: would write ~/.local/bin/appglass-sync", out)
+        self.assertIn("vencord: would delete %s, %s (retired" % (script, tmpl), out)
+        code, out, err = self.w.run("apply", "--all", "--adopt", assume="vencord")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("kept", err)
+        self.assertIn("bin/appglass-sync", self.w.sb.read(sync))
+        self.assertFalse(os.path.exists(script))
+        self.assertFalse(os.path.exists(tmpl))
+        self.assertEqual(self.w.run("remove")[0], 0)
+        self.assertEqual(self.w.sb.read(sync), self.HAND_SYNC)
+        self.assertEqual(self.w.sb.read(script), "#!/bin/sh\nold\n")
+
 
 if __name__ == "__main__":
     unittest.main()

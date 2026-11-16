@@ -18,7 +18,9 @@ sync unit (bin/appglass-sync) re-injects it with the installer kept in
 
 Hand pieces this replaces, once adopted, are retired (deleted on apply,
 restored by remove): ~/.local/bin/appglass-vencord and
-~/.local/share/appglass/appglass-discord.css.tmpl.
+~/.local/share/appglass/appglass-discord.css.tmpl. Not while a hand-made
+~/.local/bin/appglass-sync, which calls them, still runs: they are kept as
+they are until hook install (adopt does it) replaces that script.
 """
 
 import json
@@ -106,10 +108,20 @@ def apply(ctx):
         paths.append(ctx.merge_json(sp, {"transparent": True,
                                          "enabledThemes": have + [t for t in THEMES
                                                                   if t not in have]}))
+    from .. import hook
+    live, kept = hook.hand_sync_live(ctx.app), []
     for rel in RETIRED:
-        p = ctx.retire(os.path.join(env.home, rel))
+        p = os.path.join(env.home, rel)
+        if live and ctx.keep_adopted(p):
+            kept.append(env.tilde(p))   # the hand sync script still uses it
+            continue
+        p = ctx.retire(p)
         if p:
             paths.append(p)
+    if kept:
+        ctx.warn_once("hand-sync", "kept %s: the hand-made %s still uses them; appglass "
+                      "hook install replaces that script, then apply retires them"
+                      % (", ".join(kept), env.tilde(hook.sync_path(env))))
     if injected(env):
         ctx.app_ids = list(APP_IDS)
     else:

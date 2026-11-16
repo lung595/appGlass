@@ -703,6 +703,17 @@ class Ctx:
         data = text.encode("utf-8") if isinstance(text, str) else bytes(text)
         return self._add(path, Op("owned", data, meta=meta, mode=mode))
 
+    def keep_adopted(self, path):
+        """An adopted file kept as it is (owned, same bytes and mode): a hand
+        piece that cannot be retired yet. Returns the path, or None when it is
+        not adopted or no longer there."""
+        path = os.path.abspath(path)
+        rec = self._record(path)
+        if rec is None or not rec.get("adopted") or not os.path.isfile(path) \
+                or os.path.islink(path):
+            return None
+        return self.write_owned(path, _read(path), mode=_mode(path))
+
     def retire(self, path):
         """A hand file whose job appglass took over: once adopted, it is
         deleted on apply (its backup kept) and restored by remove. A file
@@ -1697,7 +1708,29 @@ def cmd_adopt(app, paths=None, dry_run=False):
         app.info("adopt: %s %s (owner %s, original backed up)" % (verb, t, owner))
         done.append(p)
     _enable_adopted(app, done, dry_run)
+    _replace_hand_sync(app, done, dry_run)
     return done
+
+
+def _replace_hand_sync(app, adopted, dry_run):
+    """The hand-made sync script and units adopted: hook install replaces
+    them in the same run. Left as they are, the hand script would keep
+    running the hand pieces the families retire (appglass-vencord) and
+    editing the launchers they own (vlc.desktop)."""
+    from . import hook
+    if hook.installed(app):
+        return
+    if any(app.state.owner_of(p) == "hook" for p in adopted):
+        app.info("adopt: %s the hand-made sync script and units with the hook"
+                 % ("would replace" if dry_run else "replacing"))
+        hook.install(app, dry_run=dry_run)
+        if dry_run:
+            app.hook_planned = True
+        return
+    sync = hook.sync_path(app.env)
+    if os.path.lexists(sync) and adopted:
+        app.warn("adopt: the hand-made %s still runs; appglass adopt %s (or appglass "
+                 "hook install) replaces it" % (app.env.tilde(sync), app.env.tilde(sync)))
 
 
 def _enable_adopted(app, paths, dry_run):

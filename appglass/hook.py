@@ -169,6 +169,20 @@ def undo_for(app, path):
     return None
 
 
+def installed(app):
+    """hook install ran (its matugen section is recorded), not only adopt."""
+    o = app.state.owners.get("hook")
+    return bool(o) and config_path(app.env) in o.get("files", {})
+
+
+def hand_sync_live(app):
+    """A hand-made ~/.local/bin/appglass-sync, not replaced by hook install
+    (nor about to be, in an adopt dry run): it still runs the hand pieces."""
+    if installed(app) or getattr(app, "hook_planned", False):
+        return False
+    return os.path.lexists(sync_path(app.env))
+
+
 def record_enabled(app, sd):
     """Fill in sd[key] (was the unit enabled?) for every unit not known yet;
     nothing without systemctl. Returns sd."""
