@@ -137,6 +137,7 @@ appglass remove [--only a,b]
 appglass get [key] | set key value [--apply]
 appglass sync --settings-file F [--dry-run]  # the DMS plugin's one call
 appglass hook install | remove
+appglass plugin install | remove [--dry-run]  # link dms-plugin into the DMS plugins folder
 ```
 
 - **detect** reads the `.desktop` launchers (XDG_DATA_DIRS and flatpak exports), resolves the binary (flatpak `/app` paths remapped, wrapper scripts followed), and classifies it from ELF `NEEDED`, Electron fuses, static markers and directory markers. A user override in `~/.local/share/applications` shadows the system file; the record says so.
@@ -145,6 +146,32 @@ appglass hook install | remove
 - **hook install** adds the matugen template (re-render on every DMS theme change) and the sync units: `appglass-sync.path`/`.service` in `~/.config/systemd/user` and `~/.local/bin/appglass-sync`, which runs `bin/appglass-sync` (Vencord put back after a Discord update while the vencord family is applied, `apply --from-hook`, Herdr and GTK nudged), then enables the path unit. `hook remove` restores all of it and disables the unit when it was not enabled before.
 - **Shim adapters** (VLC qt-style, Lian Li webkit-shim, LocalSend ck-shim, Jellyfin qtquick-shim, Feishin electron-hook, Discord electron-vencord) build their shim from `shims/<adapter>/` with the host compiler into `~/.local/lib/appglass/<app>/` (rebuilt only when the sources, compiler or Qt version change), write a launch wrapper in `~/.local/bin` that reads `appglass levels` at every start, and point the launcher at it. All but VLC are off until enabled.
 - **Hand-made files.** A launcher or rules file appglass did not write is left alone and reported; `adopt` backs it up and records it, the owner regenerates it from then on, and `remove` puts the original back byte-identical. Launcher overrides made by appglass are regenerated from the system file on every apply, so they follow package updates.
+
+## Unfocused windows
+
+With `inactive.enabled` (on by default) an unfocused window's background goes a little more transparent, with a short fade; text, icons and logos stay opaque. niri switches an opacity rule at once, so each app fades its own background:
+
+- **GTK4, GTK3**: `window.background:backdrop` at the lower alpha, with a CSS transition.
+- **Obsidian**: `body:not(.is-focused)` lowers the snippet colours, with a transition.
+- **Alacritty**: `appglass vibrancy`, run by `appglass-vibrancy.service` (installed by `hook install`), follows the niri focus and eases `window.opacity` over Alacritty's IPC socket.
+- **Others**: nothing, unless `inactive.instantFallback` adds a niri `is-active=false` rule (instant, and the text dims too).
+
+The unfocused level is content x `factor` (0.90 by default), never below 0.60: at the default content level 0.60 nothing changes until the content level is raised.
+
+## DMS plugin
+
+`dms-plugin/` is the DMS plugin "App Glass". Install it as a link (the plugin runs the `bin/appglass` of the repository it points into):
+
+```sh
+appglass plugin install        # ~/.config/dms/plugins/appGlass -> <repo>/dms-plugin
+appglass hook install          # the sync units and the vibrancy daemon, if not done yet
+```
+
+Then enable App Glass in DMS Settings > Plugins. On its first start the plugin copies the current `appglass get` settings into its own data, and from then on owns them (`appglass set` is refused while it is enabled). Each change on its settings page is written to `$XDG_RUNTIME_DIR/appglass-plugin-settings.json` and passed to `appglass sync`, debounced, one run at a time.
+
+The settings page has the glass switch (off runs `remove` for every glass file but the hook), the glass level as information (it follows the DMS window rule opacity), the unfocused-window controls (on/off, how much more transparent, animation length and curve, instant fallback), the fallback for apps appglass cannot glass, the app list from `appglass status --json` with each app's tier and a switch, and Re-apply. Disabling the plugin in DMS runs `appglass remove`. IPC: `dms ipc call appGlass sync|status|toggle|app <key> on|off`.
+
+`appglass plugin remove` takes the link out again (only a link to this repository's plugin); the glass files stay until `appglass remove`. Tests: `sh dms-plugin/tests/qml/run.sh [filter]` (Qt 6 `qml`, run by the unittest suite too).
 
 ## Findings
 
