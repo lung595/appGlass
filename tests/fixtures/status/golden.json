@@ -114,8 +114,8 @@
       "why": "client mods break Discord's terms of service"
     },
     {
-      "family": null,
-      "implemented": false,
+      "family": "feishin",
+      "implemented": true,
       "name": "electron-hook",
       "risk": "medium",
       "summary": "a main-process hook (NODE_OPTIONS when the fuse allows it) plus CSS",
@@ -331,7 +331,7 @@
       "implemented": false,
       "key": "md.example.Electron",
       "name": "md.example.Electron",
-      "reason": "forced adapter, off until enabled (risk medium)",
+      "reason": "family feishin does not list this app",
       "risk": "medium",
       "source": "desktop",
       "tier": "forced",
@@ -495,6 +495,11 @@
       "enabled": true,
       "installed": true
     },
+    "feishin": {
+      "applied": [],
+      "enabled": false,
+      "installed": false
+    },
     "gtk3": {
       "applied": [],
       "enabled": true,
@@ -643,11 +648,51 @@
     },
     {
       "adapter": "electron-hook",
-      "implemented": false,
+      "implemented": true,
       "owner": null,
       "path": "~/.local/share/applications/org.jeffvli.feishin.desktop",
       "status": "absent",
       "what": "Feishin shim launcher"
+    },
+    {
+      "adapter": "electron-hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/bin/appglass-feishin",
+      "status": "absent",
+      "what": "Feishin launch wrapper"
+    },
+    {
+      "adapter": "electron-hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/feishin/agl-hook.js",
+      "status": "absent",
+      "what": "the main-process hook"
+    },
+    {
+      "adapter": "electron-hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/feishin/agl-inject.py",
+      "status": "absent",
+      "what": "the inspector injector"
+    },
+    {
+      "adapter": "electron-hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/feishin/feishin-glass.css.tmpl",
+      "status": "absent",
+      "what": "Feishin CSS template"
+    },
+    {
+      "adapter": "electron-hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/feishin/feishin-glass.css",
+      "status": "absent",
+      "what": "Feishin CSS (rendered)"
     },
     {
       "adapter": "qtquick-shim",

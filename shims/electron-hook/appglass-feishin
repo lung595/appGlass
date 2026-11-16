@@ -1,0 +1,54 @@
+#!/usr/bin/sh
+# appglass-feishin: start the Feishin flatpak with a glass window.
+# Feishin is started through its normal flatpak command (zypak sandbox kept) with a Node inspector on
+# 127.0.0.1, a random port and --inspect-publish-uid=stderr: the inspector target is NOT listed over
+# HTTP, so a client needs the random session UUID printed on the app's stderr, which only this wrapper
+# reads (0700 dir in XDG_RUNTIME_DIR; the log is deleted after injection). The port stays open while
+# Feishin runs (Electron cannot close it). agl-inject.py requires agl-hook.js in the main process
+# (clear window background + glass CSS from AGL_CSS). CSS generated at launch from DMS colours + levels.
+# No flatpak override: the read-only --filesystem below is for this run only. Feishin's settings are not touched.
+# Undo: rm ~/.local/bin/appglass-feishin ~/.local/share/applications/org.jeffvli.feishin.desktop
+#       rm -r ~/.local/lib/appglass/feishin
+set -u
+LIB="$HOME/.local/lib/appglass/feishin"
+ID=org.jeffvli.feishin
+COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
+plain() { exec /usr/bin/flatpak run --branch=stable --arch=x86_64 "$ID" "$@"; }
+# already running: Feishin is single-instance, just hand over
+flatpak ps --columns=application 2>/dev/null | grep -qx "$ID" && plain "$@"
+[ -f "$LIB/agl-hook.js" ] && [ -f "$LIB/agl-inject.py" ] || plain "$@"
+lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
+[ -n "$lv" ] || lv='{"content":0.6,"bar_over_content":0.125}'
+c=$(printf '%s' "$lv" | jq -r '.content')
+b=$(printf '%s' "$lv" | jq -r '.bar_over_content')
+mode=$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null) || mode=dark
+rgb() {  # DMS colour key -> "r, g, b"
+    h=$(jq -r --arg m "$mode" --arg k "$1" '.colors[$m][$k] // empty' "$COLORS" 2>/dev/null | tr -d '#')
+    [ ${#h} -eq 6 ] || h=$2
+    printf '%d, %d, %d' "0x$(echo $h | cut -c1-2)" "0x$(echo $h | cut -c3-4)" "0x$(echo $h | cut -c5-6)"
+}
+css="$LIB/feishin-glass.css"
+sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" \
+    -e "s/{{surface}}/$(rgb surface 101418)/g" -e "s/{{surface_container}}/$(rgb surface_container 1e2226)/g" \
+    -e "s/{{surface_container_high}}/$(rgb surface_container_high 282c30)/g" \
+    "$LIB/feishin-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css" || plain "$@"
+RUN="${XDG_RUNTIME_DIR:-/tmp}/appglass"; mkdir -p -m 700 "$RUN"; log="$RUN/feishin.log"; : > "$log"
+/usr/bin/flatpak run --branch=stable --arch=x86_64 --filesystem="$LIB:ro" --env=AGL_CSS="$css" \
+    "$ID" --inspect=127.0.0.1:0 --inspect-publish-uid=stderr "$@" >>"$log" 2>&1 &
+pid=$!
+i=0; url=''
+while [ $i -lt 150 ] && kill -0 $pid 2>/dev/null; do
+    url=$(grep -oE 'ws://127\.0\.0\.1:[0-9]+/[0-9a-f-]+' "$log" | head -n 1)
+    [ -n "$url" ] && break
+    sleep 0.2; i=$((i + 1))
+done
+if [ -n "$url" ]; then
+    if python3 -I "$LIB/agl-inject.py" "$url" "$LIB/agl-hook.js" >>"$log" 2>&1; then
+        rm -f "$log"   # drop the session UUID; later app output goes to the unlinked file
+    else
+        echo "appglass-feishin: injection failed" >>"$log"
+    fi
+else
+    echo "appglass-feishin: no inspector url, running without glass" >>"$log"
+fi
+wait $pid
