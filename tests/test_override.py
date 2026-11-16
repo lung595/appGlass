@@ -5,10 +5,11 @@ import os
 import subprocess
 import shutil
 import unittest
+from unittest import mock
 
 from fixtures.sandbox import Sandbox
 from fixtures.apps import World
-from appglass import core, niri
+from appglass import adapters, core, niri
 
 SYSTEM = """[Desktop Entry]
 Type=Application
@@ -170,7 +171,8 @@ class Adopt(unittest.TestCase):
         code, out, err = self.sb.run("apply", "--all", "--adopt", "--dry-run")
         self.assertEqual(code, 0, err)
         self.assertIn("would adopt ~/.config/niri/appglass-test.kdl", out)
-        self.assertIn("niri: would write ~/.config/niri/appglass-test.kdl (a comment stub", out)
+        line = [x for x in out.splitlines() if x.startswith("niri: would write")][0]
+        self.assertIn(self.hand, line)
         self.assertNotIn("leaves it alone", err)
         self.assertEqual(self.sb.tree_hash(), before)
         code, out, err = self.sb.run("apply", "--all", "--adopt")
@@ -183,8 +185,10 @@ class Adopt(unittest.TestCase):
         code, out, err = self.sb.run("adopt", self.sb.cfg("niri", "config.kdl"))
         self.assertEqual(code, 1)
         self.assertIn("not a hand-made file appglass knows", err)
-        vlc = self.sb.write("applications/vlc.desktop", "[Desktop Entry]\n", base=self.sb.data)
-        code, out, err = self.sb.run("adopt", "~/.local/share/applications/vlc.desktop")
+        self.sb.write("applications/obs.desktop", "[Desktop Entry]\n", base=self.sb.data)
+        extra = ((".local/share/applications/obs.desktop", "obs-plugin", "a test file"),)
+        with mock.patch.object(adapters, "HAND_FILES", adapters.HAND_FILES + extra):
+            code, out, err = self.sb.run("adopt", "~/.local/share/applications/obs.desktop")
         self.assertEqual(code, 0, err)
         self.assertIn("not implemented yet", err)
         self.assertFalse(os.path.exists(os.path.join(self.sb.state, "appglass", "state.json")))

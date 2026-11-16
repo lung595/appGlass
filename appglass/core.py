@@ -18,6 +18,7 @@ import os
 import pkgutil
 import re
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -408,6 +409,10 @@ def _read_planned(path):
                        % (path, ex.strerror or type(ex).__name__))
 
 
+# what a dry run plans for an artifact it would build (never written)
+BUILD_PENDING = b"\0appglass: built on apply\0"
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -426,6 +431,7 @@ class State:
         d.setdefault("owners", {})
         d.setdefault("state_parents", [])
         self.data = d
+        self.dry = False      # a dry run put records in memory: never saved
 
     @property
     def owners(self):
@@ -441,6 +447,8 @@ class State:
         return sorted(n for n in self.owners if n not in CORE_OWNERS)
 
     def save(self):
+        if self.dry:
+            return
         env = self.env
         d = env.state_dir
         env.guard(self.path)
@@ -493,6 +501,13 @@ def _atomic_write(path, data):
     os.replace(tmp, path)
 
 
+def _mode(path):
+    try:
+        return stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        return None
+
+
 def _inplace_write(path, data):
     """Rewrite an existing file without changing its inode (watchers keep it)."""
     if os.path.exists(path):
@@ -524,14 +539,15 @@ def _unmerge_json(cur, keys):
 
 
 class Op:
-    __slots__ = ("kind", "data", "undo", "keys", "meta")
+    __slots__ = ("kind", "data", "undo", "keys", "meta", "mode")
 
-    def __init__(self, kind, data, undo=None, keys=None, meta=None):
-        self.kind = kind      # owned | edit | json
+    def __init__(self, kind, data, undo=None, keys=None, meta=None, mode=None):
+        self.kind = kind      # owned | edit | json | retire
         self.data = data      # bytes to write
         self.undo = undo      # edit: fn(text)->text for a diverged remove
         self.keys = keys      # json: {key: {"present": bool, "value": ...}}
         self.meta = meta      # owned: extra record fields (desktop source, artifact stamp)
+        self.mode = mode      # owned: permission bits (0o755 for a wrapper script)
 
 
 class Ctx:
@@ -662,10 +678,10 @@ class Ctx:
         return path
 
     # writes (planned; the core commits them)
-    def write_owned(self, path, text, meta=None):
+    def write_owned(self, path, text, meta=None, mode=None):
         """A file appglass creates and owns: deleted on remove. An adopted
         file (``appglass adopt``) is owned too, and restored from its backup
-        on remove.
+        on remove. mode: permission bits to set (0o755 for a script).
 
         Raises Conflict when the path exists and is not appglass's.
         """
@@ -681,7 +697,18 @@ class Ctx:
             # bring it back; a manual apply does
             return self._keep_deleted(path, "appglass apply writes it again")
         data = text.encode("utf-8") if isinstance(text, str) else bytes(text)
-        return self._add(path, Op("owned", data, meta=meta))
+        return self._add(path, Op("owned", data, meta=meta, mode=mode))
+
+    def retire(self, path):
+        """A hand file whose job appglass took over: once adopted, it is
+        deleted on apply (its backup kept) and restored by remove. A file
+        that is not adopted is left alone (status reports it). Returns the
+        path when retired, else None."""
+        path = os.path.abspath(path)
+        rec = self._record(path)
+        if rec is None or not rec.get("adopted"):
+            return None
+        return self._add(path, Op("retire", b""))
 
     # launcher overrides and artifacts
     def system_desktop(self, desktop_id):
@@ -725,19 +752,27 @@ class Ctx:
         """$XDG_CACHE_HOME/appglass/<owner>: where artifacts go."""
         return self.env.cache_path("appglass", self.owner)
 
-    def artifact(self, name, build, stamp):
-        """An owned file in cache_dir built by build() -> bytes. build runs
-        only when the recorded stamp differs from stamp or the file changed
-        (a built shim survives applies without a rebuild). Removed on remove."""
-        path = os.path.abspath(os.path.join(self.cache_dir, name))
+    def artifact(self, name, build, stamp, dest=None, mode=None):
+        """An owned file in cache_dir (or at the absolute path dest) built by
+        build() -> bytes. build runs only when the recorded stamp differs
+        from stamp or the file changed (a built shim survives applies without
+        a rebuild). Removed on remove. A dry run never builds: the file is
+        reported as one it would write."""
+        path = os.path.abspath(dest or os.path.join(self.cache_dir, name))
         rec = self._record(path)
         cur = _read(path)
         if (rec is not None and rec.get("meta", {}).get("stamp") == stamp
                 and cur is not None and sha(cur) == rec.get("sha256")):
             data = cur
+        elif self.app.dry_run:
+            self._check_other_owner(path)
+            if rec is None and os.path.lexists(path):
+                raise Conflict("%s exists and is not appglass's (left untouched)" % path)
+            self.warn("%s: would build %s" % (name, self.env.tilde(path)))
+            data = BUILD_PENDING
         else:
             data = build()
-        return self.write_owned(path, data, meta={"artifact": True, "stamp": stamp})
+        return self.write_owned(path, data, meta={"artifact": True, "stamp": stamp}, mode=mode)
 
     def edit_text(self, path, fn, undo=None):
         """Edit a user text file: fn(text) -> new text ('' when absent).
@@ -941,8 +976,12 @@ class App:
         changed = []
         if dry_run:
             for p in ctx.order:
+                op = ctx.ops[p]
                 cur = _read(p)
-                if cur != ctx.ops[p].data:
+                if op.kind == "retire":
+                    if os.path.lexists(p):
+                        changed.append(p)
+                elif cur != op.data or (op.mode is not None and _mode(p) != op.mode):
                     changed.append(p)
             return changed
         for p in stale:
@@ -963,6 +1002,18 @@ class App:
         for p in ctx.order:
             op = ctx.ops[p]
             rec = owner["files"].get(p)
+            if op.kind == "retire":
+                # adopted and taken over: deleted, the backup kept for remove
+                if os.path.lexists(p):
+                    os.remove(p)
+                    changed.append(p)
+                rec["retired"] = True
+                rec["sha256"] = None
+                owner["files"][p] = rec
+                st.save()
+                continue
+            if rec is not None:
+                rec.pop("retired", None)
             cur = _read(p)
             for d in _missing_dirs(os.path.dirname(p)):
                 os.mkdir(d)
@@ -1001,6 +1052,10 @@ class App:
                 else:
                     _inplace_write(p, op.data)
                 changed.append(p)
+            if op.mode is not None and _mode(p) != op.mode:
+                os.chmod(p, op.mode)
+                if p not in changed:
+                    changed.append(p)
             rec["sha256"] = sha(op.data)
             owner["files"][p] = rec
             st.save()
@@ -1018,6 +1073,13 @@ class App:
         except OSError as ex:
             self.warn("%s cannot be read (%s); left as is"
                       % (p, ex.strerror or type(ex).__name__))
+            return
+        if cur is None and rec.get("retired"):
+            # a hand file appglass took over and deleted: given back
+            orig = self.backup_bytes(rec)
+            _atomic_write(p, orig)
+            if rec.get("orig_mode") is not None:
+                os.chmod(p, rec["orig_mode"])
             return
         if cur is None and rec["kind"] == "modified":
             # the user deleted a file appglass had edited: an opt-out, so the
@@ -1064,6 +1126,8 @@ class App:
         orig = self.backup_bytes(rec)
         if not diverged:
             _inplace_write(p, orig)
+            if rec.get("orig_mode") is not None and _mode(p) != rec["orig_mode"]:
+                os.chmod(p, rec["orig_mode"])
             return
         if rec.get("how") == "json":
             try:
@@ -1236,8 +1300,17 @@ def _selected(app, only):
 
 
 def _family_enabled(app, name):
+    """A family is on unless settings switch it off; an OPT_IN family (a
+    forced or mod adapter) is off until apps.<name>.enabled or the
+    apps.<key>.enabled of one of its KEYS is true."""
     from . import settings as _settings
-    return _settings.app_enabled(app.settings, name, True)
+    fam = app.families.get(name)
+    if not getattr(fam, "OPT_IN", False):
+        return _settings.app_enabled(app.settings, name, True)
+    own = app.settings.get("apps", {}).get(name)
+    if isinstance(own, dict) and "enabled" in own:
+        return bool(own["enabled"])
+    return any(_settings.app_enabled(app.settings, k, False) for k in getattr(fam, "KEYS", ()))
 
 
 def cmd_apply(app, only=None, dry_run=False, from_hook=False):
@@ -1401,7 +1474,7 @@ def hand_files(app):
             status = "conflict"
         else:
             status = "absent"
-        impl = bool(adapter) and adapters.BY_NAME[adapter].implemented
+        impl = adapter == "hook" or (bool(adapter) and adapters.BY_NAME[adapter].implemented)
         out.append({"path": env.tilde(p), "adapter": adapter, "what": what,
                     "implemented": impl, "owner": owner, "status": status})
     return out
@@ -1509,6 +1582,8 @@ def cmd_sync(app, settings_file, dry_run=False):
 def adopt_owner(app, adapter):
     """The owner name that takes a hand file of adapter, or None."""
     from . import adapters
+    if adapter == "hook":
+        return "hook"         # the sync units and script: appglass hook install
     a = adapters.BY_NAME.get(adapter) if adapter else None
     if a is None:
         return None
@@ -1519,9 +1594,11 @@ def adopt_owner(app, adapter):
     return None
 
 
-def adopt_path(app, p, owner):
+def adopt_path(app, p, owner, dry_run=False):
     """Record p (a regular file) as owner's, backed up: an owned file that
-    remove restores byte-identical."""
+    remove restores byte-identical (bytes and mode). A dry run records it in
+    memory only (no backup, state.json never saved), so the apply dry run
+    that follows shows what the owner would write over it."""
     env, st = app.env, app.state
     p = os.path.abspath(p)
     other = st.owner_of(p)
@@ -1532,9 +1609,14 @@ def adopt_path(app, p, owner):
     env.guard(p)
     env.guard(st.path)
     cur = _read(p)
+    if dry_run:
+        st.dry = True
+        backup = {"backup": None, "orig_sha256": sha(cur)}
+    else:
+        backup = app.backup(p, cur)
     o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
-    o.setdefault("files", {})[p] = dict(app.backup(p, cur), kind="modified", how="owned",
-                                       sha256=sha(cur), adopted=True)
+    o.setdefault("files", {})[p] = dict(backup, kind="modified", how="owned",
+                                       sha256=sha(cur), adopted=True, orig_mode=_mode(p))
     st.save()
     return p
 
@@ -1576,14 +1658,40 @@ def cmd_adopt(app, paths=None, dry_run=False):
         if os.path.islink(p) or not os.path.isfile(p):
             app.warn("adopt: %s is not a regular file; left as is" % t)
             continue
-        if dry_run:
-            app.info("adopt: %s %s (owner %s, original backed up)" % (verb, t, owner))
-            done.append(p)
-            continue
-        adopt_path(app, p, owner)
+        adopt_path(app, p, owner, dry_run=dry_run)
         app.info("adopt: %s %s (owner %s, original backed up)" % (verb, t, owner))
         done.append(p)
+    _enable_adopted(app, done, dry_run)
     return done
+
+
+def _enable_adopted(app, paths, dry_run):
+    """Adopting the hand files of an opt-in family (a shim the user set up by
+    hand) switches it on in settings.json: they were already in use, and
+    an apply would otherwise give them back at once."""
+    from . import settings as _settings
+    names = []
+    for p in paths:
+        o = app.state.owner_of(p)
+        if o in app.families and getattr(app.families[o], "OPT_IN", False) \
+                and not _family_enabled(app, o) and o not in names:
+            names.append(o)
+    if not names:
+        return
+    if _settings.plugin_active(app.env):
+        app.warn("adopt: %s stay off: switch them on in the DMS plugin appGlass"
+                 % ", ".join(names))
+        return
+    new = app.settings
+    for n in names:
+        new = _settings.set_key(new, "apps.%s.enabled" % n, True)
+    if not dry_run:
+        _settings.save(app.env, new)
+    _reload_settings(app, new)
+    app.info("adopt: %s %s = true (%s)"
+             % ("would set" if dry_run else "set",
+                ", ".join("apps.%s.enabled" % n for n in names),
+                app.env.tilde(_settings.path(app.env))))
 
 
 def warn_hand_files(app):
@@ -1623,15 +1731,12 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
     for r, route in routes:
         app.info("  %-34s %-12s %-16s %-9s %s" % (r["key"][:34], r["toolkit"], route["adapter"],
                                                 route["effective"], route["reason"]))
-    would = []
     if adopt:
-        would = cmd_adopt(app, None, dry_run=dry_run)
+        # a dry run adopts in memory only: the apply dry run below then shows
+        # what each owner would write over the adopted files
+        cmd_adopt(app, None, dry_run=dry_run)
         app.hand_files_reported = True
     cmd_apply(app, dry_run=dry_run)
-    if dry_run:
-        for p in would:
-            app.info("niri: would write %s (a comment stub; its rules are in appglass.kdl)"
-                     % app.env.tilde(p))
 
 
 def detected(app):

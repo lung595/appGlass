@@ -165,14 +165,25 @@ def resolve(rec, families, settings=None):
         return out("excluded", EXCLUDED, "DMS draws this window")
     if rec.get("toolkit") == "game":
         return out("games", OPAQUE, "game: always opaque")
+    route = (settings.get("apps", {}).get(key) or {}).get("route")
     fam = family_for(rec, families)
+    if fam and route in BY_NAME and BY_NAME[route].FAMILY != fam:
+        fam = None            # the user picked another adapter for this app
     if fam:
         a = next((x for x in CATALOGUE if x.FAMILY == fam), None)
-        on = _settings.app_enabled(settings, fam, True) and \
-            _settings.app_enabled(settings, key, True)
+        if getattr(families[fam], "OPT_IN", False):
+            # forced / mod: off until apps.<family> or apps.<key> switches it on
+            own = settings.get("apps", {}).get(fam) or {}
+            on = bool(own["enabled"]) if "enabled" in own else \
+                _settings.app_enabled(settings, key, False)
+            why = "family %s" % fam if on else "%s adapter, off until enabled (risk %s)" % (
+                a.TIER if a else FORCED, a.RISK if a else "medium")
+        else:
+            on = _settings.app_enabled(settings, fam, True) and \
+                _settings.app_enabled(settings, key, True)
+            why = "family %s" % fam if on else "off in settings"
         return out(a.NAME if a else "niri-fallback", "glass" if on else FALLBACK,
-                   "family %s" % fam if on else "off in settings", family=fam, enabled=on)
-    route = (settings.get("apps", {}).get(key) or {}).get("route")
+                   why, family=fam, enabled=on)
     a = BY_NAME.get(route) if route else None
     if a is None:
         hit = next((ad for rx, ad in APP_ROUTES if _any([rx], names)), None)
