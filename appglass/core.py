@@ -1351,6 +1351,19 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
     cmd_apply(app, dry_run=dry_run)
 
 
+def cmd_detect(app, as_json=False):
+    from . import detect
+    recs = detect.scan(app.env)
+    if as_json:
+        print(json.dumps(recs, indent=2, sort_keys=True), file=app.out)
+        return
+    for r in recs:
+        if r["nodisplay"] or not r["installed"]:
+            continue
+        print("%-36s %-13s %s" % (r["key"][:36], r["toolkit"],
+                                  (r["evidence"] or ["no evidence"])[0]), file=app.out)
+
+
 def main(argv=None, environ=None, out=None, err=None):
     ap = argparse.ArgumentParser(prog="appglass",
                                  description="Glass for desktop apps on niri + DMS.")
@@ -1369,6 +1382,8 @@ def main(argv=None, environ=None, out=None, err=None):
     sub.add_parser("levels", help="print the current levels as JSON")
     h = sub.add_parser("hook", help="matugen hook: re-apply on every DMS theme change")
     h.add_argument("action", choices=("install", "remove"))
+    d = sub.add_parser("detect", help="which toolkit draws each installed app (read-only)")
+    d.add_argument("--json", action="store_true")
     g = sub.add_parser("get", help="print settings.json (or one dotted key) as JSON")
     g.add_argument("key", nargs="?")
     s_ = sub.add_parser("set", help="change one setting (refused while the DMS plugin "
@@ -1401,6 +1416,8 @@ def main(argv=None, environ=None, out=None, err=None):
             cmd_status(app)
         elif args.cmd == "levels":
             print(json.dumps(app.levels.as_dict()), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
+        elif args.cmd == "detect":
+            cmd_detect(app, as_json=args.json)
         elif args.cmd == "get":
             cmd_get(app, args.key)
         elif args.cmd == "set":
