@@ -125,9 +125,7 @@ class Gtk3(unittest.TestCase):
         self.assertNotIn("window_fg_color #", t)
 
     def test_levels_follow_dms_setting(self):
-        s = self.sb.json(self.sb.cfg("dms", "settings.json"))
-        s["foregroundLayerTransparency"] = 0.7
-        self.sb.write("dms/settings.json", json.dumps(s))
+        self.sb.set_level(0.7)
         self.apply()
         t = self.theme()
         self.assertIn("alpha(@window_bg_color, 0.70)", t)

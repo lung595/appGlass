@@ -497,7 +497,7 @@ class Obsidian(unittest.TestCase):
         self.assertEqual(self.sb.tree_hash(), self.before)
 
     def test_levels_follow_dms_setting(self):
-        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.8}))
+        self.sb.set_level(0.8)
         self.apply()
         v = css_vars(self.css())
         self.assertEqual(v["ag-content"], "rgba(16, 20, 24, 0.80)")

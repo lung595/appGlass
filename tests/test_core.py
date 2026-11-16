@@ -56,6 +56,23 @@ class LevelsAndPalette(unittest.TestCase):
         lv = core.Levels.from_env(core.Env(self.sb.env))
         self.assertEqual((lv.content8, lv.bar8), (204, 204))
 
+    def test_levels_follow_dms_window_rule(self):
+        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.6}))
+        rules = (
+            "// @id=wr_1 @name=Glass blur\n"
+            "window-rule {\n    opacity 0.80\n    background-effect {\n        blur true\n    }\n}\n"
+            "window-rule {\n    match app-id=\"^x$\"\n    opacity 1.00\n}\n")
+        self.sb.write("niri/dms/windowrules.kdl", rules)
+        lv = core.Levels.from_env(core.Env(self.sb.env))
+        self.assertEqual(lv.content8, 204)
+        # a matched rule or a rule without blur is not the global glass rule
+        self.sb.write("niri/dms/windowrules.kdl",
+                      "window-rule {\n    match app-id=\"^x$\"\n    opacity 0.3\n"
+                      "    background-effect {\n        blur true\n    }\n}\n"
+                      "window-rule {\n    opacity 0.4\n}\n")
+        lv = core.Levels.from_env(core.Env(self.sb.env))
+        self.assertEqual(lv.content8, 153)
+
     def test_palette_sources(self):
         self.sb.seed_dms()
         env = core.Env(self.sb.env)

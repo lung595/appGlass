@@ -79,7 +79,7 @@ class Alacritty(unittest.TestCase):
         self.assertNotIn("selection", d["colors"])
 
     def test_opacity_follows_dms_setting(self):
-        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.75}))
+        self.sb.set_level(0.75)
         self.apply()
         self.assertEqual(self.ours()["window"]["opacity"], 0.75)
 

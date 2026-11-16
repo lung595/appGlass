@@ -339,16 +339,38 @@ class Levels:
 
     @classmethod
     def from_env(cls, env):
-        s = _load_json(env.config_path("dms", "settings.json"))
-        v = DEFAULT_CONTENT
-        if isinstance(s, dict) and isinstance(s.get("foregroundLayerTransparency"), (int, float)):
-            v = float(s["foregroundLayerTransparency"])
+        """The DMS window rule opacity wins (Settings > Window Rules, the global
+        rule with blur), then DMS foregroundLayerTransparency, then 0.60."""
+        v = dms_rule_opacity(env.config_path("niri", "dms", "windowrules.kdl"))
+        if v is None:
+            s = _load_json(env.config_path("dms", "settings.json"))
+            v = DEFAULT_CONTENT
+            if isinstance(s, dict) and isinstance(s.get("foregroundLayerTransparency"), (int, float)):
+                v = float(s["foregroundLayerTransparency"])
         return cls(v)
 
     def as_dict(self):
         return {"content": self.content, "bar": self.bar, "popup": self.popup,
                 "bar_over_content": round(self.bar_over_content, 4),
                 "content8": self.content8, "bar8": self.bar8, "popup8": self.popup8}
+
+
+def dms_rule_opacity(path):
+    """Opacity of the first DMS window rule that has no match and turns the blur on
+    (the "Glass blur" rule DMS writes to niri/dms/windowrules.kdl), or None."""
+    raw = _read(path)
+    if raw is None:
+        return None
+    text = re.sub(r"//[^\n]*", "", raw.decode("utf-8", "replace"))
+    for block in re.split(r"\bwindow-rule\s*\{", text)[1:]:
+        if re.search(r"^\s*match\b", block, re.M):
+            continue
+        if not re.search(r"\bblur\s+true\b", block):
+            continue
+        m = re.search(r"^\s*opacity\s+([0-9]*\.?[0-9]+)", block, re.M)
+        if m:
+            return max(0.0, min(1.0, float(m.group(1))))
+    return None
 
 
 def _load_json(path):
@@ -1244,6 +1266,7 @@ def main(argv=None, environ=None, out=None, err=None):
     r = sub.add_parser("remove", help="restore every file appglass touched")
     r.add_argument("--only", help="comma-separated family names")
     sub.add_parser("status", help="show colours, levels and applied families")
+    sub.add_parser("levels", help="print the current levels as JSON")
     h = sub.add_parser("hook", help="matugen hook: re-apply on every DMS theme change")
     h.add_argument("action", choices=("install", "remove"))
     args = ap.parse_args(argv)
@@ -1263,6 +1286,8 @@ def main(argv=None, environ=None, out=None, err=None):
             cmd_remove(app, args.only)
         elif args.cmd == "status":
             cmd_status(app)
+        elif args.cmd == "levels":
+            print(json.dumps(app.levels.as_dict()), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
         elif args.cmd == "hook":
             from . import hook
             if args.action == "install":

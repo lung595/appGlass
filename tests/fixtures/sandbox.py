@@ -9,7 +9,10 @@
 
 import hashlib
 import io
+import json
 import os
+import re
+import re
 import shutil
 import sys
 import tempfile
@@ -63,6 +66,24 @@ class Sandbox:
         self.seed("dms/settings.json", "dms/settings.json")
         self.seed("dms/dms-colors-light.json" if light else "dms/dms-colors.json",
                   "dms/dms-colors.json", base=self.cache)
+
+    def set_level(self, v):
+        """Set the content level the way the user does: the opacity of the DMS
+        Glass blur window rule (when seeded), and foregroundLayerTransparency."""
+        sp = os.path.join(self.config, "dms", "settings.json")
+        try:
+            with open(sp) as f:
+                s = json.load(f)
+        except (OSError, ValueError):
+            s = {}
+        s["foregroundLayerTransparency"] = v
+        self.write("dms/settings.json", json.dumps(s))
+        rp = os.path.join(self.config, "niri", "dms", "windowrules.kdl")
+        if os.path.exists(rp):
+            with open(rp) as f:
+                t = f.read()
+            self.write("niri/dms/windowrules.kdl",
+                       re.sub(r"opacity 0\.\d+", "opacity %.2f" % v, t, count=1))
 
     def seed_niri(self):
         self.seed("niri/config.kdl", "niri/config.kdl")

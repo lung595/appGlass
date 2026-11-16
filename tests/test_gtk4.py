@@ -125,9 +125,7 @@ class Gtk4(unittest.TestCase):
                          '@import url("dank-colors.css");\n@import url("dank-glass.css");\n')
 
     def test_levels_follow_dms_setting(self):
-        s = self.sb.json(self.sb.cfg("dms", "settings.json"))
-        s["foregroundLayerTransparency"] = 0.5
-        self.sb.write("dms/settings.json", json.dumps(s))
+        self.sb.set_level(0.5)
         self.apply()
         g = self.glass()
         # inner = 1 - (1 - 0.65) / (1 - 0.5) = 0.3

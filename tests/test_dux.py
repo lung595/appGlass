@@ -65,7 +65,7 @@ class Dux(unittest.TestCase):
         self.assertIn("opacity 1.0", kdl)
 
     def test_window_alpha_follows_dms_setting(self):
-        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.75}))
+        self.sb.set_level(0.75)
         self.apply()
         self.assertEqual(self.settings(DFILES)["floatingWindowTransparency"], 0.75)
         self.assertEqual(self.settings(DCAL)["floatingWindowTransparency"], 0.75)
@@ -77,7 +77,7 @@ class Dux(unittest.TestCase):
 
     def test_layer_raised_when_text_would_fail(self):
         # a very thin window: the panes must carry the text
-        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.2}))
+        self.sb.set_level(0.2)
         out, err = self.apply()
         f = self.settings(DFILES)
         self.assertGreater(f["floatingWindowForegroundTransparency"], 0.0)

@@ -80,7 +80,7 @@ class Herdr(unittest.TestCase):
         self.assertEqual(c["border"], "#4d5259")
 
     def test_levels_follow_dms_setting(self):
-        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.75}))
+        self.sb.set_level(0.75)
         self.apply()
         c = self.theme()["colors"]
         self.assertEqual(c["canvas"], "#101418bf")      # 191
@@ -238,10 +238,10 @@ class Herdr(unittest.TestCase):
         self.assertEqual(self.sb.json(p), {"frame.welcomed": "finished"})
 
     def test_low_alpha_warns(self):
-        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.3}))
+        self.sb.set_level(0.3)
         out, err = self.apply()
         self.assertIn("too clear for readable text", err)
-        self.sb.write("dms/settings.json", json.dumps({"foregroundLayerTransparency": 0.6}))
+        self.sb.set_level(0.6)
         out, err = self.apply()
         self.assertNotIn("too clear", err)
 
