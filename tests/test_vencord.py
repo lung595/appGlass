@@ -34,8 +34,8 @@ class Vencord(unittest.TestCase):
         return out, err
 
     def enable(self):
+        # remove takes the settings.json this creates out again
         self.run_ok("set", "apps.vencord.enabled", "true")
-        self.before = self.w.sb.tree_hash()
 
     def niri(self):
         return self.w.sb.read(os.path.join(self.w.sb.config, "niri", "appglass.kdl"))
@@ -129,6 +129,7 @@ class Vencord(unittest.TestCase):
         appglass-vencord) is not replaced by the hook."""
         script, tmpl = self.hand_pieces()
         sync = self.w.hand(".local/bin/appglass-sync", self.HAND_SYNC, 0o755)
+        self.before = self.w.sb.tree_hash()
         self.enable()
         out, err = self.run_ok("adopt", "~/.local/bin/appglass-vencord",
                                "~/.local/share/appglass/appglass-discord.css.tmpl")
@@ -157,7 +158,7 @@ class Vencord(unittest.TestCase):
     def test_adopt_all_replaces_the_hand_sync_in_the_same_run(self):
         script, tmpl = self.hand_pieces()
         sync = self.w.hand(".local/bin/appglass-sync", self.HAND_SYNC, 0o755)
-        self.enable()
+        self.before = self.w.sb.tree_hash()
         before = self.w.sb.tree_hash()
         out, err = self.run_ok("adopt", "--dry-run")
         self.assertIn("would replace the hand-made sync script", out + err)
@@ -190,6 +191,8 @@ class Vencord(unittest.TestCase):
         self.assertEqual(self.w.run("remove")[0], 0)
         self.assertEqual(self.w.sb.read(sync), self.HAND_SYNC)
         self.assertEqual(self.w.sb.read(script), "#!/bin/sh\nold\n")
+        # adopt switched vencord on in a settings.json it created: gone again
+        self.assertEqual(self.w.sb.tree_hash(), before)
 
 
 if __name__ == "__main__":

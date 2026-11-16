@@ -476,7 +476,8 @@
   ],
   "core": {
     "hook": [],
-    "niri": []
+    "niri": [],
+    "settings": []
   },
   "enabled": true,
   "fallback": {

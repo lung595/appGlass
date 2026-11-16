@@ -25,7 +25,7 @@ import sys
 STATE_VERSION = 1
 DEFAULT_CONTENT = 0.60
 BAR_MIN = 0.65
-CORE_OWNERS = ("niri", "hook")
+CORE_OWNERS = ("niri", "hook", "settings")
 _HEX = re.compile(r"^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$")
 
 
@@ -1429,6 +1429,10 @@ def cmd_remove(app, only=None, keep_hook=False):
     if "hook" in app.state.owners and not keep_hook:
         from . import hook
         hook.remove(app)
+    if not keep_hook and set(app.state.owners) == {"settings"}:
+        # nothing else left: the settings.json appglass created goes too
+        app.remove_owner("settings")
+        app.info("settings: removed")
     from . import learn
     if learn.forget(app.env):
         app.info("learned: cache removed")
@@ -1578,12 +1582,29 @@ def cmd_set(app, key, value, apply_after=False):
         new = _settings.set_key(app.settings, key, _settings.parse_value(value))
     except _settings.SettingsError as ex:
         raise AppglassError("set %s: %s" % (key, ex))
-    changed = _settings.save(app.env, new)
+    changed = save_settings(app, new)
     _reload_settings(app, new)
     app.info("%s = %s%s" % (key, json.dumps(_settings.get_key(new, key)),
                             "" if changed else " (unchanged)"))
     if apply_after:
         cmd_apply_all(app)
+
+
+def save_settings(app, s):
+    """settings.json saved (validated, atomic). One appglass creates is
+    recorded in state.json (owner settings, with the dirs it made) so a full
+    remove takes it out again; one that was there before stays the user's.
+    Returns True when the bytes changed."""
+    from . import settings as _settings
+    p = _settings.path(app.env)
+    owner = app.state.owner_of(p)
+    if owner is None and os.path.lexists(p):
+        return _settings.save(app.env, s)
+    if owner not in (None, "settings"):
+        raise AppglassError("%s is recorded as appglass '%s''s" % (app.env.tilde(p), owner))
+    ctx = app.ctx("settings")
+    ctx.write_owned(p, _settings.dumps(_settings.validate(s)))
+    return bool(app.commit(ctx))
 
 
 def _reload_settings(app, s):
@@ -1605,7 +1626,7 @@ def cmd_sync(app, settings_file, dry_run=False):
     if dry_run:
         app.info("settings: would save %s" % app.env.tilde(_settings.path(app.env)))
     else:
-        if _settings.save(app.env, new):
+        if save_settings(app, new):
             app.info("settings: saved %s" % app.env.tilde(_settings.path(app.env)))
     _reload_settings(app, new)
     if not new["enabled"]:
@@ -1754,7 +1775,7 @@ def _enable_adopted(app, paths, dry_run):
     for n in names:
         new = _settings.set_key(new, "apps.%s.enabled" % n, True)
     if not dry_run:
-        _settings.save(app.env, new)
+        save_settings(app, new)
     _reload_settings(app, new)
     app.info("adopt: %s %s = true (%s)"
              % ("would set" if dry_run else "set",

@@ -136,7 +136,7 @@ appglass adopt [PATH...] [--dry-run]         # hand a known hand-made file to ap
 appglass remove [--only a,b]
 appglass get [key] | set key value [--apply]
 appglass sync --settings-file F [--dry-run]  # the DMS plugin's one call
-appglass hook install | remove
+appglass hook install [--dry-run] | remove
 appglass plugin install | remove [--dry-run]  # link dms-plugin into the DMS plugins folder
 ```
 
@@ -146,6 +146,7 @@ appglass plugin install | remove [--dry-run]  # link dms-plugin into the DMS plu
 - **hook install** adds the matugen template (re-render on every DMS theme change) and the sync units in `~/.config/systemd/user`: `appglass-sync.path`/`.service` (the DMS window rules and colours) and `appglass-discord.path`/`.service` (`~/.config/discord`), plus `~/.local/bin/appglass-sync`, which runs `bin/appglass-sync`. The sync unit runs `apply --from-hook --list-changed` and nudges Herdr and GTK only when one of their files changed (no GTK flicker on a no-op run). The Discord unit runs it with `--discord`, which exits at once on Discord's own writes and acts only when the newest `app-*` host dir lacks Vencord (while the vencord family is applied). Then it enables both path units. `hook remove` restores all of it and disables the units that were not enabled before.
 - **Shim adapters** (VLC qt-style, Lian Li webkit-shim, LocalSend ck-shim, Jellyfin qtquick-shim, Feishin electron-hook, Discord electron-vencord) build their shim from `shims/<adapter>/` with the host compiler into `~/.local/lib/appglass/<app>/` (rebuilt only when the sources, compiler or Qt version change), write a launch wrapper in `~/.local/bin` that reads `appglass levels` at every start, and point the launcher at it. All but VLC are off until enabled.
 - **Hand-made files.** A launcher or rules file appglass did not write is left alone and reported; `adopt` backs it up and records it, the owner regenerates it from then on, and `remove` puts the original back byte-identical. Adopting the hand-made `~/.local/bin/appglass-sync` or its units runs `hook install` in the same run, so the hand script stops calling the hand pieces the families retire; while a hand sync script is still live, vencord keeps `appglass-vencord` and the theme template instead of retiring them. Launcher overrides made by appglass are regenerated from the system file on every apply, so they follow package updates.
+- **settings.json.** `~/.config/appglass/settings.json`, when `set`, `sync` or `adopt` creates it, is recorded in state.json (owner `settings`): a full `remove` that leaves nothing else deletes it and its folder. One that was there before stays the user's.
 
 ## Unfocused windows
 

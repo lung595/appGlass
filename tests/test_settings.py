@@ -73,6 +73,31 @@ class Cli(unittest.TestCase):
     def tearDown(self):
         self.sb.cleanup()
 
+    def test_created_settings_recorded_and_removed(self):
+        """settings.json written by set (or sync, adopt) is recorded in
+        state.json; a full remove with nothing else left deletes it and
+        ~/.config/appglass."""
+        before = self.sb.tree_hash()
+        self.assertEqual(self.sb.run("set", "fallback.mode", "off")[0], 0)
+        st = self.sb.json(os.path.join(self.sb.state, "appglass", "state.json"))
+        self.assertEqual(st["owners"]["settings"]["files"][self.path]["kind"], "created")
+        self.assertEqual(self.sb.run("set", "fallback.value", "0.6")[0], 0)
+        self.assertEqual(self.sb.json(self.path)["fallback"]["value"], 0.6)
+        self.assertEqual(self.sb.run("remove", "--only", "alacritty")[0], 0)
+        self.assertTrue(os.path.exists(self.path))      # not a full remove
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertIn("settings: removed", out)
+        self.assertFalse(os.path.exists(self.sb.cfg("appglass")))
+        self.assertEqual(self.sb.tree_hash(), before)
+
+    def test_settings_there_before_stay_the_users(self):
+        self.sb.write("appglass/settings.json", "{}\n")
+        self.assertEqual(self.sb.run("set", "fallback.mode", "off")[0], 0)
+        self.assertFalse(os.path.exists(os.path.join(self.sb.state, "appglass", "state.json")))
+        self.assertEqual(self.sb.run("remove")[0], 0)
+        self.assertEqual(self.sb.json(self.path)["fallback"]["mode"], "off")
+
     def test_get_defaults_writes_nothing(self):
         before = self.sb.tree_hash()
         code, out, err = self.sb.run("get")
@@ -156,7 +181,8 @@ class Cli(unittest.TestCase):
         code, out, err = self.sb.run("sync", "--settings-file", f,
                                      assume="alacritty", assume_not=others)
         self.assertEqual(code, 0, err)
-        self.assertFalse(os.path.exists(os.path.join(self.sb.state, "appglass", "state.json")))
+        st = self.sb.json(os.path.join(self.sb.state, "appglass", "state.json"))
+        self.assertEqual(sorted(st["owners"]), ["settings"])    # glass off: settings kept
         self.assertFalse(os.path.exists(self.sb.cfg("niri", "appglass.kdl")))
         # the plugin marker does not stop sync (the plugin is the writer)
         self.sb.write("dms/plugins/appGlass/plugin.json", "{}")

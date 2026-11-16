@@ -117,7 +117,7 @@ class SyncOffKeepsHook(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertTrue(os.path.exists(unit), "glass off kept the hook")
             st = w.sb.json(os.path.join(w.sb.state, "appglass", "state.json"))
-            self.assertEqual(sorted(st["owners"]), ["hook"])
+            self.assertEqual(sorted(st["owners"]), ["hook", "settings"])
             # remove still takes everything out
             self.assertEqual(w.run("remove")[0], 0)
             self.assertFalse(os.path.exists(unit))
