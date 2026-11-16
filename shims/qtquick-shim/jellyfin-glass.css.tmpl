@@ -1,0 +1,39 @@
+/* Jellyfin glass: window background at the DMS content level, text and popups opaque,
+   fully transparent while a video is open (the mpv layer below then paints it opaque). */
+:root, html {
+  --jf-palette-text-primary: rgb({{on_surface}}) !important;
+  --jf-palette-text-secondary: rgb({{on_surface_variant}}) !important;
+  --jf-palette-background-paper: rgb({{surface_container}}) !important;
+  --jf-palette-AppBar-defaultBg: rgba({{surface}}, {{bar_over}}) !important;
+  --jf-palette-AppBar-transparentBg: rgba({{surface}}, {{bar_over}}) !important;
+}
+html { background: rgba({{surface}}, {{content}}) !important; color: rgb({{on_surface_variant}}) !important; }
+html:has(.videoPlayerContainer) { background: transparent !important; }
+body, .skinBody, #reactRoot, .mainAnimatedPages, .page, .pageContainer, .libraryPage, .itemDetailPage,
+.backgroundContainer:not(.withBackdrop), .detailPageWrapperContainer, .padded-top-focusscale,
+.wizardStartForm, .ui-corner-all { background-color: transparent !important; }
+.videoPlayerContainer { background-color: transparent !important; }
+/* header bar: tint at the bar-over-content level, blur what scrolls beneath */
+.skinHeader, .skinHeader-withBackground, .detailRibbon {
+  background-color: rgba({{surface}}, {{bar_over}}) !important; background-image: none !important;
+  -webkit-backdrop-filter: blur(18px) !important; backdrop-filter: blur(18px) !important;
+}
+.skinHeader.osdHeader, .skinHeader-withBackground.osdHeader {
+  background: linear-gradient(180deg, rgba(0,0,0,.75), rgba(0,0,0,0)) !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+}
+/* in-page panels: faint tint instead of opaque blocks */
+.paperList, .visualCardBox, .collapseContent, .cardBox:not(.visualCardBox) .cardPadder,
+.emby-select-withcolor, .MuiDrawer-docked .MuiPaper-root { background-color: rgba({{on_surface_rgb}}, 0.06) !important; }
+/* popups, menus, dialogs, drawer, toasts: opaque */
+.dialog, .formDialog, .actionSheet, .focuscontainer.dialog, .mainDrawer, .drawer-open,
+.toast, .nowPlayingPlaylist, .MuiPopover-paper, .MuiMenu-paper, .MuiDialog-paper, .MuiAutocomplete-paper,
+.emby-select-withcolor > option, .formDialogHeader:not(.formDialogHeader-clear), .formDialogFooter:not(.formDialogFooter-clear) {
+  background-color: rgb({{surface_container}}) !important;
+}
+.nowPlayingBar { background-color: rgb({{surface_container_high}}) !important; }
+/* text: opaque colours only */
+.secondaryText, .cardText-secondary, .fieldDescription, .listItem .secondary, .nowPlayingBarSecondaryText,
+.inputLabel, .inputLabelUnfocused, .emby-tab-button, .alphaPickerButton, .toast, .headerSelectedPlayer,
+.checkboxListLabel, .paperListLabel, .textareaLabelUnfocused, .emby-scrollbuttons { color: rgb({{on_surface_variant}}) !important; }
+.cardFooter-vibrant .cardText-secondary { opacity: 1 !important; }

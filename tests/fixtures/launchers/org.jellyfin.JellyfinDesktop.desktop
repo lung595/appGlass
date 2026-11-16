@@ -1,0 +1,28 @@
+[Desktop Entry]
+Version=1.0
+Name=Jellyfin Desktop
+Comment=Jellyfin desktop client
+Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop org.jellyfin.JellyfinDesktop
+Icon=org.jellyfin.JellyfinDesktop
+Terminal=false
+Type=Application
+StartupWMClass=org.jellyfin.JellyfinDesktop
+Categories=AudioVideo;Video;Player;TV;
+Actions=DesktopF;DesktopW;TVF;TVW
+X-Flatpak=org.jellyfin.JellyfinDesktop
+
+[Desktop Action DesktopF]
+Name=Desktop [Fullscreen]
+Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop org.jellyfin.JellyfinDesktop --fullscreen --desktop
+
+[Desktop Action DesktopW]
+Name=Desktop [Windowed]
+Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop org.jellyfin.JellyfinDesktop --windowed --desktop
+
+[Desktop Action TVF]
+Name=TV [Fullscreen]
+Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop org.jellyfin.JellyfinDesktop --fullscreen --tv
+
+[Desktop Action TVW]
+Name=TV [Windowed]
+Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop org.jellyfin.JellyfinDesktop --windowed --tv

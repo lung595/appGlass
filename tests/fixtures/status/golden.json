@@ -138,8 +138,8 @@
       "why": ""
     },
     {
-      "family": null,
-      "implemented": false,
+      "family": "jellyfin",
+      "implemented": true,
       "name": "qtquick-shim",
       "risk": "medium-high",
       "summary": "a preload that sets the QML window alpha (Jellyfin)",
@@ -510,6 +510,11 @@
       "enabled": true,
       "installed": false
     },
+    "jellyfin": {
+      "applied": [],
+      "enabled": false,
+      "installed": false
+    },
     "lianli": {
       "applied": [],
       "enabled": false,
@@ -646,11 +651,59 @@
     },
     {
       "adapter": "qtquick-shim",
-      "implemented": false,
+      "implemented": true,
       "owner": null,
       "path": "~/.local/share/applications/org.jellyfin.JellyfinDesktop.desktop",
       "status": "absent",
       "what": "Jellyfin shim launcher"
+    },
+    {
+      "adapter": "qtquick-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/bin/appglass-jellyfin",
+      "status": "absent",
+      "what": "Jellyfin launch wrapper"
+    },
+    {
+      "adapter": "qtquick-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/jellyfin/libjfglass.so",
+      "status": "absent",
+      "what": "the Qt Quick shim"
+    },
+    {
+      "adapter": "qtquick-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/jellyfin/jfglass.cpp",
+      "status": "absent",
+      "what": "the Qt Quick shim source"
+    },
+    {
+      "adapter": "qtquick-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/jellyfin/jellyfin-glass.css.tmpl",
+      "status": "absent",
+      "what": "Jellyfin CSS template"
+    },
+    {
+      "adapter": "qtquick-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/jellyfin/gen-css.sh",
+      "status": "absent",
+      "what": "Jellyfin CSS renderer"
+    },
+    {
+      "adapter": "qtquick-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/jellyfin/jellyfin-glass.css",
+      "status": "absent",
+      "what": "Jellyfin CSS (rendered)"
     },
     {
       "adapter": null,

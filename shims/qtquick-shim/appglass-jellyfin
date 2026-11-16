@@ -1,0 +1,24 @@
+#!/usr/bin/sh
+# appglass-jellyfin: start the Jellyfin Desktop 2.x flatpak with a glass window.
+# libjfglass.so (LD_PRELOAD, main process only; it removes itself from the environment so
+# QtWebEngine/mpv children do not load it) gives the Qt Quick window an alpha channel, clears the
+# window and web view backgrounds, shows the mpv video layer only while a video is open, and injects
+# the CSS named by JFGLASS_CSS. It only reads that one file: no network, no processes, no file writes.
+# CSS is generated at launch from `appglass levels` + DMS colours (gen-css.sh).
+# No flatpak override: the read-only --filesystem below is for this run only. Jellyfin settings are not touched.
+# Rebuild after a Qt runtime ABI change (source: jfglass.cpp in the lib dir):
+#   moc jfglass.cpp -o jfglass.moc && g++ -std=c++17 -O2 -fPIC -shared -o libjfglass.so jfglass.cpp \
+#     $(pkg-config --cflags --libs Qt6Quick Qt6Qml Qt6Gui Qt6Core) -ldl
+# Undo: rm ~/.local/bin/appglass-jellyfin ~/.local/share/applications/org.jellyfin.JellyfinDesktop.desktop
+#       rm -r ~/.local/lib/appglass/jellyfin
+set -u
+LIB="$HOME/.local/lib/appglass/jellyfin"
+ID=org.jellyfin.JellyfinDesktop
+plain() { exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop "$ID" "$@"; }
+# already running: hand over to the normal command
+flatpak ps --columns=application 2>/dev/null | grep -qx "$ID" && plain "$@"
+[ -f "$LIB/libjfglass.so" ] && [ -f "$LIB/jellyfin-glass.css.tmpl" ] && [ -x "$LIB/gen-css.sh" ] || plain "$@"
+css="$LIB/jellyfin-glass.css"
+"$LIB/gen-css.sh" "$LIB/jellyfin-glass.css.tmpl" "$css" && [ -s "$css" ] || plain "$@"
+exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop --filesystem="$LIB:ro" \
+    --env=LD_PRELOAD="$LIB/libjfglass.so" --env=JFGLASS_CSS="$css" "$ID" "$@"

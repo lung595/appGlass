@@ -95,8 +95,11 @@ class ShimCase:
             wrapper = line.split()[0]
             self.assertEqual(os.path.dirname(wrapper), self.w.user(".local/bin"))
             self.assertNotIn("@@", line)
-        self.assertIn(shims.APPGLASS, self.w.sb.read(wrapper))
-        self.assertNotIn(shims.PLACEHOLDER, self.w.sb.read(wrapper))
+        self.assertIn(wrapper, [self.w.user(r) for r in self.FILES])
+        scripts = [self.w.sb.readb(self.w.user(r)) for r, m in self.FILES.items() if m == 0o755
+                   and not r.endswith(".so")]
+        self.assertTrue(any(shims.APPGLASS.encode() in t for t in scripts))
+        self.assertFalse(any(shims.PLACEHOLDER.encode() in t for t in scripts))
         if self.CSS:
             self.assertNotIn("{{", self.w.sb.read(self.w.user(self.CSS)))
         state = self.w.state()
