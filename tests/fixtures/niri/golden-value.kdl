@@ -1,0 +1,28 @@
+// appglass: generated, do not edit: rewritten by appglass apply,
+// removed by appglass remove. Included after dms/windowrules.kdl, so
+// these rules win over the global Glass blur rule and the blur stays on.
+
+// glass: apps that paint their own glass
+window-rule {
+    match app-id=r#"^Alacritty$"#
+    opacity 1.0
+}
+
+// fallback: whole-window opacity (text fades too)
+window-rule {
+    match app-id=r#"^google-chrome$"#
+    opacity 0.70
+}
+
+// games: opaque, no blur behind
+window-rule {
+    match app-id=r#"^steam_app_\d+$"#
+    match app-id=r#"^gamescope$"#
+    opacity 1.0
+    background-effect {
+        blur false
+    }
+    popups {
+        opacity 1.0
+    }
+}

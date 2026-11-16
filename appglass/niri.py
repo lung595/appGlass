@@ -1,7 +1,17 @@
 """niri: one generated rules file + one include line in config.kdl.
 
-$XDG_CONFIG_HOME/niri/appglass.kdl holds a single window-rule with a match
-line per applied family and ``opacity 1.0``. config.kdl gets
+$XDG_CONFIG_HOME/niri/appglass.kdl holds up to five window-rules, in order:
+
+  fallback "opaque" a catch-all ``opacity 1.0`` (browsers excluded), before
+                    the glass block: windows appglass cannot glass stay sharp
+  glass             a match line per applied app, ``opacity 1.0``: the app
+                    paints its own translucency over the blur
+  fallback "value"  the detected fallback apps at ``opacity <value>``
+  inactive          glass apps that are not focused, ``opacity <inactive>``
+  games             ``opacity 1.0``, blur off, popups 1.0
+
+App-ids the browserGlass plugin covers are left out of every block (its
+dms-browser-glass.kdl is included later and owns them). config.kdl gets
 ``include optional=true "appglass.kdl"`` right after the line that includes
 "dms/windowrules.kdl" (the global "Glass blur" rule), so the later rule wins
 and the blur stays on. Without that line the include goes at the end.
@@ -34,17 +44,78 @@ def _kdl_string(s):
     return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def render(app_ids):
+# browserGlass's APP_IDS (the DMS plugin browserGlass): delegated, never ours
+BROWSERGLASS_IDS = (
+    "firefox", "firefox-esr", "librewolf", "zen", "zen-browser", "zen-beta", "floorp",
+    "waterfox", "org.mozilla.firefox", "io.gitlab.librewolf-community",
+    "app.zen_browser.zen", "one.ablaze.floorp", "net.waterfox.waterfox",
+)
+BROWSERGLASS_RE = "^(%s)$" % "|".join(a.replace(".", "\\.") for a in BROWSERGLASS_IDS)
+GAME_IDS = (r"^steam_app_\d+$", r"^gamescope$")
+FALLBACK_MODES = ("opaque", "value", "off")
+
+
+def delegated(app_id_re):
+    """True when the app-id regex matches one of browserGlass's app-ids."""
+    try:
+        r = re.compile(app_id_re)
+    except re.error:
+        return False
+    return any(r.search(a) for a in BROWSERGLASS_IDS)
+
+
+def _ids(ids, skip=()):
+    out = []
+    for a in ids:
+        if a not in out and a not in skip and not delegated(a):
+            out.append(a)
+    return out
+
+
+def _num(v):
+    return "1.0" if float(v) >= 1 else "%.2f" % float(v)
+
+
+def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, inactive=None):
+    """The rules file. With the defaults only the glass block (the old file);
+    games=() writes the games block with the default game app-ids."""
+    if fallback not in FALLBACK_MODES:
+        raise ValueError("fallback mode %r" % fallback)
+    glass = _ids(app_ids)
     lines = [
-        "// appglass: apps that paint their own glass. Generated, do not edit:",
-        "// rewritten by appglass apply, removed by appglass remove.",
-        "// Included after dms/windowrules.kdl, so opacity 1.0 wins over the",
-        "// global Glass blur rule and the blur stays on.",
-        "window-rule {",
+        "// appglass: generated, do not edit: rewritten by appglass apply,",
+        "// removed by appglass remove. Included after dms/windowrules.kdl, so",
+        "// these rules win over the global Glass blur rule and the blur stays on.",
     ]
-    for a in app_ids:
-        lines.append("    match app-id=%s" % _kdl_string(a))
-    lines += ["    opacity 1.0", "}", ""]
+    if fallback == "opaque":
+        lines += [
+            "",
+            "// fallback: windows appglass cannot glass stay opaque (sharp text)",
+            "window-rule {",
+            "    exclude app-id=%s" % _kdl_string(BROWSERGLASS_RE),
+            "    opacity 1.0",
+            "}",
+        ]
+    if glass:
+        lines += ["", "// glass: apps that paint their own glass", "window-rule {"]
+        lines += ["    match app-id=%s" % _kdl_string(a) for a in glass]
+        lines += ["    opacity 1.0", "}"]
+    fb = _ids(fallback_ids, skip=glass)
+    if fallback == "value" and fb:
+        lines += ["", "// fallback: whole-window opacity (text fades too)", "window-rule {"]
+        lines += ["    match app-id=%s" % _kdl_string(a) for a in fb]
+        lines += ["    opacity %s" % _num(value), "}"]
+    if inactive is not None and glass:
+        lines += ["", "// glass apps that are not focused", "window-rule {"]
+        lines += ["    match app-id=%s is-active=false" % _kdl_string(a) for a in glass]
+        lines += ["    opacity %s" % _num(inactive), "}"]
+    gm = [] if games is None else _ids(list(GAME_IDS) + list(games), skip=glass)
+    if gm:
+        lines += ["", "// games: opaque, no blur behind", "window-rule {"]
+        lines += ["    match app-id=%s" % _kdl_string(a) for a in gm]
+        lines += ["    opacity 1.0", "    background-effect {", "        blur false",
+                  "    }", "    popups {", "        opacity 1.0", "    }", "}"]
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -97,9 +168,26 @@ def validate(env, cfg):
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
+def rule_inputs(app):
+    """render() keyword arguments from settings.json and the detected apps."""
+    from . import settings as _settings
+    fb = app.settings.get("fallback", {})
+    return {
+        "fallback": fb.get("mode", "opaque"),
+        "value": fb.get("value", 0.70),
+        "inactive": fb.get("inactive"),
+        "fallback_ids": list(getattr(app, "fallback_ids", ())),
+        "games": list(getattr(app, "game_ids", ())),
+        "_wanted": os.path.isfile(_settings.path(app.env))
+        or bool(getattr(app, "fallback_ids", ())) or bool(getattr(app, "game_ids", ())),
+    }
+
+
 def sync(app, dry_run=False, extra_ids=()):
     ids = app_ids(app, extra_ids)
-    if not ids:
+    kw = rule_inputs(app)
+    wanted = kw.pop("_wanted")
+    if not ids and not wanted:
         if "niri" in app.state.owners and not dry_run:
             app.remove_owner("niri")
             app.info("niri: no glass apps, rule removed")
@@ -115,7 +203,7 @@ def sync(app, dry_run=False, extra_ids=()):
         if ctx.deleted_since_apply(cfg) and not os.path.lexists(rules):
             ctx.kept_absent.add(rules)  # no config.kdl: do not bring the rule back
         else:
-            ctx.write_owned(rules, render(ids))
+            ctx.write_owned(rules, render(ids, **kw))
         fn = add_include
         if ctx.changed_since_apply(cfg) and not ctx.deleted_since_apply(cfg):
             if not _HAS_INCLUDE.search(ctx.read_text(cfg) or ""):

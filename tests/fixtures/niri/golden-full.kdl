@@ -1,0 +1,37 @@
+// appglass: generated, do not edit: rewritten by appglass apply,
+// removed by appglass remove. Included after dms/windowrules.kdl, so
+// these rules win over the global Glass blur rule and the blur stays on.
+
+// fallback: windows appglass cannot glass stay opaque (sharp text)
+window-rule {
+    exclude app-id=r#"^(firefox|firefox-esr|librewolf|zen|zen-browser|zen-beta|floorp|waterfox|org\.mozilla\.firefox|io\.gitlab\.librewolf-community|app\.zen_browser\.zen|one\.ablaze\.floorp|net\.waterfox\.waterfox)$"#
+    opacity 1.0
+}
+
+// glass: apps that paint their own glass
+window-rule {
+    match app-id=r#"^Alacritty$"#
+    match app-id=r#"^org\.gnome\.Nautilus$"#
+    opacity 1.0
+}
+
+// glass apps that are not focused
+window-rule {
+    match app-id=r#"^Alacritty$"# is-active=false
+    match app-id=r#"^org\.gnome\.Nautilus$"# is-active=false
+    opacity 0.55
+}
+
+// games: opaque, no blur behind
+window-rule {
+    match app-id=r#"^steam_app_\d+$"#
+    match app-id=r#"^gamescope$"#
+    match app-id=r#"^Pinball\.exe$"#
+    opacity 1.0
+    background-effect {
+        blur false
+    }
+    popups {
+        opacity 1.0
+    }
+}
