@@ -47,10 +47,10 @@ def bin_path(env, name):
     return env.home_path(".local", "bin", name)
 
 
-def appglass_cmd(env):
-    """bin/appglass as a wrapper writes it inside double quotes:
-    $HOME/... when the repo is under HOME, else the absolute path."""
-    p = APPGLASS
+def appglass_cmd(env, p=APPGLASS):
+    """bin/appglass (or another repo path) as a wrapper writes it inside
+    double quotes: $HOME/... when the repo is under HOME, else the absolute
+    path."""
     if p.startswith(env.home + os.sep):
         p = "$HOME" + p[len(env.home):]
         return re.sub(r'(["\\`])', r"\\\1", p)

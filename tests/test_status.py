@@ -71,7 +71,7 @@ class Status(unittest.TestCase):
                 self.assertIn(a.FAMILY, fams, a.NAME)
         self.assertEqual({a.FAMILY for a in adapters.CATALOGUE if a.FAMILY}, set(fams))
         for rel, ad, what in adapters.HAND_FILES:
-            self.assertTrue(ad is None or ad in adapters.BY_NAME, rel)
+            self.assertTrue(ad in (None, "hook") or ad in adapters.BY_NAME, rel)
 
 
 if __name__ == "__main__":

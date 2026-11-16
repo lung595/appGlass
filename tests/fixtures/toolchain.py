@@ -51,7 +51,8 @@ PKG = textwrap.dedent("""\
 
 # the host tools the fake tools and the wrappers need, linked next to them
 # so PATH can leave out /usr/bin (and the real apps in it)
-HOST = ("sh", "cat", "dirname", "jq", "sed", "env", "flock", "sort", "ls", "tail", "sleep")
+HOST = ("sh", "cat", "dirname", "jq", "sed", "env", "flock", "sort", "ls", "tail", "sleep",
+        "readlink", "grep", "touch", "mkdir")
 
 
 class Toolchain:
@@ -71,6 +72,7 @@ class Toolchain:
             real = shutil.which(h)
             if real:
                 os.symlink(real, os.path.join(self.dir, h))
+        os.symlink(sys.executable, os.path.join(self.dir, "python3"))
         self.qt = "6.11.2"
         sb.env["PATH"] = os.pathsep.join(list(bins) + [self.dir])
 

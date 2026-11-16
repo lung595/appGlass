@@ -1,0 +1,57 @@
+#!/bin/sh
+# appglass-sync: keep every glass app in sync with DMS.
+# Run by appglass-sync.service (appglass-sync.path, installed by
+# `appglass hook install` through ~/.local/bin/appglass-sync) when the DMS
+# window rules (opacity), the DMS colours or ~/.config/discord change:
+#  1. Discord: after an update the newest host dir (app-x.y.z) has no Vencord;
+#     put it back with ~/.local/share/appglass/VencordInstallerCli-linux, only
+#     while the vencord family is applied (state.json)
+#  2. appglass apply --from-hook: re-render every applied family with the new
+#     level and colours (launchers, CSS, the Discord theme, the niri rules)
+#  3. reload Herdr's theme, nudge running GTK apps to reload their CSS
+# Undo: appglass hook remove.
+set -u
+AG="$(dirname "$(readlink -f "$0")")/appglass"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/appglass/state.json"
+SHARE="$HOME/.local/share/appglass"
+DISCORD="${XDG_CONFIG_HOME:-$HOME/.config}/discord"
+exec 8>"${XDG_RUNTIME_DIR:-/tmp}/appglass-sync.lock"
+flock -w 60 8 || exit 0
+sleep "${APPGLASS_SYNC_SETTLE:-1}"   # let DMS finish writing
+
+log() { echo "appglass-sync: $*"; }
+real() { [ -z "${APPGLASS_SANDBOX:-}" ]; }   # desktop side effects: never in a sandbox
+
+# 1. Vencord in the newest Discord host dir
+if jq -e '.owners.vencord' "$STATE" >/dev/null 2>&1; then
+    app=$(ls -d "$DISCORD"/app-* 2>/dev/null | sort -V | tail -n 1)
+    if [ -n "$app" ] && [ -f "$app/resources/app.asar" ] && [ ! -f "$app/resources/_app.asar" ] \
+            && [ -x "$SHARE/VencordInstallerCli-linux" ]; then
+        sleep "${APPGLASS_SYNC_WAIT:-5}"   # the updater is still writing the new host
+        if "$SHARE/VencordInstallerCli-linux" -install -location "$app" >/dev/null 2>&1; then
+            log "Vencord injected into $app"
+            if real && pgrep -x Discord >/dev/null 2>&1; then
+                notify-send -a appGlass "Discord mis à jour" "Vencord réinjecté. Redémarre Discord pour retrouver le verre." 2>/dev/null
+            fi
+        else
+            log "Vencord install failed for $app"
+            real && notify-send -u critical -a appGlass "appGlass" "Échec de la réinjection de Vencord dans $app" 2>/dev/null
+        fi
+    fi
+fi
+
+# 2. every applied family
+"$AG" apply --from-hook --quiet || log "apply failed"
+
+# 3. Herdr and GTK
+real || exit 0
+if pgrep -x herdr-app >/dev/null 2>&1 && grep -q '"theme": *"appglass"' "$HOME/.config/herdr-app/layouts/appglass.json" 2>/dev/null; then
+    herdr-app do app.theme --name appglass >/dev/null 2>&1
+fi
+# GTK re-reads gtk.css when the theme name changes
+t=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null) && [ -n "$t" ] && {
+    gsettings set org.gnome.desktop.interface gtk-theme "''" 2>/dev/null
+    sleep 0.3
+    gsettings set org.gnome.desktop.interface gtk-theme "$t" 2>/dev/null
+}
+exit 0

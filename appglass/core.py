@@ -1398,8 +1398,8 @@ def cmd_remove(app, only=None):
         app.remove_owner(name)
         app.info("%s: removed" % name)
     if "hook" in app.state.owners:
-        app.remove_owner("hook")
-        app.info("hook: removed")
+        from . import hook
+        hook.remove(app)
     from . import learn
     if learn.forget(app.env):
         app.info("learned: cache removed")

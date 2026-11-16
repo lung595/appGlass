@@ -141,14 +141,14 @@ HAND_FILES = (
     (".local/lib/appglass/jellyfin/gen-css.sh", "qtquick-shim", "Jellyfin CSS renderer"),
     (".local/lib/appglass/jellyfin/jellyfin-glass.css", "qtquick-shim",
      "Jellyfin CSS (rendered)"),
-    (".local/bin/appglass-sync", None, "the regeneration script (sync path unit)"),
+    (".local/bin/appglass-sync", "hook", "the regeneration script (sync path unit)"),
     (".local/bin/appglass-vencord", "electron-vencord",
      "Vencord re-inject + theme (retired: the family and the sync unit do it)"),
     (".local/share/appglass/appglass-discord.css.tmpl", "electron-vencord",
      "Discord theme template (retired: in the repo now)"),
     (".config/Vencord/themes/appglass-discord.css", "electron-vencord", "the Discord glass theme"),
-    (".config/systemd/user/appglass-sync.path", None, "watches the theme files"),
-    (".config/systemd/user/appglass-sync.service", None, "runs appglass-sync"),
+    (".config/systemd/user/appglass-sync.path", "hook", "watches the theme files"),
+    (".config/systemd/user/appglass-sync.service", "hook", "runs appglass-sync"),
 )
 
 

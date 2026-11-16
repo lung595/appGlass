@@ -12,19 +12,37 @@ recorded in state.json (applied and not removed since), and does nothing
 before the first ``appglass apply``. Installing over an older hook section
 (any post_hook string) replaces it.
 
-``appglass hook remove`` restores the matugen config byte-identical and drops
-the rendered colors.json.
+It also installs the sync units: shims/sync/appglass-sync.path and
+.service, verbatim, in ~/.config/systemd/user, and ~/.local/bin/appglass-sync,
+which execs the repo's bin/appglass-sync. The path unit fires when the DMS
+window rules (the opacity), the DMS colours or ~/.config/discord change; the
+script puts Vencord back after a Discord update (only while the vencord
+family is applied), runs ``appglass apply --from-hook`` and nudges Herdr and
+GTK. Then ``systemctl --user daemon-reload`` and ``enable --now
+appglass-sync.path`` (not in a sandbox, unless $APPGLASS_SYSTEMCTL names a
+stand-in). Hand-made units and script are Conflicts until ``appglass adopt``.
+
+``appglass hook remove`` restores the matugen config byte-identical, drops
+the rendered colors.json, restores (or deletes) the units and the script and
+disables the path unit again when it was not enabled before install.
 """
 
 import json
 import os
 import re
 import shlex
+import subprocess
+
+from .core import Conflict
 
 BEGIN = "# >>> appglass hook (appglass hook remove takes it out) >>>"
 END = "# <<< appglass hook <<<"
 HOOK_ARGS = "apply --from-hook --quiet"
 _BLOCK = re.compile(r"(?ms)^\n?" + re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?")
+
+
+UNITS = ("appglass-sync.path", "appglass-sync.service")
+PATH_UNIT = UNITS[0]
 
 
 def repo_root():
@@ -37,6 +55,44 @@ def template_path():
 
 def bin_path():
     return os.path.join(repo_root(), "bin", "appglass")
+
+
+def sync_script():
+    return os.path.join(repo_root(), "bin", "appglass-sync")
+
+
+def unit_path(env, name):
+    return env.config_path("systemd", "user", name)
+
+
+def sync_path(env):
+    return env.home_path(".local", "bin", "appglass-sync")
+
+
+def sync_shim(env):
+    from . import shims
+    return ("#!/bin/sh\n"
+            "# appglass-sync: written by appglass hook install (appglass hook remove\n"
+            "# takes it out); run by appglass-sync.service.\n"
+            'exec "%s" "$@"\n' % shims.appglass_cmd(env, sync_script()))
+
+
+def systemctl(env):
+    """systemctl, or None in a sandbox (unless $APPGLASS_SYSTEMCTL is set)."""
+    if env.sandbox is not None:
+        return env.environ.get("APPGLASS_SYSTEMCTL") or None
+    return env.which("systemctl")
+
+
+def _ctl(app, *args):
+    tool = systemctl(app.env)
+    if not tool:
+        return None
+    try:
+        return app.env.run([tool, "--user"] + list(args), timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        app.warn("hook: systemctl %s: %s" % (" ".join(args), ex))
+        return None
 
 
 def config_path(env):
@@ -93,9 +149,36 @@ def install(app):
             return
     ctx = app.ctx("hook")
     block = section(env)
-    ctx.edit_text(config_path(env), lambda t: add(t, block), undo=strip)
+    try:
+        ctx.edit_text(config_path(env), lambda t: add(t, block), undo=strip)
+        for n in UNITS:
+            with open(os.path.join(repo_root(), "shims", "sync", n), "rb") as f:
+                ctx.write_owned(unit_path(env, n), f.read(), mode=0o644)
+        ctx.write_owned(sync_path(env), sync_shim(env), mode=0o755)
+    except Conflict as ex:
+        app.error("hook: %s (appglass adopt takes the hand-made sync files over)" % ex)
+        return
     had = "hook" in app.state.owners
+    tool = systemctl(env)
+    was = None
+    if tool and "systemd" not in (app.state.owners.get("hook") or {}):
+        r = _ctl(app, "is-enabled", "--quiet", PATH_UNIT)
+        was = r is not None and r.returncode == 0
     changed = app.commit(ctx)
+    o = app.state.owners.get("hook")
+    if o is not None and was is not None:
+        o["systemd"] = {"was_enabled": was}
+        app.state.save()
+    if tool:
+        _ctl(app, "daemon-reload")
+        r = _ctl(app, "enable", "--now", PATH_UNIT)
+        if r is not None and r.returncode != 0:
+            app.warn("hook: systemctl enable --now %s failed: %s"
+                     % (PATH_UNIT, (r.stderr or r.stdout).strip()))
+        else:
+            app.info("hook: %s enabled" % PATH_UNIT)
+    else:
+        app.info("hook: systemctl skipped (sandbox): %s not enabled" % PATH_UNIT)
     if changed:
         app.info("hook: %s in %s" % ("updated" if had else "installed", config_path(env)))
     else:
@@ -107,7 +190,13 @@ def install(app):
 def remove(app):
     env = app.env
     out = output_path(env)
+    o = app.state.owners.get("hook") or {}
+    sd = o.get("systemd")
+    if sd is not None and not sd.get("was_enabled"):
+        _ctl(app, "disable", "--now", PATH_UNIT)
     removed = app.remove_owner("hook")
+    if removed and sd is not None:
+        _ctl(app, "daemon-reload")
     if os.path.exists(out):
         env.guard(out)
         os.remove(out)

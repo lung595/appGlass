@@ -756,8 +756,8 @@
       "what": "Jellyfin CSS (rendered)"
     },
     {
-      "adapter": null,
-      "implemented": false,
+      "adapter": "hook",
+      "implemented": true,
       "owner": null,
       "path": "~/.local/bin/appglass-sync",
       "status": "absent",
@@ -788,16 +788,16 @@
       "what": "the Discord glass theme"
     },
     {
-      "adapter": null,
-      "implemented": false,
+      "adapter": "hook",
+      "implemented": true,
       "owner": null,
       "path": "~/.config/systemd/user/appglass-sync.path",
       "status": "absent",
       "what": "watches the theme files"
     },
     {
-      "adapter": null,
-      "implemented": false,
+      "adapter": "hook",
+      "implemented": true,
       "owner": null,
       "path": "~/.config/systemd/user/appglass-sync.service",
       "status": "absent",
