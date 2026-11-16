@@ -1,5 +1,5 @@
 [Unit]
-Description=appGlass: re-apply the glass to every app (level + colours + Discord)
+Description=appGlass: re-apply the glass to every app (level + colours)
 [Service]
 Type=oneshot
 ExecStart=%h/.local/bin/appglass-sync

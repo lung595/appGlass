@@ -905,6 +905,7 @@ class App:
         self.quiet = quiet
         self.from_hook = False      # apply --from-hook (the matugen post_hook)
         self.dry_run = False
+        self.changed = []           # every path written, deleted or restored this run
         from . import settings as _settings
         self.settings, self.settings_error = _settings.load(self.env)
         if self.settings_error:
@@ -991,6 +992,7 @@ class App:
         for p in stale:
             self._revert(ctx.owner, p, owner["files"][p])
             self._drop_backup(owner["files"].pop(p))
+            self._note(p)
         for p in ctx.kept_absent:
             rec = owner["files"].get(p)
             if rec is not None and rec.get("how") in ("edit", "json"):
@@ -1064,7 +1066,13 @@ class App:
             owner["files"][p] = rec
             st.save()
         st.save()
+        for p in changed:
+            self._note(p)
         return changed
+
+    def _note(self, p):
+        if p not in self.changed:
+            self.changed.append(p)
 
     def _revert(self, owner_name, p, rec):
         env = self.env
@@ -1220,6 +1228,7 @@ class App:
             self._revert(name, p, rec)
             self._drop_backup(owner["files"].pop(p))
             self.state.save()
+            self._note(p)
         for d in sorted(owner.get("dirs", []), key=len, reverse=True):
             try:
                 os.rmdir(d)
@@ -1818,6 +1827,10 @@ def main(argv=None, environ=None, out=None, err=None):
                    help="with --all: adopt the known hand-made files first")
     a.add_argument("--dry-run", action="store_true")
     a.add_argument("--quiet", action="store_true")
+    a.add_argument("--list-changed", action="store_true",
+                   help="print every file the run wrote, deleted or restored, one per "
+                        "line (even with --quiet; the sync script reloads GTK and "
+                        "Herdr only when theirs changed)")
     ad = sub.add_parser("adopt", help="hand known hand-made files to appglass (backed up)")
     ad.add_argument("paths", nargs="*", help="files to adopt (default: every one appglass "
                                              "has an owner for)")
@@ -1873,6 +1886,9 @@ def main(argv=None, environ=None, out=None, err=None):
             if args.adopt:
                 raise AppglassError("apply: --adopt goes with --all")
             cmd_apply(app, args.only, args.dry_run, from_hook=args.from_hook)
+        if args.cmd == "apply" and args.list_changed and not args.dry_run:
+            for p in app.changed:
+                print(p, file=app.out)
         elif args.cmd == "adopt":
             cmd_adopt(app, args.paths, dry_run=args.dry_run)
         elif args.cmd == "remove":

@@ -15,19 +15,22 @@ before the first ``appglass apply``. Installing over an older hook section
 It also installs the sync units: shims/sync/appglass-sync.path and
 .service, verbatim, in ~/.config/systemd/user, and ~/.local/bin/appglass-sync,
 which execs the repo's bin/appglass-sync. The path unit fires when the DMS
-window rules (the opacity), the DMS colours or ~/.config/discord change; the
-script puts Vencord back after a Discord update (only while the vencord
-family is applied), runs ``appglass apply --from-hook`` and nudges Herdr and
-GTK. Also shims/sync/appglass-vibrancy.service and
+window rules (the opacity) or the DMS colours change; the script runs
+``appglass apply --from-hook --list-changed`` and nudges Herdr and GTK only
+when one of their files changed. appglass-discord.path/.service watch
+~/.config/discord (Discord writes there all the time): the script, with
+--discord, exits at once unless the newest Discord host dir lacks Vencord,
+and only then puts it back (while the vencord family is applied) and
+re-applies. Also shims/sync/appglass-vibrancy.service and
 ~/.local/bin/appglass-vibrancy (``bin/appglass vibrancy``, the Alacritty
 inactive fade, appglass/vibrancy.py). Then ``systemctl --user daemon-reload``,
-``enable --now appglass-sync.path`` and ``enable`` + ``restart``
+``enable --now`` the two path units and ``enable`` + ``restart``
 appglass-vibrancy.service (not in a sandbox, unless $APPGLASS_SYSTEMCTL names
 a stand-in). Hand-made units and script are Conflicts until ``appglass adopt``.
 
 ``appglass hook remove`` restores the matugen config byte-identical, drops
 the rendered colors.json, restores (or deletes) the units and the script and
-disables the path unit and the vibrancy service again when they were not
+disables the path units and the vibrancy service again when they were not
 enabled before install.
 """
 
@@ -45,9 +48,17 @@ HOOK_ARGS = "apply --from-hook --quiet"
 _BLOCK = re.compile(r"(?ms)^\n?" + re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?")
 
 
-UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service")
+UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service",
+         "appglass-discord.path", "appglass-discord.service")
 PATH_UNIT = UNITS[0]
 VIBRANCY_UNIT = UNITS[2]
+DISCORD_UNIT = UNITS[3]
+# (state key, unit, the systemctl calls of install); remove disables a unit
+# that was not enabled before install
+ENABLED = (("was_enabled", PATH_UNIT, (("enable", "--now"),)),
+           ("discord_was_enabled", DISCORD_UNIT, (("enable", "--now"),)),
+           # restart: a running daemon picks up new code from the repo
+           ("vibrancy_was_enabled", VIBRANCY_UNIT, (("enable",), ("restart",))))
 
 
 def repo_root():
@@ -180,7 +191,7 @@ def install(app):
     tool = systemctl(env)
     sd = dict((app.state.owners.get("hook") or {}).get("systemd") or {})
     if tool:
-        for key, unit in (("was_enabled", PATH_UNIT), ("vibrancy_was_enabled", VIBRANCY_UNIT)):
+        for key, unit, _ in ENABLED:
             if key not in sd:
                 r = _ctl(app, "is-enabled", "--quiet", unit)
                 sd[key] = r is not None and r.returncode == 0
@@ -191,17 +202,17 @@ def install(app):
         app.state.save()
     if tool:
         _ctl(app, "daemon-reload")
-        # restart: a running daemon picks up new code from the repo
-        for args in (("enable", "--now", PATH_UNIT), ("enable", VIBRANCY_UNIT),
-                     ("restart", VIBRANCY_UNIT)):
-            r = _ctl(app, *args)
-            if r is not None and r.returncode != 0:
-                app.warn("hook: systemctl %s failed: %s"
-                         % (" ".join(args), (r.stderr or r.stdout).strip()))
-        app.info("hook: %s and %s enabled" % (PATH_UNIT, VIBRANCY_UNIT))
+        for _, unit, calls in ENABLED:
+            for c in calls:
+                args = c + (unit,)
+                r = _ctl(app, *args)
+                if r is not None and r.returncode != 0:
+                    app.warn("hook: systemctl %s failed: %s"
+                             % (" ".join(args), (r.stderr or r.stdout).strip()))
+        app.info("hook: %s enabled" % ", ".join(u for _, u, _ in ENABLED))
     else:
-        app.info("hook: systemctl skipped (sandbox): %s and %s not enabled"
-                 % (PATH_UNIT, VIBRANCY_UNIT))
+        app.info("hook: systemctl skipped (sandbox): %s not enabled"
+                 % ", ".join(u for _, u, _ in ENABLED))
     if changed:
         app.info("hook: %s in %s" % ("updated" if had else "installed", config_path(env)))
     else:
@@ -215,11 +226,10 @@ def remove(app):
     out = output_path(env)
     o = app.state.owners.get("hook") or {}
     sd = o.get("systemd")
-    if sd is not None and not sd.get("was_enabled"):
-        _ctl(app, "disable", "--now", PATH_UNIT)
-    if sd is not None and not sd.get("vibrancy_was_enabled"):
-        # stopping it resets the Alacritty windows it faded (SIGTERM)
-        _ctl(app, "disable", "--now", VIBRANCY_UNIT)
+    for key, unit, _ in ENABLED:
+        # stopping the vibrancy daemon resets the Alacritty windows it faded
+        if sd is not None and not sd.get(key):
+            _ctl(app, "disable", "--now", unit)
     removed = app.remove_owner("hook")
     if removed and sd is not None:
         _ctl(app, "daemon-reload")

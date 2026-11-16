@@ -1,10 +1,9 @@
 [Unit]
-Description=appGlass: follow the DMS window rule opacity, DMS colours and Discord updates
+Description=appGlass: follow the DMS window rule opacity and the DMS colours
 [Path]
 PathChanged=%h/.config/niri/dms/windowrules.kdl
 PathModified=%h/.config/niri/dms
 PathChanged=%h/.cache/dms/dms-colors.json
-PathChanged=%h/.config/discord
 Unit=appglass-sync.service
 [Install]
 WantedBy=default.target

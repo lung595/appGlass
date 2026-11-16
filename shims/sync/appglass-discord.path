@@ -1,0 +1,7 @@
+[Unit]
+Description=appGlass: notice a Discord update (a new app-* host dir)
+[Path]
+PathChanged=%h/.config/discord
+Unit=appglass-discord.service
+[Install]
+WantedBy=default.target

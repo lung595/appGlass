@@ -10,11 +10,16 @@ import unittest
 from fixtures.sandbox import REPO
 from fixtures.shimworld import ShimWorld
 
-UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service")
+UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service",
+         "appglass-discord.path", "appglass-discord.service")
 HAND_UNITS = UNITS[:2]
 ENABLE = ["--user daemon-reload", "--user enable --now appglass-sync.path",
+          "--user enable --now appglass-discord.path",
           "--user enable appglass-vibrancy.service",
           "--user restart appglass-vibrancy.service"]
+DISABLE = ["--user disable --now appglass-sync.path",
+           "--user disable --now appglass-discord.path",
+           "--user disable --now appglass-vibrancy.service"]
 CTL = """#!/bin/sh
 echo "$*" >> "%(log)s"
 case "$*" in *is-enabled*) exit %(enabled)d ;; esac
@@ -83,15 +88,14 @@ class SyncUnits(unittest.TestCase):
         self.ctl(enabled=1)
         self.run_ok("hook", "install")
         self.assertEqual(self.calls(), ["--user is-enabled --quiet appglass-sync.path",
+                                        "--user is-enabled --quiet appglass-discord.path",
                                         "--user is-enabled --quiet appglass-vibrancy.service"]
                          + ENABLE)
         self.run_ok("hook", "install")           # again: no new is-enabled
-        self.assertEqual(self.calls()[6:], ENABLE)
+        self.assertEqual(self.calls()[8:], ENABLE)
         open(self.log, "w").close()
         self.run_ok("remove")
-        self.assertEqual(self.calls(), ["--user disable --now appglass-sync.path",
-                                        "--user disable --now appglass-vibrancy.service",
-                                        "--user daemon-reload"])
+        self.assertEqual(self.calls(), DISABLE + ["--user daemon-reload"])
         self.assertEqual(self.w.sb.tree_hash(), self.before)
 
     def test_hand_units_conflict_then_adopt(self):
@@ -136,11 +140,11 @@ class SyncScript(unittest.TestCase):
         self.w.cleanup()
         shutil.rmtree(self.run_dir, ignore_errors=True)
 
-    def sync(self):
+    def sync(self, *args, **extra):
         env = dict(self.w.sb.env, XDG_RUNTIME_DIR=self.run_dir,
-                   APPGLASS_SYNC_SETTLE="0", APPGLASS_SYNC_WAIT="0")
-        r = subprocess.run([os.path.join(REPO, "bin", "appglass-sync")], env=env,
-                           capture_output=True, text=True, timeout=120)
+                   APPGLASS_SYNC_SETTLE="0", APPGLASS_SYNC_WAIT="0", **extra)
+        r = subprocess.run([os.path.join(REPO, "bin", "appglass-sync")] + list(args),
+                           env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout + r.stderr
 
@@ -168,6 +172,35 @@ class SyncScript(unittest.TestCase):
         self.assertIn("discord", self.niri())    # apply --from-hook after the inject
         self.sync()                               # injected: nothing to do
         self.assertEqual(len(self.installs()), 1)
+
+    def test_discord_writes_exit_at_once(self):
+        """--discord (appglass-discord.service, ~/.config/discord changed): no
+        lock, no apply, no output unless the newest host dir lacks Vencord."""
+        state = os.path.join(self.w.sb.state, "appglass", "state.json")
+        self.assertEqual(self.sync("--discord"), "")          # vencord not applied
+        self.assertFalse(os.path.exists(state))
+        self.assertEqual(os.listdir(self.run_dir), [])        # not even the lock
+        self.w.run("set", "apps.vencord.enabled", "true")
+        self.assertEqual(self.w.run("apply", "--only", "vencord")[0], 0)
+        out = self.sync("--discord")                          # a new host: inject
+        self.assertIn("Vencord injected", out)
+        self.assertIn("discord", self.niri())
+        before = self.w.sb.tree_hash()
+        for _ in range(3):                                    # Discord's own writes
+            self.assertEqual(self.sync("--discord"), "")
+        self.assertEqual(self.w.sb.tree_hash(), before)
+        self.assertEqual(len(self.installs()), 1)
+
+    def test_gtk_nudged_only_when_its_css_changed(self):
+        env = {"APPGLASS_ASSUME_INSTALLED": "gtk3"}
+        self.assertEqual(self.w.run("apply", "--only", "gtk3", env=env)[0], 0)
+        out = self.sync(**env)
+        self.assertNotIn("GTK CSS changed", out)              # nothing new
+        self.assertNotIn("herdr", out)
+        self.w.sb.set_level(0.7)
+        out = self.sync(**env)
+        self.assertIn("GTK CSS changed", out)
+        self.assertNotIn("GTK CSS changed", self.sync(**env))
 
     def test_colours_rerender_the_theme(self):
         self.w.run("set", "apps.vencord.enabled", "true")

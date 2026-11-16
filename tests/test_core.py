@@ -214,6 +214,28 @@ class HookScope(unittest.TestCase):
         self.run_ag("apply", "--from-hook", "--quiet")
         self.assertNotEqual(self.sb.read(p), old)
 
+    def test_list_changed_names_only_what_changed(self):
+        """apply --list-changed: every file written, deleted or restored, one per
+        line even with --quiet; nothing on a run that changes nothing."""
+        out, _ = self.run_ag("apply", "--only", "alacritty,gtk3", "--quiet", "--list-changed")
+        listed = out.splitlines()
+        self.assertIn(self.sb.cfg("alacritty", "appglass.toml"), listed)
+        self.assertTrue(any("/gtk-3.0/" in p for p in listed), listed)
+        self.assertTrue(all(os.path.isabs(p) for p in listed), listed)
+        out, _ = self.run_ag("apply", "--from-hook", "--quiet", "--list-changed")
+        self.assertEqual(out, "")
+        self.sb.seed_dms(light=True)                    # colours: alacritty only
+        out, _ = self.run_ag("apply", "--from-hook", "--quiet", "--list-changed")
+        self.assertIn(self.sb.cfg("alacritty", "appglass.toml"), out.splitlines())
+        out, _ = self.run_ag("remove", "--only", "gtk3")
+        out, _ = self.run_ag("apply", "--from-hook", "--quiet", "--list-changed")
+        self.assertEqual(out, "")
+        out, _ = self.run_ag("apply", "--only", "alacritty", "--dry-run", "--list-changed")
+        self.assertNotIn("\n/", "\n" + out)                # a dry run lists nothing
+        self.sb.seed_dms()
+        self.run_ag("remove")
+        self.assertEqual(self.sb.tree_hash(), self.before)
+
     def test_hook_without_apply_is_a_noop(self):
         out, _ = self.run_ag("apply", "--from-hook")
         self.assertIn("nothing to refresh", out)

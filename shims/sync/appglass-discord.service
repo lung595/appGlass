@@ -1,0 +1,8 @@
+[Unit]
+Description=appGlass: put Vencord back into a new Discord host
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/appglass-sync --discord
+# Discord writes ~/.config/discord all the time and the check exits at once:
+# keep its start/finish lines out of the journal (the script logs at notice)
+LogLevelMax=notice
