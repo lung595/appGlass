@@ -7,15 +7,18 @@ Alacritty window, eases ``window.opacity`` between the content level
 socket ($XDG_RUNTIME_DIR/Alacritty-<WAYLAND_DISPLAY>-<pid>.sock). Only the
 background changes: Alacritty's opacity never applies to the glyphs.
 
-A focused window ends with ``reset`` (back to the opacity of its config
-file, which appglass.toml sets to the content level). Keyboard focus moving
+Alacritty's IPC sets an option for all the windows of a process at once, so
+a process fades only when none of its windows has the focus. Back at full it
+gets ``window.opacity=<the config file's value>`` (appglass.toml's content
+level), never a ``reset``, which would also drop the user's own runtime
+``alacritty msg config`` options. Keyboard focus moving
 to a layer-shell surface (the DMS launcher, a popup) is ignored, so the
 windows stay as they are, like niri's own is-active.
 
 It re-reads settings.json, state.json and the DMS window rules when they
 change, so it needs no restart: with inactive off, appglass off or the
 alacritty family not applied it puts every window back and idles. On
-SIGTERM, and when niri goes away, every window it changed is reset.
+SIGTERM, and when niri goes away, every window it faded is put back.
 
 Run by appglass-vibrancy.service (``appglass hook install``).
 """
@@ -37,71 +40,86 @@ APP_IDS = ("Alacritty",)
 FRAME = 1 / 60
 IDLE_WAIT = 2.0
 CONFIG_EVERY = 0.5
-RESET = None            # a send() value: back to the config file opacity
 
 
 class Fader:
     """The windows and their animation; pure (the caller gives the time and
-    sends the (pid, value) pairs it returns, value RESET or an opacity)."""
+    sends the (pid, opacity) pairs it returns).
+
+    Alacritty's IPC sets an option for every window of a process at once
+    (window_id -1), so the animation is per pid: a process fades only when
+    none of its windows has the focus.
+    """
 
     def __init__(self, app_ids=APP_IDS):
         self.app_ids = set(app_ids)
-        self.win = {}           # id -> {"pid", "focused", "v", "from", "to", "t0"}
-        self.touched = set()    # pids sent a value since their last reset
+        self.win = {}           # window id -> {"pid", "focused"}
+        self.anim = {}          # pid -> {"v", "from", "to", "t0"}
+        self.touched = set()    # pids that carry a runtime window.opacity from us
         self.on = False
         self.content = 1.0
+        self.configured = 1.0   # the window.opacity of the config file
         self.ratio = 1.0
         self.duration = 0.0
         self.easing = "ease-out-cubic"
 
     # --- configuration
-    def configure(self, on, content=1.0, ratio=1.0, duration_ms=0, easing="ease-out-cubic"):
-        """New settings: every window jumps to its new target (no animation)."""
+    def configure(self, on, content=1.0, ratio=1.0, duration_ms=0, easing="ease-out-cubic",
+                  configured=None):
+        """New settings: every process jumps to its new target (no animation);
+        one we changed before gets the new level too (a runtime option
+        outlives a config file reload)."""
         self.on = bool(on) and ratio < 1.0
         self.content, self.ratio = float(content), float(ratio)
+        self.configured = float(content if configured is None else configured)
         self.duration = max(0, int(duration_ms)) / 1000.0
         self.easing = easing
         out = []
-        for w in self.win.values():
-            to = self._target(w)
-            w.update({"v": to, "from": to, "to": to})
-            out += self._send(w)
+        for pid, a in self.anim.items():
+            to = self._target(pid)
+            a.update({"v": to, "from": to, "to": to})
+            out += self._send(pid)
         return out
 
-    def _target(self, w):
-        return 1.0 if (w["focused"] or not self.on) else self.ratio
+    def _target(self, pid):
+        if not self.on or any(w["focused"] for w in self.win.values() if w["pid"] == pid):
+            return 1.0
+        return self.ratio
 
-    def _send(self, w):
-        if w["v"] >= 1.0:
-            if w["pid"] in self.touched:
-                self.touched.discard(w["pid"])
-                return [(w["pid"], RESET)]
-            return []
-        self.touched.add(w["pid"])
-        return [(w["pid"], round(self.content * w["v"], 3))]
+    def _send(self, pid):
+        v = self.anim[pid]["v"]
+        if v >= 1.0:
+            # back to the file's opacity, as an option: never a reset, which
+            # would also drop the user's own `alacritty msg config` options
+            return [(pid, round(self.configured, 3))] if pid in self.touched else []
+        self.touched.add(pid)
+        return [(pid, round(self.content * v, 3))]
 
     @property
     def animating(self):
-        return any(w["v"] != w["to"] for w in self.win.values())
+        return any(a["v"] != a["to"] for a in self.anim.values())
 
     # --- niri events
     def _add(self, d, now):
-        w = {"pid": d.get("pid"), "focused": bool(d.get("is_focused"))}
-        to = self._target(w)
-        w.update({"v": to, "from": to, "to": to, "t0": now})
-        self.win[d["id"]] = w
-        return self._send(w)
+        pid = d["pid"]
+        self.win[d["id"]] = {"pid": pid, "focused": bool(d.get("is_focused"))}
+        if pid in self.anim:
+            return []           # another window of a known process: _retarget
+        to = self._target(pid)
+        self.anim[pid] = {"v": to, "from": to, "to": to, "t0": now}
+        return self._send(pid)
 
     def _retarget(self, now):
-        for w in self.win.values():
-            to = self._target(w)
-            if to != w["to"]:
-                w.update({"from": w["v"], "to": to, "t0": now})
+        for pid, a in self.anim.items():
+            to = self._target(pid)
+            if to != a["to"]:
+                a.update({"from": a["v"], "to": to, "t0": now})
 
     def _drop(self, wid):
         w = self.win.pop(wid, None)
-        if w is not None:
-            self.touched.discard(w["pid"])   # the socket goes with the window
+        if w is not None and not any(o["pid"] == w["pid"] for o in self.win.values()):
+            self.anim.pop(w["pid"], None)
+            self.touched.discard(w["pid"])   # the socket goes with the process
 
     def _ours(self, d):
         return d.get("app_id") in self.app_ids and isinstance(d.get("pid"), int)
@@ -146,23 +164,23 @@ class Fader:
 
     def tick(self, now):
         out = []
-        for w in self.win.values():
-            if w["v"] == w["to"]:
+        for pid, a in self.anim.items():
+            if a["v"] == a["to"]:
                 continue
-            x = (now - w["t0"]) / self.duration if self.duration > 0 else 1.0
+            x = (now - a["t0"]) / self.duration if self.duration > 0 else 1.0
             if x >= 1:
-                w["v"] = w["to"]
+                a["v"] = a["to"]
             else:
-                w["v"] = w["from"] + (w["to"] - w["from"]) * inactive.ease(self.easing, x)
-            out += self._send(w)
+                a["v"] = a["from"] + (a["to"] - a["from"]) * inactive.ease(self.easing, x)
+            out += self._send(pid)
         return out
 
     def release(self):
-        """Reset every window this daemon changed."""
-        out = [(w["pid"], RESET) for w in self.win.values() if w["pid"] in self.touched]
-        self.touched.clear()
-        for w in self.win.values():
-            w.update({"v": 1.0, "from": 1.0, "to": 1.0})
+        """Put every process this daemon faded back to the file's opacity."""
+        out = [(pid, round(self.configured, 3)) for pid, a in self.anim.items()
+               if pid in self.touched and a["v"] < 1.0]
+        for a in self.anim.values():
+            a.update({"v": 1.0, "from": 1.0, "to": 1.0})
         return out
 
 
@@ -173,10 +191,7 @@ def runtime_dir(env):
 
 
 def message(value):
-    if value is RESET:
-        cfg = {"window_id": -1, "options": [], "reset": True}
-    else:
-        cfg = {"window_id": -1, "options": ["window.opacity=%.3f" % value], "reset": False}
+    cfg = {"window_id": -1, "options": ["window.opacity=%.3f" % value], "reset": False}
     return (json.dumps({"Config": cfg}) + "\n").encode()
 
 
@@ -258,7 +273,22 @@ class Config:
         content = core.Levels.from_env(self.env, s).content
         on = bool(s.get("enabled", True) and p["enabled"] and "alacritty" in owners)
         return {"on": on, "content": content, "ratio": inactive.ratio(content, p["factor"]),
-                "duration_ms": p["durationMs"], "easing": p["easing"]}
+                "duration_ms": p["durationMs"], "easing": p["easing"],
+                "configured": file_opacity(self.env, content, "alacritty" in owners)}
+
+
+def file_opacity(env, content, applied):
+    """The window.opacity Alacritty has from its config files: appglass.toml's
+    content level (as written there) while the family is applied, else the
+    main file's own [window] opacity (1.0 when unset)."""
+    if applied:
+        return float("%.2f" % content)
+    from .families import alacritty
+    v = (alacritty._load_toml(alacritty.main_config(env)) or {}).get("window", {})
+    v = v.get("opacity", 1.0) if isinstance(v, dict) else 1.0
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return 1.0
+    return min(1.0, max(0.0, float(v)))
 
 
 def _reader(proc, q):

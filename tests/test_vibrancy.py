@@ -10,7 +10,7 @@ import unittest
 
 from fixtures.sandbox import Sandbox
 from appglass import core, vibrancy
-from appglass.vibrancy import RESET, Fader
+from appglass.vibrancy import Fader
 
 
 def win(i, pid, focused=False, app="Alacritty"):
@@ -30,7 +30,7 @@ class FaderTest(unittest.TestCase):
         self.assertEqual(out, [(102, 0.72)])       # the focused one is left at its file opacity
         self.assertFalse(f.animating)
 
-    def test_focus_change_eases_and_ends_with_reset(self):
+    def test_focus_change_eases_and_ends_at_the_file_opacity(self):
         f = Fader()
         on(f)
         f.on_event({"WindowsChanged": {"windows": [win(1, 101, True), win(2, 102)]}}, 0)
@@ -43,7 +43,7 @@ class FaderTest(unittest.TestCase):
         # ease-out-cubic: more than half the way at half the time
         self.assertLess(mid[101], 0.76)
         end = dict(f.tick(10.2))
-        self.assertEqual(end, {101: 0.72, 102: RESET})
+        self.assertEqual(end, {101: 0.72, 102: 0.8})   # window.opacity, not a reset
         self.assertFalse(f.animating)
         self.assertEqual(f.tick(10.3), [])
 
@@ -69,7 +69,7 @@ class FaderTest(unittest.TestCase):
         f = Fader()
         on(f)
         f.on_event({"WindowsChanged": {"windows": [win(1, 101, True), win(2, 102)]}}, 0)
-        self.assertEqual(f.configure(False, 0.8, 0.9, 180), [(102, RESET)])
+        self.assertEqual(f.configure(False, 0.8, 0.9, 180), [(102, 0.8)])
         self.assertEqual(f.on_event({"WindowFocusChanged": {"id": 2}}, 1), [])
         self.assertEqual(f.tick(2), [])
         # at the floor (ratio 1) it is off too
@@ -87,8 +87,55 @@ class FaderTest(unittest.TestCase):
         on(f)
         f.on_event({"WindowsChanged": {"windows": [win(1, 101, True), win(2, 102),
                                                    win(3, 103)]}}, 0)
-        self.assertEqual(sorted(f.release()), [(102, RESET), (103, RESET)])
+        self.assertEqual(sorted(f.release()), [(102, 0.8), (103, 0.8)])
         self.assertEqual(f.release(), [])
+
+    def test_windows_of_one_process_fade_together(self):
+        """window_id -1 sets every window of the process: it fades only when
+        none of them is focused (no flip-flop between two of its windows)."""
+        f = Fader()
+        on(f, ms=0)
+        out = f.on_event({"WindowsChanged": {"windows": [
+            win(1, 101, True), win(2, 101), win(3, 103)]}}, 0)
+        self.assertEqual(out, [(103, 0.72)])      # 101 has a focused window
+        f.on_event({"WindowFocusChanged": {"id": 2}}, 1)
+        self.assertFalse(f.animating)
+        self.assertEqual(f.tick(1), [])           # still focused: nothing sent
+        f.on_event({"WindowFocusChanged": {"id": 3}}, 2)
+        self.assertEqual(sorted(f.tick(2)), [(101, 0.72), (103, 0.8)])
+        f.on_event({"WindowOpenedOrChanged": {"window": win(4, 101)}}, 3)
+        self.assertEqual(f.tick(3), [])           # a new unfocused window of 101
+        f.on_event({"WindowClosed": {"id": 1}}, 4)
+        f.on_event({"WindowClosed": {"id": 2}}, 4)
+        self.assertIn(101, f.anim)                # window 4 is still open
+        f.on_event({"WindowFocusChanged": {"id": 4}}, 5)
+        self.assertEqual(sorted(f.tick(5)), [(101, 0.8), (103, 0.72)])
+        f.on_event({"WindowClosed": {"id": 4}}, 6)
+        self.assertNotIn(101, f.anim)
+        self.assertNotIn(101, f.touched)
+
+    def test_back_to_the_configured_opacity(self):
+        f = Fader()
+        f.configure(True, 0.8, 0.9, 0, configured=0.95)
+        f.on_event({"WindowsChanged": {"windows": [win(1, 101, True), win(2, 102)]}}, 0)
+        f.on_event({"WindowFocusChanged": {"id": 2}}, 1)
+        self.assertEqual(dict(f.tick(1)), {101: 0.72, 102: 0.95})
+        # a level change reaches 102 too: our runtime option outlives a file reload
+        self.assertEqual(sorted(f.configure(True, 0.7, 0.9, 0, configured=0.7)),
+                         [(101, 0.63), (102, 0.7)])
+
+    def test_file_opacity(self):
+        sb = Sandbox()
+        try:
+            env = core.Env(sb.env)
+            self.assertEqual(vibrancy.file_opacity(env, 0.8049, True), 0.8)
+            self.assertEqual(vibrancy.file_opacity(env, 0.8, False), 1.0)
+            sb.write("alacritty/alacritty.toml", "[window]\nopacity = 0.95\n")
+            self.assertEqual(vibrancy.file_opacity(env, 0.8, False), 0.95)
+            sb.write("alacritty/alacritty.toml", "[window]\nopacity = 'x'\n")
+            self.assertEqual(vibrancy.file_opacity(env, 0.8, False), 1.0)
+        finally:
+            sb.cleanup()
 
     def test_junk_events(self):
         f = Fader()
@@ -142,8 +189,8 @@ class SenderTest(unittest.TestCase):
     def test_message_format(self):
         self.assertEqual(json.loads(vibrancy.message(0.72)), {"Config": {
             "window_id": -1, "options": ["window.opacity=0.720"], "reset": False}})
-        self.assertEqual(json.loads(vibrancy.message(RESET)), {"Config": {
-            "window_id": -1, "options": [], "reset": True}})
+        self.assertEqual(json.loads(vibrancy.message(1.0)), {"Config": {
+            "window_id": -1, "options": ["window.opacity=1.000"], "reset": False}})
 
     def test_sends_to_the_window_socket(self):
         env = core.Env(dict(self.sb.env, XDG_RUNTIME_DIR=self.rt, WAYLAND_DISPLAY="wayland-1"))
@@ -152,14 +199,15 @@ class SenderTest(unittest.TestCase):
         try:
             send = vibrancy.Sender(env)
             self.assertTrue(send(101, 0.72))
-            self.assertTrue(send(102, RESET))           # another display name: globbed
+            self.assertTrue(send(102, 0.8))             # another display name: globbed
             self.assertFalse(send(103, 0.72))           # no socket: skipped
             for _ in range(100):
                 if a.msgs and b.msgs:
                     break
                 threading.Event().wait(0.02)
             self.assertEqual(a.msgs[0]["Config"]["options"], ["window.opacity=0.720"])
-            self.assertTrue(b.msgs[0]["Config"]["reset"])
+            self.assertEqual(b.msgs[0]["Config"]["options"], ["window.opacity=0.800"])
+            self.assertFalse(b.msgs[0]["Config"]["reset"])
         finally:
             a.close()
             b.close()
@@ -213,7 +261,7 @@ class Daemon(unittest.TestCase):
     EVENTS = [{"WindowsChanged": {"windows": [win(1, 101, True), win(2, 102)]}},
               {"WindowFocusChanged": {"id": 2}}]
 
-    def test_fades_and_resets_at_the_end(self):
+    def test_fades_and_puts_back_at_the_end(self):
         self.sb.set_level(0.8)
         self.state({"alacritty": {"files": {}, "app_ids": ["^Alacritty$"]}})
         self.fake_niri(self.EVENTS)
@@ -221,11 +269,11 @@ class Daemon(unittest.TestCase):
         self.assertEqual(code, 1, err)
         self.assertIn("event stream ended", err)
         self.assertEqual(sent[0], (102, 0.72))
-        vals101 = [v for p, v in sent if p == 101 and v is not RESET]
+        vals101 = [v for p, v in sent if p == 101 and v < 0.8]
         self.assertGreater(len(vals101), 3, sent)      # several frames, not a jump
         self.assertEqual(vals101[-1], 0.72)
-        self.assertIn((102, RESET), sent)
-        self.assertEqual(sent[-1], (101, RESET))       # released on exit
+        self.assertIn((102, 0.8), sent)
+        self.assertEqual(sent[-1], (101, 0.8))         # put back on exit
 
     def test_idle_without_the_family_or_when_off(self):
         self.sb.set_level(0.8)

@@ -227,7 +227,7 @@ def remove(app):
     o = app.state.owners.get("hook") or {}
     sd = o.get("systemd")
     for key, unit, _ in ENABLED:
-        # stopping the vibrancy daemon resets the Alacritty windows it faded
+        # stopping the vibrancy daemon puts back the Alacritty windows it faded
         if sd is not None and not sd.get(key):
             _ctl(app, "disable", "--now", unit)
     removed = app.remove_owner("hook")
