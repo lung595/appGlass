@@ -108,7 +108,7 @@ Item {
         t.check("no runtime dir", Logic.settingsFilePath(null), "");
         t.check("sync argv", Logic.syncArgv("/b/appglass", "/run/f.json"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "sync", "--settings-file", "/run/f.json"]);
         t.check("status argv", Logic.statusArgv("/b/appglass"), ["/b/appglass", "status", "--json"]);
-        t.check("get / remove argv", [Logic.getArgv("a"), Logic.removeArgv("a")], [["a", "get"], ["a", "remove"]]);
+        t.check("get argv", Logic.getArgv("a"), ["a", "get"]);
         t.check("error: the appglass line", Logic.errorText("apps: 3 glass\nappglass: sync: f rejected\n", 1), "appglass: sync: f rejected");
         t.check("error: the last line", Logic.errorText("one\ntwo\n\n", 1), "two");
         t.check("error: the exit code", Logic.errorText("", 2), "appglass exited with status 2");

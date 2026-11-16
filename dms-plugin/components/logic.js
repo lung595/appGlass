@@ -213,10 +213,6 @@ function getArgv(bin) {
     return [bin, "get"];
 }
 
-function removeArgv(bin) {
-    return [bin, "remove"];
-}
-
 // The line to show for a failed command: its last "appglass: ..." line,
 // else its last line, else the exit code
 function errorText(output, exitCode) {

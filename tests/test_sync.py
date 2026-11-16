@@ -285,3 +285,98 @@ class SyncScript(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GlassOffOn(unittest.TestCase):
+    """The plugin's glass switch off then on (sync enabled false, then true)
+    brings back what `apply --all --adopt` had: the adopted hand files are
+    adopted again (same bytes as at off), the hook stays."""
+
+    def setUp(self):
+        import json
+        from fixtures.sandbox import fixture
+        self.json = json
+        self.w = w = ShimWorld(bins=("vlc",))
+        self.tmp = tempfile.mkdtemp(prefix="appglass-ctl-")
+        ctl = os.path.join(self.tmp, "systemctl")
+        with open(ctl, "w") as f:
+            f.write(CTL % {"log": os.path.join(self.tmp, "calls"), "enabled": 1})
+        os.chmod(ctl, 0o755)
+        w.sb.env["APPGLASS_SYSTEMCTL"] = ctl
+        with open(fixture("launchers/vlc.desktop")) as f:
+            system = f.read()
+        w.launcher("vlc.desktop", system)
+        self.so = w.hand(".local/lib/appglass/qt6/styles/libappglass.so",
+                         b"\x7fELF hand-built", 0o755)
+        self.desk = w.hand(".local/share/applications/vlc.desktop", system.replace(
+            "Exec=/usr/bin/vlc", "Exec=env QT_STYLE_OVERRIDE=appglass /usr/bin/vlc"))
+        for n in HAND_UNITS:
+            w.hand(".config/systemd/user/" + n, repo_unit(n))
+        w.hand(".local/bin/appglass-sync", "#!/usr/bin/sh\nhand\n", 0o755)
+        self.hand = {p: self.read(p) for p in (self.so, self.desk)}
+
+    def tearDown(self):
+        self.w.cleanup()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def read(self, p):
+        with open(p, "rb") as f:
+            return f.read()
+
+    def run_ok(self, *argv):
+        code, out, err = self.w.run(*argv)
+        self.assertEqual(code, 0, err)
+        return out + err
+
+    def sync(self, settings):
+        f = os.path.join(self.tmp, "plugin-settings.json")
+        with open(f, "w") as fh:
+            fh.write(self.json.dumps(settings))
+        return self.run_ok("sync", "--settings-file", f)
+
+    def conflicts(self):
+        doc = self.json.loads(self.run_ok("status", "--json"))
+        return [h["path"] for h in doc["hand_files"] if h["status"] == "conflict"]
+
+    def test_off_then_on_adopts_again(self):
+        self.run_ok("apply", "--all", "--adopt")
+        before = sorted(self.w.state()["owners"])
+        self.assertIn("qtstyle", before)
+        self.assertIn("hook", before)
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        # off: the hand files are the user's again, byte-identical
+        for p, data in self.hand.items():
+            self.assertEqual(self.read(p), data, p)
+        self.assertNotIn("qtstyle", self.w.state()["owners"])
+        off_owners = sorted(self.w.state()["owners"])
+        f = os.path.join(self.tmp, "plugin-settings.json")
+        with open(f, "w") as fh:
+            fh.write(self.json.dumps(on))
+        dry = self.run_ok("sync", "--dry-run", "--settings-file", f)
+        self.assertIn("would adopt again", dry)
+        self.assertEqual(sorted(self.w.state()["owners"]), off_owners)
+        out = self.sync(on)
+        self.assertNotIn("qtstyle: skipped", out)
+        # the sync saved the plugin's settings.json (owner settings) too
+        self.assertEqual(sorted(self.w.state()["owners"]), sorted(set(before) | {"settings"}))
+        self.assertNotIn("parked", self.w.state())
+        self.assertEqual(self.conflicts(), [])
+        # an uninstall still gives the user's bytes back
+        self.run_ok("remove")
+        for p, data in self.hand.items():
+            self.assertEqual(self.read(p), data, p)
+        self.assertFalse(os.path.exists(os.path.join(self.w.sb.state, "appglass")))
+
+    def test_on_skips_a_hand_file_changed_while_off(self):
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        with open(self.desk, "a") as f:
+            f.write("# mine\n")
+        out = self.sync(on)
+        self.assertIn("changed while glass was off", out)
+        self.assertNotIn("qtstyle", self.w.state()["owners"])
+        self.assertIn("# mine", self.read(self.desk).decode())
+        self.run_ok("remove")
+        self.assertFalse(os.path.exists(os.path.join(self.w.sb.state, "appglass")))

@@ -16,7 +16,9 @@ import "components/logic.js" as Logic
 // refreshes the status (the level shown).
 //
 // First start: the plugin data is taken from `appglass get`, so what the
-// CLI had set stays. Disabling the plugin runs `appglass remove`.
+// CLI had set stays. Disabling, re-enabling or reloading the plugin changes
+// no file and no unit: only `appglass remove` (an explicit uninstall) takes
+// the glass files and the hook out.
 // `dms ipc call appGlass sync | status | toggle | app <key> on|off`
 PluginComponent {
     id: root
@@ -273,14 +275,9 @@ PluginComponent {
     }
 
     Component.onDestruction: {
+        // nothing else: a plugin disable then enable must not tear down the
+        // adopted files and the hook (the enable's sync does not adopt)
         for (const id of [Logic.SYNC_ID, Logic.STATUS_ID, Logic.SEED_ID])
             Proc.release(id);
-        // "enabled" turns false only when the user disables the plugin, not
-        // when the shell quits or reloads it
-        const enabled = SettingsData.getPluginSetting(Logic.PLUGIN_ID, "enabled", true);
-        if (enabled !== false || !root.bin)
-            return;
-        Quickshell.execDetached(Logic.removeArgv(root.bin));
-        ToastService.showInfo("appGlass disabled: taking the glass files out");
     }
 }

@@ -1297,7 +1297,7 @@ def _unlock(env, lockf, created, app):
                     pass
         return
     st = app.state
-    if st is not None and st.owners:
+    if st is not None and (st.owners or st.data.get("parked")):
         if created and not st.data.get("state_parents"):
             st.data["state_parents"] = created
             st.save()
@@ -1424,6 +1424,11 @@ def cmd_remove(app, only=None, keep_hook=False):
                 app.info("%s: removed" % name)
         app.sync_niri()
         return
+    if keep_hook:
+        _park_adopted(app, ["niri"] + app.state.families())
+    else:
+        app.state.data.pop("parked", None)
+        app.state.save()
     if "niri" in app.state.owners:
         app.remove_owner("niri")
         app.info("niri: removed")
@@ -1440,6 +1445,57 @@ def cmd_remove(app, only=None, keep_hook=False):
     from . import learn
     if learn.forget(app.env):
         app.info("learned: cache removed")
+
+
+def _park_adopted(app, names):
+    """Glass off (the plugin's switch): remember the adopted files of names
+    (owner, sha256 of the hand bytes remove gives back) so that glass on
+    adopts them again instead of skipping their families as conflicts."""
+    parked = app.state.data.setdefault("parked", {})
+    for n in names:
+        for p, rec in app.state.owners.get(n, {}).get("files", {}).items():
+            if rec.get("adopted"):
+                parked[p] = {"owner": n, "sha256": rec.get("orig_sha256")}
+    if not parked:
+        del app.state.data["parked"]
+
+
+def _adopt_parked(app, dry_run):
+    """Glass on again: the files glass off handed back are adopted again,
+    per owner, when every one of them still holds the bytes it had then. An
+    owner whose family is off or not installed stays parked."""
+    parked = app.state.data.get("parked")
+    if not parked:
+        return
+    by_owner = {}
+    for p, rec in sorted(parked.items()):
+        by_owner.setdefault(rec.get("owner"), []).append(p)
+    for owner, paths in sorted(by_owner.items()):
+        fam = app.families.get(owner)
+        if fam is not None and not (app.installed(fam) and _family_enabled(app, owner)):
+            continue
+        same = all(app.state.owner_of(p) is None and os.path.isfile(p)
+                   and not os.path.islink(p) and sha(_read(p)) == parked[p]["sha256"]
+                   for p in paths)
+        for p in paths:
+            t = app.env.tilde(p)
+            if same:
+                adopt_path(app, p, owner, dry_run=dry_run)
+                app.info("adopt: %s %s (owner %s, as before glass off)"
+                         % ("would adopt again" if dry_run else "adopted again", t, owner))
+            else:
+                app.warn("%s: %s changed while glass was off; left as is (appglass "
+                         "adopt hands it over)" % (owner, t))
+    if dry_run:
+        return
+    for owner, paths in by_owner.items():
+        fam = app.families.get(owner)
+        if fam is None or (app.installed(fam) and _family_enabled(app, owner)):
+            for p in paths:
+                del parked[p]
+    if not parked:
+        del app.state.data["parked"]
+    app.state.save()
 
 
 def cmd_status(app):
@@ -1825,6 +1881,7 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
     for r, route in routes:
         app.info("  %-34s %-12s %-16s %-9s %s" % (r["key"][:34], r["toolkit"], route["adapter"],
                                                 route["effective"], route["reason"]))
+    _adopt_parked(app, dry_run)
     if adopt:
         # a dry run adopts in memory only: the apply dry run below then shows
         # what each owner would write over the adopted files

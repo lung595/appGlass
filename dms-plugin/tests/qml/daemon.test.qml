@@ -264,8 +264,10 @@ Item {
             },
             {
                 "run": () => {
-                    t.check("disabling the plugin runs remove", Quickshell.detached, [[root.bin, "remove"]]);
-                    t.check("and says so", ToastService.ofLevel("info").map(x => x.message), ["appGlass disabled: taking the glass files out"]);
+                    // disable / re-enable in DMS Settings > Plugins must leave the
+                    // glass files and the units alone: only `appglass remove` uninstalls
+                    t.check("disabling the plugin removes nothing", Quickshell.detached, []);
+                    t.check("and toasts nothing", ToastService.ofLevel("info").map(x => x.message), []);
                 }
             }
         ]);
