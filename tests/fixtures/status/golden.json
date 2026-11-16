@@ -151,8 +151,8 @@
       "why": "video playback breaks until the shim re-shows mpv"
     },
     {
-      "family": null,
-      "implemented": false,
+      "family": "localsend",
+      "implemented": true,
       "name": "ck-shim",
       "risk": "high",
       "summary": "a colour-key EGL shim",
@@ -365,7 +365,7 @@
       "implemented": false,
       "key": "org.example.Flutter",
       "name": "org.example.Flutter",
-      "reason": "forced adapter, off until enabled (risk high)",
+      "reason": "family localsend does not list this app",
       "risk": "high",
       "source": "desktop",
       "tier": "forced",
@@ -515,6 +515,11 @@
       "enabled": false,
       "installed": false
     },
+    "localsend": {
+      "applied": [],
+      "enabled": false,
+      "installed": false
+    },
     "obsidian": {
       "applied": [],
       "enabled": true,
@@ -601,11 +606,35 @@
     },
     {
       "adapter": "ck-shim",
-      "implemented": false,
+      "implemented": true,
       "owner": null,
       "path": "~/.local/share/applications/org.localsend.localsend_app.desktop",
       "status": "absent",
       "what": "LocalSend shim launcher"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/bin/appglass-localsend",
+      "status": "absent",
+      "what": "LocalSend launch wrapper"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/localsend/appglass-ck.so",
+      "status": "absent",
+      "what": "the colour-key shim"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/localsend/appglass-ck.c",
+      "status": "absent",
+      "what": "the colour-key shim source"
     },
     {
       "adapter": "electron-hook",
