@@ -78,7 +78,7 @@ Tested: run in a nested niri session, with the window alpha measured from window
 | GIMP 2.10 / 3.x | gtk3 | no | no | no | fallback (or keep opaque) | [gtk3.md](gtk3.md) |
 | LibreOffice (VCL gtk3) | gtk3 | no | no | no | fallback | [gtk3.md](gtk3.md) |
 | Thunderbird | gtk3 (Gecko) | no | no | no | fallback; Gecko/userChrome not covered yet | [gtk3.md](gtk3.md) |
-| Obsidian 1.15.1 (flatpak) | electron | yes | yes | partial | vault CSS snippet `appglass.css` (clear every layer, paint once) + `--text-faint` fix; dark theme only | [electron.md](electron.md) |
+| Obsidian 1.15.1 (flatpak) | electron | yes | yes | partial | vault CSS snippet `appglass.css` (clear every layer, paint once) + `--text-faint` fix; dark and light themes (same colours under `body.theme-dark` and `body.theme-light`) | [electron.md](electron.md) |
 | Any Electron app (decision rule) | electron | yes | yes | partial | only if the app's code sets `backgroundColor` `#00000000`; no flag or env var works | [electron.md](electron.md) |
 | Google Chrome (flatpak) | electron | yes | yes | no | fallback (255 everywhere) | [electron.md](electron.md) |
 | Discord (rpm) | electron | yes | no | no | fallback (`transparent:false` hard-coded, no user CSS) | [electron.md](electron.md) |
@@ -106,7 +106,7 @@ Tested: run in a nested niri session, with the window alpha measured from window
 | qBittorrent (QSS-themed apps) | qt | no | no | no | fallback | [qt.md](qt.md) |
 | LocalSend 1.18.2 (flatpak) | flutter | yes | yes | no | fallback; optional accent tint + in-app dark theme | [flutter.md](flutter.md) |
 | Other Flutter apps (AppFlowy, Spotube, ...) | flutter | no | no | no | fallback unless the app ships its own transparency | [flutter.md](flutter.md) |
-| Herdr 0.1.16 (gpui) | gpu | yes | yes | partial | theme `dankglass.json` (`#rrggbbaa`) + cloned layout `glass.json` + `shared.json` `layout: glass`; ANSI 0/8 still unreadable | [gpu.md](gpu.md) |
+| Herdr 0.1.16 (gpui) | gpu | yes | yes | partial | theme `dankglass.json` (`#rrggbbaa`) + cloned layout `glass.json` + `shared.json` `layout: glass`; ANSI 0/5/8 taken from DMS roles (outline / tertiary / on_surface_variant) and lifted | [gpu.md](gpu.md) |
 | ArtCraft Launcher 0.19.2 (egui/wgpu) | gpu | yes | yes | no | fallback (transparency is compile-time) | [gpu.md](gpu.md) |
 | Zed (gpui) | gpu | no | no | yes (expected) | user copy of DMS `dank-zed.json` with per-level alpha | [gpu.md](gpu.md) |
 
