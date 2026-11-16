@@ -31,7 +31,15 @@ APPEARANCE = json.dumps({"theme": "obsidian", "accentColor": "",
 
 
 def css_vars(css):
+    """The focused-window vars (the inactive section 5 left out)."""
+    css = css.split("/* 5. inactive window")[0]
     return dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", css))
+
+
+def inactive_vars(css):
+    if "/* 5. inactive window" not in css:
+        return None
+    return dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", css.split("/* 5. inactive window")[1]))
 
 
 class Obsidian(unittest.TestCase):
@@ -504,6 +512,24 @@ class Obsidian(unittest.TestCase):
         self.assertEqual(v["ag-bar"], "rgba(30, 34, 38, 0.80)")
         self.assertEqual(v["ag-bar-over-content"], "rgba(30, 34, 38, 0.00)")
         self._check_readable("#101418", "#1e2226", "#e0e2e8", 0.8, 0.8)
+
+    def test_inactive_window_fades(self):
+        # default content 0.60 is the floor: no inactive section
+        self.apply()
+        self.assertIsNone(inactive_vars(self.css()))
+        self.sb.set_level(0.8)
+        self.apply()
+        css = self.css()
+        iv = inactive_vars(css)
+        self.assertEqual(iv["ag-content"], "rgba(16, 20, 24, 0.72)")
+        self.assertEqual(iv["ag-bar"], "rgba(30, 34, 38, 0.72)")
+        self.assertIn("body.theme-dark:not(.is-focused)", css)
+        self.assertIn("transition: background-color 180ms cubic-bezier(0.33, 1, 0.68, 1);", css)
+        # text colours are not touched by the inactive section
+        self.assertEqual(set(iv), {"ag-content", "ag-bar", "ag-bar-over-content"})
+        self.sb.run("set", "inactive.enabled", "false")
+        self.apply()
+        self.assertIsNone(inactive_vars(self.css()))
 
     @unittest.skipUnless(shutil.which("niri"), "niri not installed")
     def test_niri_rule(self):

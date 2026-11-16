@@ -132,6 +132,21 @@ class Gtk3(unittest.TestCase):
         self.assertIn("alpha(@headerbar_bg_color, 0.70)", t)   # bar = max(content, 0.65)
         self.assertIn("alpha(@sidebar_bg_color, 0.00)", t)
 
+    def test_inactive_backdrop_fades(self):
+        self.sb.set_level(0.8)
+        self.apply()
+        t = self.theme()
+        rule = ("window.background:backdrop { background-color: "
+                "alpha(@window_bg_color, 0.72); }")
+        self.assertIn(rule, t.splitlines())
+        # after the content rule, so it wins for :backdrop
+        self.assertGreater(t.index(rule), t.index("alpha(@window_bg_color, 0.80)"))
+        self.assertIn("window.background { transition: background-color 180ms "
+                      "cubic-bezier(0.33, 1, 0.68, 1); }", t.splitlines())
+        self.sb.run("set", "inactive.enabled", "false")
+        self.apply()
+        self.assertNotIn("transition", self.theme())
+
     def test_light_mode_imports_light_adwaita(self):
         self.seed(light=True)
         self.apply()

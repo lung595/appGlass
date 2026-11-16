@@ -7,6 +7,8 @@ validated. A missing file means the defaults below.
     {"version": 1, "enabled": true,
      "levels": {"content": null, "bar": null},
      "fallback": {"mode": "opaque", "value": 0.70, "inactive": null},
+     "inactive": {"enabled": true, "factor": 0.90, "durationMs": 180,
+                  "easing": "ease-out-cubic", "instantFallback": false},
      "apps": {"steam": {"enabled": false, "route": "cdp"}}}
 
 levels.content  null = follow DMS (the Glass blur window rule opacity, then
@@ -17,8 +19,14 @@ fallback.mode   how niri treats windows appglass cannot glass:
                 "value": a catch-all opacity fallback.value (0.50..1.00);
                 "off": no rule, the DMS opacity applies to them
 fallback.inactive
-                null, or the opacity (0.30..1.00) of glass windows that are
-                not focused
+                null, or a niri opacity (0.30..1.00) for every glass window
+                that is not focused (instant, text fades too; overrides
+                inactive.instantFallback)
+inactive        unfocused windows a little more transparent, faded
+                (appglass/inactive.py): enabled, factor 0.80..1.00 (the
+                content level is multiplied by it, never below 0.60),
+                durationMs 0..400, easing ease-out-cubic/ease-in-out/linear,
+                instantFallback (an instant niri rule for apps with no fade)
 apps.<key>      {"enabled": bool, "route": str}: per app or family switch
                 (key = a family/adapter name or a detected app key).
                 Forced and Mod adapters stay off until enabled here.
@@ -32,6 +40,8 @@ import json
 import os
 import re
 
+from . import inactive as _inactive
+
 VERSION = 1
 FALLBACK_MODES = ("opaque", "value", "off")
 _KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
@@ -42,6 +52,7 @@ DEFAULTS = {
     "enabled": True,
     "levels": {"content": None, "bar": None},
     "fallback": {"mode": "opaque", "value": 0.70, "inactive": None},
+    "inactive": dict(_inactive.DEFAULTS),
     "apps": {},
 }
 
@@ -111,6 +122,31 @@ def validate(obj):
         "value": _num(fb.get("value", 0.70), "fallback.value", 0.5, 1.0),
         "inactive": _num(fb.get("inactive"), "fallback.inactive", 0.3, 1.0, nullable=True),
     }
+    ia = _obj(obj.get("inactive", {}), "inactive")
+    _only(ia, DEFAULTS["inactive"], "inactive")
+    ina = dict(DEFAULTS["inactive"])
+    for k in ("enabled", "instantFallback"):
+        if k in ia:
+            if not isinstance(ia[k], bool):
+                raise SettingsError("inactive.%s must be true or false" % k)
+            ina[k] = ia[k]
+    if "factor" in ia:
+        ina["factor"] = _num(ia["factor"], "inactive.factor", *_inactive.FACTOR_RANGE)
+    if "durationMs" in ia:
+        d = ia["durationMs"]
+        lo, hi = _inactive.DURATION_RANGE
+        if isinstance(d, float) and d.is_integer():
+            d = int(d)
+        if isinstance(d, bool) or not isinstance(d, int) or not lo <= d <= hi:
+            raise SettingsError("inactive.durationMs must be a whole number of ms "
+                                "between %d and %d, not %s" % (lo, hi, json.dumps(d)))
+        ina["durationMs"] = d
+    if "easing" in ia:
+        if ia["easing"] not in _inactive.EASINGS:
+            raise SettingsError("inactive.easing must be one of %s, not %s"
+                                % ("/".join(_inactive.EASINGS), json.dumps(ia["easing"])))
+        ina["easing"] = ia["easing"]
+    out["inactive"] = ina
     apps = _obj(obj.get("apps", {}), "apps")
     for k, a in apps.items():
         if not _KEY.match(k):

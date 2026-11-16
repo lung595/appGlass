@@ -33,6 +33,7 @@ import os
 import re
 import urllib.parse
 
+from .. import inactive
 from ..core import readable
 
 NAME = "gtk3"
@@ -152,7 +153,28 @@ def render(ctx):
         lines.append("@define-color view_fg_color %s;" % rf)
     lines.append("")
     lines.append(RULES.format(c=_a(lv.content), b=_a(lv.bar), i=_a(lv.bar_over_content)))
+    lines += inactive_rule(ctx)
     return "\n".join(lines)
+
+
+def inactive_rule(ctx):
+    """Unfocused windows: the window background a little more transparent,
+    faded by a transition (settings inactive). [] when off. After RULES, so
+    it wins over the content rule for :backdrop."""
+    c = ctx.levels.content
+    if not inactive.active(ctx.settings, c):
+        return []
+    p = inactive.params(ctx.settings)
+    lv = inactive.level(c, p["factor"])
+    return [
+        "/* inactive windows: background %s -> %s, faded (text stays opaque) */"
+        % (_a(c), _a(lv)),
+        "window.background { transition: %s; }" % inactive.transition("background-color",
+                                                                       ctx.settings),
+        "window.background:backdrop { background-color: alpha(@window_bg_color, %s); }"
+        % _a(lv),
+        "",
+    ]
 
 
 _EXEC = re.compile(r"^(Exec\s*=\s*)(.*)$")

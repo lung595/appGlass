@@ -26,6 +26,7 @@ restart.
 import json
 import os
 
+from .. import inactive
 from ..core import Conflict, hex_to_rgb, mix, norm_hex, readable, rgb_to_hex
 
 NAME = "obsidian"
@@ -352,7 +353,38 @@ html, body, .app-container, .horizontal-main-container, .workspace, .titlebar,
    on the DMS menu colour they take its text colour, an error tooltip too */
 .tooltip.mod-error { color: var(--ag-menu-error) !important; }
 """
-    return head + vars_ + rules
+    return head + vars_ + rules + inactive_rules(ctx)
+
+
+PAINTED = """.workspace-ribbon.mod-left, .workspace-ribbon.side-dock-ribbon,
+.workspace-split.mod-left-split, .workspace-split.mod-right-split,
+.workspace-split.mod-root .workspace-tab-header-container,
+.workspace-split.mod-root .workspace-tab-container, .status-bar"""
+
+
+def inactive_rules(ctx):
+    """Unfocused window (Obsidian drops body.is-focused): the glass colours a
+    little more transparent, faded by a transition. '' when off."""
+    lv = ctx.levels
+    if not inactive.active(ctx.settings, lv.content):
+        return ""
+    p = inactive.params(ctx.settings)
+    r = inactive.ratio(lv.content, p["factor"])
+    c2, b2 = lv.content * r, min(1.0, lv.bar * r)
+    inner = 0.0 if c2 >= 1 else max(0.0, 1 - (1 - b2) / (1 - c2))
+    surface, bar = ctx.colors("surface"), ctx.colors("surface_container")
+    return """\
+/* 5. inactive window: background %.2f -> %.2f, faded (text stays opaque) */
+body.theme-dark:not(.is-focused), body.theme-light:not(.is-focused) {
+  --ag-content: %s;
+  --ag-bar: %s;
+  --ag-bar-over-content: %s;
+}
+%s {
+  transition: %s;
+}
+""" % (lv.content, c2, ctx.rgba(surface, c2), ctx.rgba(bar, b2), ctx.rgba(bar, inner),
+       PAINTED, inactive.transition("background-color", ctx.settings))
 
 
 def _owned(ctx, path):

@@ -42,6 +42,7 @@ Flatpak GTK4 apps do not read the host gtk-4.0 and are not listed.
 import os
 import re
 
+from .. import inactive
 from ..core import Conflict, readable
 
 NAME = "gtk4"
@@ -156,7 +157,27 @@ def render(ctx):
         "",
         BACKDROP_RULE,
     ]
+    lines += inactive_rule(ctx)
     return "\n".join(lines)
+
+
+def inactive_rule(ctx):
+    """Unfocused windows: the window background a little more transparent,
+    faded by a transition (settings inactive). [] when off."""
+    c = ctx.levels.content
+    if not inactive.active(ctx.settings, c):
+        return []
+    p = inactive.params(ctx.settings)
+    r = inactive.ratio(c, p["factor"])
+    return [
+        "/* inactive windows: background %s -> %s, faded (text stays opaque) */"
+        % (_a(c), _a(inactive.level(c, p["factor"]))),
+        "window.background { transition: %s; }" % inactive.transition("background-color",
+                                                                       ctx.settings),
+        "window.background:backdrop { background-color: alpha(@window_bg_color, %s); }"
+        % _a(r),
+        "",
+    ]
 
 
 def _lines(text):

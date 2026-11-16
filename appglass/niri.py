@@ -7,7 +7,10 @@ $XDG_CONFIG_HOME/niri/appglass.kdl holds up to five window-rules, in order:
   glass             a match line per applied app, ``opacity 1.0``: the app
                     paints its own translucency over the blur
   fallback "value"  the detected fallback apps at ``opacity <value>``
-  inactive          glass apps that are not focused, ``opacity <inactive>``
+  inactive          glass apps that are not focused, ``opacity <inactive>``:
+                    fallback.inactive (every glass app), else with
+                    inactive.instantFallback the glass apps that cannot fade
+                    their own background (instant, the text fades too)
   games             ``opacity 1.0``, blur off, popups 1.0
 
 App-ids the browserGlass plugin covers are left out of every block (its
@@ -76,9 +79,11 @@ def _num(v):
     return "1.0" if float(v) >= 1 else "%.2f" % float(v)
 
 
-def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, inactive=None):
+def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, inactive=None,
+           inactive_ids=None):
     """The rules file. With the defaults only the glass block (the old file);
-    games=() writes the games block with the default game app-ids."""
+    games=() writes the games block with the default game app-ids;
+    inactive_ids limits the inactive block to those glass app-ids."""
     if fallback not in FALLBACK_MODES:
         raise ValueError("fallback mode %r" % fallback)
     glass = _ids(app_ids)
@@ -105,9 +110,10 @@ def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, ina
         lines += ["", "// fallback: whole-window opacity (text fades too)", "window-rule {"]
         lines += ["    match app-id=%s" % _kdl_string(a) for a in fb]
         lines += ["    opacity %s" % _num(value), "}"]
-    if inactive is not None and glass:
+    dim = glass if inactive_ids is None else [a for a in glass if a in inactive_ids]
+    if inactive is not None and dim:
         lines += ["", "// glass apps that are not focused", "window-rule {"]
-        lines += ["    match app-id=%s is-active=false" % _kdl_string(a) for a in glass]
+        lines += ["    match app-id=%s is-active=false" % _kdl_string(a) for a in dim]
         lines += ["    opacity %s" % _num(inactive), "}"]
     gm = [] if games is None else _ids(list(GAME_IDS) + list(games), skip=glass)
     if gm:
@@ -184,6 +190,29 @@ def _adopted(app):
     return sorted(p for p, r in o.get("files", {}).items() if r.get("adopted"))
 
 
+def instant_inactive(app):
+    """(opacity, app-ids) of the niri is-active=false rule: fallback.inactive
+    for every glass app; else, with inactive.instantFallback, the inactive
+    ratio for the families that cannot fade their own background."""
+    from . import inactive as _inactive
+    fbi = app.settings.get("fallback", {}).get("inactive")
+    if fbi is not None:
+        return fbi, None
+    p = _inactive.params(app.settings)
+    content = getattr(getattr(app, "levels", None), "content", None)
+    if not (p["enabled"] and p["instantFallback"]) or content is None:
+        return None, None
+    r = _inactive.ratio(content, p["factor"])
+    if r >= 1:
+        return None, None
+    ids = []
+    for name in app.state.families():
+        if name in _inactive.LEVER_FAMILIES:
+            continue
+        ids += [a for a in app.state.owners[name].get("app_ids", []) if a not in ids]
+    return (r, ids) if ids else (None, None)
+
+
 def rule_inputs(app):
     """render() keyword arguments from settings.json and the detected apps
     (apply --all sets app.fallback_ids/game_ids; other runs reuse the ones
@@ -197,10 +226,12 @@ def rule_inputs(app):
         fallback_ids = rec.get("fallback_ids", [])
     if game_ids is None:
         game_ids = rec.get("game_ids", [])
+    dim, dim_ids = instant_inactive(app)
     return {
         "fallback": fb.get("mode", "opaque"),
         "value": fb.get("value", 0.70),
-        "inactive": fb.get("inactive"),
+        "inactive": dim,
+        "inactive_ids": dim_ids,
         "fallback_ids": list(fallback_ids),
         "games": list(game_ids),
         "_wanted": os.path.isfile(_settings.path(app.env))

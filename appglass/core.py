@@ -576,6 +576,10 @@ class Ctx:
         return self.app.levels
 
     @property
+    def settings(self):
+        return getattr(self.app, "settings", None) or {}
+
+    @property
     def dank16(self):
         return self.app.palette.dank16
 
