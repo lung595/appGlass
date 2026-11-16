@@ -16,6 +16,10 @@ Item {
         t.check("empty plugin data = the appglass defaults", Logic.settingsFromPluginData({}), defaults);
         t.check("the defaults round-trip", Logic.settingsFromPluginData(Logic.pluginDataFromSettings(defaults)), defaults);
         t.check("DEFAULTS give the defaults", Logic.settingsFromPluginData(Logic.DEFAULTS), defaults);
+        // a visible unfocused fade by default: 10 % more -> factor 0.90 (0.80 -> 0.72), 180 ms, ease-out-cubic
+        t.check("default fade", [Logic.DEFAULTS.inactiveEnabled, Logic.DEFAULTS.inactiveMorePct, Logic.factorFromPct(Logic.DEFAULTS.inactiveMorePct), Logic.DEFAULTS.inactiveDurationMs, Logic.DEFAULTS.inactiveEasing], [true, 10, 0.9, 180, "ease-out-cubic"]);
+        t.check("default fade of 0.80", Math.round(0.8 * Logic.factorFromPct(Logic.DEFAULTS.inactiveMorePct) * 100) / 100, 0.72);
+        t.check("no plugin data: the default fade", Logic.pluginDataFromSettings(defaults).inactiveMorePct, 10);
 
         const s = Logic.settingsFromPluginData({
             "glassEnabled": false,

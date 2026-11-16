@@ -17,6 +17,23 @@ class Maths(unittest.TestCase):
         self.assertEqual(inactive.ratio(0.80, 0.90), 0.9)
         self.assertEqual(inactive.ratio(0.60, 0.90), 1.0)
 
+    def test_default_fade_is_visible(self):
+        """The defaults (factor 0.90, 180 ms, ease-out-cubic) give an
+        unfocused window a fade one can see: 0.80 -> 0.72, never under the
+        0.60 floor; the vibrancy ratio is the same fade."""
+        d = settings.validate({})["inactive"]
+        self.assertEqual((d["enabled"], d["factor"], d["durationMs"], d["easing"]),
+                         (True, 0.9, 180, "ease-out-cubic"))
+        self.assertEqual(inactive.FLOOR, 0.60)
+        self.assertEqual(inactive.level(0.80, d["factor"]), 0.72)
+        self.assertEqual(inactive.ratio(0.80, d["factor"]), 0.9)
+        for c in (0.70, 0.80, 0.90, 1.0):
+            lv = inactive.level(c, d["factor"])
+            self.assertGreaterEqual(round(c - lv, 4), 0.07, c)
+            self.assertGreaterEqual(lv, inactive.FLOOR)
+        self.assertEqual(inactive.level(0.65, d["factor"]), 0.60)
+        self.assertGreater(inactive.ease(d["easing"], 0.25), 0.5)    # most of it early
+
     def test_active(self):
         s = settings.validate({})
         self.assertTrue(inactive.active(s, 0.8))
