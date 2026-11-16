@@ -1,0 +1,57 @@
+/* BEGIN DMS OVERRIDE */
+/* Fixture: the DMS gtk-colors.css template rendered with dms-colors-light.json */
+
+/*
+* GTK Colors
+* Generated with Matugen
+*/
+
+/* via thairanaru on GitHub: */
+
+/* Destructive colors are basically error colors */
+@define-color destructive_bg_color #ad0d13;
+@define-color destructive_fg_color #ffffff;
+@define-color error_bg_color #ad0d13;
+@define-color error_fg_color #ffffff;
+@define-color accent_color #235a83;
+@define-color accent_fg_color #ffffff;
+@define-color accent_bg_color #235a83;
+/* Bare surface is near black in dark schemes; containers keep Adwaita's view < window < sidebar order */
+@define-color window_bg_color #eaedf2;
+@define-color window_fg_color #181c20;
+@define-color view_bg_color #f1f3f9;
+@define-color view_fg_color #181c20;
+@define-color headerbar_bg_color #eaedf2;
+@define-color headerbar_fg_color #181c20;
+@define-color sidebar_bg_color #e4e6eb;
+@define-color sidebar_fg_color #181c20;
+@define-color secondary_sidebar_bg_color #eaedf2;
+@define-color secondary_sidebar_fg_color #181c20;
+@define-color card_bg_color #e4e6eb;
+@define-color card_fg_color #181c20;
+@define-color overview_bg_color #e4e6eb;
+@define-color overview_fg_color #181c20;
+@define-color popover_bg_color #e4e6eb;
+@define-color popover_fg_color #181c20;
+@define-color dialog_bg_color #eaedf2;
+@define-color dialog_fg_color #181c20;
+
+/* Without these, windows flash white on unfocus */
+@define-color headerbar_backdrop_color @window_bg_color;
+@define-color sidebar_backdrop_color @sidebar_bg_color;
+@define-color theme_unfocused_fg_color @window_fg_color;
+@define-color theme_unfocused_text_color @view_fg_color;
+@define-color theme_unfocused_bg_color @window_bg_color;
+@define-color theme_unfocused_base_color @window_bg_color;
+@define-color theme_unfocused_selected_bg_color @accent_bg_color;
+@define-color theme_unfocused_selected_fg_color @accent_fg_color;
+
+/* Adwaita's selected sidebar row is a neutral grey */
+.navigation-sidebar row:selected,
+.navigation-sidebar child:selected,
+.navigation-sidebar flowboxchild:selected {
+  background-color: #a7b6c8;
+  color: #0e1d2a;
+}
+
+/* END DMS OVERRIDE */

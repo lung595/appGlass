@@ -1,0 +1,31 @@
+// Fixture shaped like a DMS niri config.kdl.
+config-notification {
+    disable-failed
+}
+
+input {
+    keyboard {
+        numlock
+    }
+}
+
+layout {
+    focus-ring {
+        off
+    }
+    background-color "transparent"
+    gaps 8
+}
+
+prefer-no-csd
+
+binds {
+    Mod+Return { spawn "alacritty"; }
+}
+
+include optional=true "dms/colors.kdl"
+include optional=true "dms/layout.kdl"
+include optional=true "dms/binds.kdl"
+include "dms/windowrules.kdl"
+
+include optional=true "dms-browser-glass.kdl"

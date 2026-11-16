@@ -1,0 +1,5 @@
+[config]
+
+[templates.mine]
+input_path = '~/templates/mine.css'
+output_path = '~/.config/mine/colors.css'
