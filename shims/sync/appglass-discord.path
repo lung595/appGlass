@@ -3,5 +3,9 @@ Description=appGlass: notice a Discord update (a new app-* host dir)
 [Path]
 PathChanged=%h/.config/discord
 Unit=appglass-discord.service
+# each Discord write is one quick check: allow bursts so the unit never
+# hits the default trigger limit and stops watching
+TriggerLimitIntervalSec=2s
+TriggerLimitBurst=2000
 [Install]
 WantedBy=default.target

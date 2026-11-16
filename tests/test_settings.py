@@ -91,6 +91,15 @@ class Cli(unittest.TestCase):
         self.assertFalse(os.path.exists(self.sb.cfg("appglass")))
         self.assertEqual(self.sb.tree_hash(), before)
 
+    def test_hand_edited_created_settings_kept_on_remove(self):
+        self.assertEqual(self.sb.run("set", "fallback.mode", "off")[0], 0)
+        with open(self.path, "a") as f:
+            f.write("\n")
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(self.path))
+        self.assertIn("kept as is", out + err)
+
     def test_settings_there_before_stay_the_users(self):
         self.sb.write("appglass/settings.json", "{}\n")
         self.assertEqual(self.sb.run("set", "fallback.mode", "off")[0], 0)

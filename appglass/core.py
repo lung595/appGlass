@@ -1114,6 +1114,10 @@ class App:
         if rec["kind"] == "created":
             if cur is None:
                 return
+            if diverged and owner_name == "settings":
+                # the user edited the settings appglass created: theirs now
+                self.warn("%s changed since appglass created it; kept as is" % p)
+                return
             if rec.get("how") == "owned" or not diverged:
                 os.remove(p)
                 return
