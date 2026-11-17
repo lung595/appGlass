@@ -490,6 +490,8 @@ DELETE_SITES = {
                                    # saved in its ring entry first
     ("core", "doctor_drift"),      # a dangling plugin link, snapshotted first
     ("shims", "build"),            # its own temporary build dir
+    ("engine", "Store.sync_markers"),  # its own plain/ markers (engine state, no
+                                   # owned file: what runs plain, never glass)
 }
 
 

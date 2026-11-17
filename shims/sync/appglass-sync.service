@@ -1,5 +1,8 @@
 [Unit]
-Description=appGlass: re-apply the glass to every app (level + colours)
+Description=appGlass: re-apply the glass to every app (level, colours, new apps)
+StartLimitIntervalSec=60
+StartLimitBurst=30
 [Service]
 Type=oneshot
+Nice=10
 ExecStart=%h/.local/bin/appglass-sync

@@ -3,6 +3,11 @@
 # Installed by `appglass hook install` (through ~/.local/bin/appglass-sync):
 #  - appglass-sync.service (appglass-sync.path: the DMS window rules, the
 #    opacity, or the DMS colours changed) runs it with no argument;
+#  - appglass-sync.timer runs the same service once a day (apps that update
+#    themselves, a missed event); the path unit also fires on app installs
+#    (rpmdb, /usr/share/applications, flatpak .changed, user launchers);
+#  - appglass-verify.service runs it with --verify: the queued headless checks
+#    (appglass verify --queue), idle, never while a game runs;
 #  - appglass-discord.service (appglass-discord.path: something changed in
 #    ~/.config/discord, which Discord writes all the time) runs it with
 #    --discord: it exits at once unless the newest Discord host dir (app-x.y.z,
@@ -16,12 +21,16 @@
 #     running GTK apps to re-read their CSS (a GTK theme flip)
 # Undo: appglass hook remove.
 set -u
-AG="$(dirname "$(readlink -f "$0")")/appglass"
+AG="${APPGLASS_BIN:-$(dirname "$(readlink -f "$0")")/appglass}"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/appglass/state.json"
 SHARE="$HOME/.local/share/appglass"
 DISCORD="${XDG_CONFIG_HOME:-$HOME/.config}/discord"
 MODE=all
 [ "${1:-}" = "--discord" ] && MODE=discord
+if [ "${1:-}" = "--verify" ]; then
+    exec "$AG" verify --queue
+fi
+RPMDB="${APPGLASS_RPMDB:-/usr/lib/sysimage/rpm/rpmdb.sqlite}"
 
 # journald reads a <5> prefix as notice (the Discord unit keeps info out)
 log() { if [ -n "${INVOCATION_ID:-}" ]; then echo "<5>appglass-sync: $*"; else echo "appglass-sync: $*"; fi; }
@@ -50,6 +59,15 @@ fi
 exec 8>"$RT/appglass-sync.lock"
 flock -w 60 8 || exit 0
 [ "$MODE" = discord ] || sleep "${APPGLASS_SYNC_SETTLE:-1}"   # let DMS finish writing
+# a dnf transaction: wait until the rpm db had no change for 5 s (at most 60 s)
+if [ "$MODE" = all ] && [ -e "$RPMDB" ]; then
+    quiet="${APPGLASS_RPMDB_QUIET:-5}"
+    for _ in $(seq 1 60); do
+        age=$(( $(date +%s) - $(stat -c %Y "$RPMDB" 2>/dev/null || echo 0) ))
+        [ "$age" -ge "$quiet" ] && break
+        sleep 1
+    done
+fi
 
 # 1. Vencord in the newest Discord host dir
 if needs_vencord; then

@@ -11,14 +11,17 @@ from fixtures.sandbox import REPO
 from fixtures.shimworld import ShimWorld
 
 UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service",
-         "appglass-discord.path", "appglass-discord.service")
+         "appglass-discord.path", "appglass-discord.service", "appglass-sync.timer",
+         "appglass-verify.service")
 HAND_UNITS = UNITS[:2]
 ENABLE = ["--user daemon-reload", "--user enable --now appglass-sync.path",
           "--user enable --now appglass-discord.path",
+          "--user enable --now appglass-sync.timer",
           "--user enable appglass-vibrancy.service",
           "--user restart appglass-vibrancy.service"]
 DISABLE = ["--user disable --now appglass-sync.path",
            "--user disable --now appglass-discord.path",
+           "--user disable --now appglass-sync.timer",
            "--user disable --now appglass-vibrancy.service"]
 CTL = """#!/bin/sh
 echo "$*" >> "%(log)s"
@@ -89,10 +92,11 @@ class SyncUnits(unittest.TestCase):
         self.run_ok("hook", "install")
         self.assertEqual(self.calls(), ["--user is-enabled --quiet appglass-sync.path",
                                         "--user is-enabled --quiet appglass-discord.path",
+                                        "--user is-enabled --quiet appglass-sync.timer",
                                         "--user is-enabled --quiet appglass-vibrancy.service"]
                          + ENABLE)
         self.run_ok("hook", "install")           # again: no new is-enabled
-        self.assertEqual(self.calls()[8:], ENABLE)
+        self.assertEqual(self.calls()[10:], ENABLE)
         open(self.log, "w").close()
         self.run_ok("remove")
         self.assertEqual(self.calls(), DISABLE + ["--user daemon-reload"])
@@ -115,6 +119,7 @@ class SyncUnits(unittest.TestCase):
         self.run_ok("hook", "remove")
         # the hand path unit was enabled: kept; the units appglass created go
         self.assertEqual(self.calls(), ["--user disable --now appglass-discord.path",
+                                        "--user disable --now appglass-sync.timer",
                                         "--user disable --now appglass-vibrancy.service",
                                         "--user daemon-reload"])
         self.assertEqual(self.w.sb.read(script), "#!/usr/bin/sh\nhand\n")
@@ -142,7 +147,7 @@ class SyncUnits(unittest.TestCase):
         self.run_ok("adopt")
         self.assertEqual(self.w.state()["owners"]["hook"]["systemd"], {
             "was_enabled": True, "discord_was_enabled": False,
-            "vibrancy_was_enabled": False})
+            "timer_was_enabled": False, "vibrancy_was_enabled": False})
         self.run_ok("hook", "install")
         open(self.log, "w").close()
         self.run_ok("hook", "remove")

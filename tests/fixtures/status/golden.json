@@ -289,7 +289,9 @@
       "effective": "glass",
       "enabled": true,
       "family": "alacritty",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "Alacritty",
       "name": "Alacritty",
       "reason": "family alacritty",
@@ -299,6 +301,7 @@
         "terminal"
       ],
       "source": "desktop",
+      "state": "glass",
       "tier": "native",
       "toolkit": "terminal"
     },
@@ -311,7 +314,9 @@
       "effective": "glass",
       "enabled": true,
       "family": "gtk4",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "com.github.tchx84.Flatseal",
       "name": "Flatseal",
       "reason": "family gtk4",
@@ -321,6 +326,7 @@
         "gtk4"
       ],
       "source": "desktop",
+      "state": "glass",
       "tier": "native",
       "toolkit": "gtk4"
     },
@@ -333,7 +339,9 @@
       "effective": "glass",
       "enabled": true,
       "family": "dux",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "dev.duxlabs.files",
       "name": "Files",
       "reason": "family dux",
@@ -343,6 +351,7 @@
         "dux-json"
       ],
       "source": "desktop",
+      "state": "glass",
       "tier": "native",
       "toolkit": "go-launcher"
     },
@@ -353,18 +362,21 @@
       ],
       "conflicts": [],
       "effective": "fallback",
-      "enabled": false,
+      "enabled": true,
       "family": "vencord",
+      "generic": false,
       "implemented": true,
+      "injected": true,
       "key": "discord",
       "name": "Discord",
-      "reason": "mod adapter, off until enabled (risk medium)",
+      "reason": "waiting for a check (injected route)",
       "risk": "medium",
       "route": null,
       "routes": [
         "electron-vencord"
       ],
       "source": "desktop",
+      "state": "waiting",
       "tier": "mod",
       "toolkit": "electron"
     },
@@ -377,7 +389,9 @@
       "effective": "fallback",
       "enabled": true,
       "family": "herdr",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "herdr-app",
       "name": "herdr",
       "reason": "family herdr: not installed",
@@ -387,6 +401,7 @@
         "gpui-json"
       ],
       "source": "desktop",
+      "state": "opaque",
       "tier": "native",
       "toolkit": "gpui"
     },
@@ -399,7 +414,9 @@
       "effective": "fallback",
       "enabled": false,
       "family": null,
+      "generic": false,
       "implemented": false,
+      "injected": false,
       "key": "md.example.Electron",
       "name": "md.example.Electron",
       "reason": "family feishin does not list this app",
@@ -407,6 +424,7 @@
       "route": null,
       "routes": [],
       "source": "desktop",
+      "state": "opaque",
       "tier": "forced",
       "toolkit": "electron"
     },
@@ -419,7 +437,9 @@
       "effective": "glass",
       "enabled": true,
       "family": "gtk3",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "nvidia-settings",
       "name": "NVIDIA",
       "reason": "family gtk3",
@@ -429,6 +449,7 @@
         "gtk3"
       ],
       "source": "desktop",
+      "state": "glass",
       "tier": "native",
       "toolkit": "gtk3"
     },
@@ -441,7 +462,9 @@
       "effective": "fallback",
       "enabled": false,
       "family": null,
+      "generic": false,
       "implemented": false,
+      "injected": false,
       "key": "org.example.Flutter",
       "name": "org.example.Flutter",
       "reason": "family localsend does not list this app",
@@ -449,6 +472,7 @@
       "route": null,
       "routes": [],
       "source": "desktop",
+      "state": "opaque",
       "tier": "forced",
       "toolkit": "flutter"
     },
@@ -461,7 +485,9 @@
       "effective": "glass",
       "enabled": true,
       "family": "gtk4",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "org.gnome.Nautilus",
       "name": "Files",
       "reason": "family gtk4",
@@ -471,6 +497,7 @@
         "gtk4"
       ],
       "source": "desktop",
+      "state": "glass",
       "tier": "native",
       "toolkit": "gtk4-adw"
     },
@@ -483,7 +510,9 @@
       "effective": "delegated",
       "enabled": null,
       "family": null,
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "org.mozilla.firefox",
       "name": "Firefox",
       "reason": "browserGlass owns this browser",
@@ -491,6 +520,7 @@
       "route": null,
       "routes": [],
       "source": "desktop",
+      "state": "excluded",
       "tier": "delegated",
       "toolkit": "gecko"
     },
@@ -503,14 +533,17 @@
       "effective": "opaque",
       "enabled": null,
       "family": null,
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "Pinball",
       "name": "Pinball",
-      "reason": "game: always opaque",
+      "reason": "game: always opaque, never touched",
       "risk": "none",
       "route": null,
       "routes": [],
       "source": "desktop",
+      "state": "excluded",
       "tier": "opaque",
       "toolkit": "game"
     },
@@ -523,7 +556,9 @@
       "effective": "glass",
       "enabled": true,
       "family": "gtk3",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "solaar",
       "name": "Solaar",
       "reason": "family gtk3",
@@ -533,6 +568,7 @@
         "gtk3"
       ],
       "source": "desktop",
+      "state": "glass",
       "tier": "native",
       "toolkit": "gtk3"
     },
@@ -545,16 +581,19 @@
       "effective": "fallback",
       "enabled": false,
       "family": null,
+      "generic": false,
       "implemented": false,
+      "injected": false,
       "key": "steam",
       "name": "Steam",
-      "reason": "forced adapter, off until enabled (risk medium)",
+      "reason": "Steam client (CEF): no injection, it stays opaque (docs/steam.md)",
       "risk": "medium",
       "route": null,
       "routes": [
         "steam-cdp"
       ],
       "source": "desktop",
+      "state": "off",
       "tier": "forced",
       "toolkit": "cef"
     },
@@ -569,7 +608,9 @@
       "effective": "glass",
       "enabled": true,
       "family": "qtstyle",
+      "generic": false,
       "implemented": true,
+      "injected": false,
       "key": "vlc",
       "name": "VLC",
       "reason": "family qtstyle",
@@ -579,6 +620,7 @@
         "qt-style"
       ],
       "source": "desktop",
+      "state": "glass",
       "tier": "native",
       "toolkit": "qt-widgets"
     }
@@ -602,7 +644,7 @@
     },
     "artcraft": {
       "applied": [],
-      "enabled": false,
+      "enabled": true,
       "installed": false
     },
     "dux": {
@@ -612,7 +654,7 @@
     },
     "feishin": {
       "applied": [],
-      "enabled": false,
+      "enabled": true,
       "installed": false
     },
     "gtk3": {
@@ -632,17 +674,17 @@
     },
     "jellyfin": {
       "applied": [],
-      "enabled": false,
+      "enabled": true,
       "installed": false
     },
     "lianli": {
       "applied": [],
-      "enabled": false,
+      "enabled": true,
       "installed": false
     },
     "localsend": {
       "applied": [],
-      "enabled": false,
+      "enabled": true,
       "installed": false
     },
     "obsidian": {
@@ -657,7 +699,7 @@
     },
     "vencord": {
       "applied": [],
-      "enabled": false,
+      "enabled": true,
       "installed": true
     }
   },

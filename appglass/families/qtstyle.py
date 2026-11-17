@@ -21,16 +21,34 @@ launcher comes back byte-identical).
 import os
 
 from .. import shims
+from ..core import Conflict
 
 NAME = "qtstyle"
 APP_IDS = [r"^vlc$"]
 ADAPTER = "qt-style"
 LAUNCHERS = (("vlc.desktop", "vlc"),)
 MODULES = ("Qt6Widgets",)
+# the engine routes every other host Qt 6 Widgets app here (ctx.records())
+GENERIC = True
 
 
 def installed(env):
     return any(env.which(cmd) for _, cmd in LAUNCHERS)
+
+
+def accepts(rec):
+    """None for a host app that links Qt 6 Widgets (the style plugin is
+    built with the host Qt 6), else why not."""
+    if rec.get("flatpak"):
+        return "Qt flatpak: its runtime Qt is not the host Qt the style is built with (ABI)"
+    if rec.get("user_only"):
+        return "a launcher of yours with no system one: left as it is"
+    ev = " ".join(rec.get("evidence") or ())
+    if "libQt6Widgets" not in ev:
+        if "libQt5" in ev:
+            return "Qt 5 app: the style plugin is built for Qt 6 (ABI)"
+        return "no libQt6Widgets in its binary: the Qt 6 style does not load"
+    return None
 
 
 def plugin_dir(env):
@@ -63,6 +81,21 @@ def launcher(env, text, cmd, content):
     return "".join(out)
 
 
+def launcher_any(env, text, content):
+    """launcher() for an app found by the engine: every Exec= line (its
+    first word may be a full path or a wrapper name)."""
+    pre = ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
+           "APPGLASS_CONTENT=%s " % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"),
+                                     shims.jq_raw(content)))
+    out = []
+    for line in text.splitlines(True):
+        if line.startswith("Exec=") and not line.startswith("Exec=env QT_PLUGIN_PATH=") \
+                and line[5:].strip():
+            line = "Exec=" + pre + line[5:]
+        out.append(line)
+    return "".join(out)
+
+
 def apply(ctx):
     env = ctx.env
     src = {n: shims.source(ADAPTER, n) for n in ("glassstyle.cpp", "appglass.json")}
@@ -78,5 +111,18 @@ def apply(ctx):
     if not ids:
         ctx.warn("no system launcher for %s: nothing to start the style with"
                  % ", ".join(d for d, _ in LAUNCHERS))
+    listed = {d for d, _ in LAUNCHERS}
+    for rec in ctx.records():
+        if rec["desktop_id"] in listed:
+            continue
+        try:
+            p = ctx.desktop_override(rec["desktop_id"],
+                                     lambda t: launcher_any(env, t, ctx.levels.content))
+        except Conflict as ex:
+            ctx.warn("%s: %s" % (rec["key"], ex))
+            continue
+        if p:
+            paths.append(p)
+            ids += [x for x in rec.get("app_ids") or () if x not in ids]
     ctx.app_ids = ids
     return paths

@@ -72,6 +72,12 @@ GTK_CSS = DANK_IMPORT + "\n" + GLASS_IMPORT + "\n"
 # DMS gtk.sh DANK_IMPORT_RE
 _DANK_RE = re.compile(r"^@import url.*dank-colors\.css.*\);$")
 TARGET = 2.25
+# the engine routes every other GTK4 app here (ctx.records()): a host one
+# reads the global gtk.css already (niri rule only); a flatpak one gets
+# the gtk-4.0 config dir read-only for each launch, in its launcher
+# override (never a persistent flatpak override)
+GENERIC = True
+FLATPAK_ARG = "--filesystem=xdg-config/gtk-4.0:ro"
 
 BACKDROP_RULE = """\
 /* Unfocused windows: Adwaita fades bar contents with filter: opacity(0.5) */
@@ -95,6 +101,22 @@ def _found(env, cmd):
         if os.path.isfile(p) and os.access(p, os.X_OK):
             return True
     return False
+
+
+def accepts(rec):
+    if rec.get("flatpak") and rec.get("user_only"):
+        return "a launcher of yours with no system one: left as it is"
+    return None
+
+
+def flatpak_launcher(text):
+    """Every `flatpak run` Exec= line gets the read-only gtk-4.0 dir."""
+    out = []
+    for line in text.splitlines(True):
+        if line.startswith("Exec=") and FLATPAK_ARG not in line:
+            line = re.sub(r"(^Exec=\S*flatpak run)(\s)", r"\1 %s\2" % FLATPAK_ARG, line, count=1)
+        out.append(line)
+    return "".join(out)
 
 
 def installed_apps(env):
@@ -238,5 +260,21 @@ def apply(ctx):
                       "opaque; remove + apply puts the import back)" % ctx.env.tilde(gtk))
     ctx.edit_text(gtk, lambda t: merge(t, gtk, changed), undo=lambda t: undo(ctx.env, gtk, t))
     apps = installed_apps(ctx.env)
-    ctx.app_ids = [a[0] for a in apps]
-    return [glass, gtk]
+    ids = [a[0] for a in apps]
+    paths = [glass, gtk]
+    for rec in ctx.records():
+        rid = [x for x in rec.get("app_ids") or () if x not in ids]
+        if any(re.search(rx, n) for rx in ids for n in rec.get("names") or ()):
+            continue                     # listed by hand
+        if rec.get("flatpak"):
+            try:
+                p = ctx.desktop_override(rec["desktop_id"], flatpak_launcher)
+            except Conflict as ex:
+                ctx.warn("%s: %s" % (rec["key"], ex))
+                continue
+            if not p:
+                continue
+            paths.append(p)
+        ids += rid
+    ctx.app_ids = ids
+    return paths

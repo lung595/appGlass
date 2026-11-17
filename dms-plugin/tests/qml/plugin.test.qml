@@ -163,9 +163,11 @@ Item {
                             "enabled": false
                         }
                     });
-                    // a route on the page: in the next settings file
-                    t.press(root.find(root.page, "route-discord-electron-hook"));
+                    // a route on the page: in the next settings file (discord is
+                    // on by default, so a forced route asks first)
                     root.mark = Proc.launched.length;
+                    t.press(root.find(root.page, "route-discord-electron-hook"));
+                    t.press(root.find(root.page, "confirm-discord-yes"));
                 }
             },
             {
@@ -173,6 +175,7 @@ Item {
                 "run": () => {
                     root.drain();
                     t.check("the route synced", root.syncs(root.since(root.mark)).map(s => s.apps.discord), [{
+                            "enabled": true,
                             "route": "electron-hook"
                         }]);
                     // the pill's pause

@@ -1,0 +1,9 @@
+[Unit]
+Description=appGlass: a daily sync (apps that update themselves, a missed event)
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+Unit=appglass-sync.service
+[Install]
+WantedBy=timers.target

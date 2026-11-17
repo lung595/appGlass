@@ -513,6 +513,8 @@ class State:
         if os.path.isdir(d):
             self.env.guard(d)
             shutil.rmtree(d)
+        from . import engine
+        engine.destroy(self.env)      # its detect cache goes with it
         for p in sorted(set(created) | set(self.data.get("state_parents", [])),
                         key=len, reverse=True):
             if p == d:
@@ -653,6 +655,23 @@ class Ctx:
         # a family with several apps may set this to the niri app-id regexes
         # of the apps it actually configured (default: the module's APP_IDS)
         self.app_ids = None
+
+    def records(self, generic_only=False):
+        """The detect records the engine routes to this family (adapters.resolve
+        gives it as their family, glass): a generic family (GENERIC) glasses
+        every one of them, not only the apps it lists. generic_only: only
+        the ones it does not list by hand."""
+        from . import adapters, engine
+        g = engine.Gate(self.app)
+        out = []
+        for r in engine.records(self.app):
+            if not r.get("installed") or r.get("nodisplay"):
+                continue
+            route = adapters.resolve(r, self.app.families, self.app.settings, gate=g)
+            if route.get("family") == self.owner and route["effective"] == "glass" \
+                    and (route.get("generic") or not generic_only):
+                out.append(r)
+        return out
 
     # read-only info
     @property
@@ -1088,7 +1107,11 @@ class App:
         if fam.NAME in self.env.assume_installed:
             return True
         try:
-            return bool(fam.installed(self.env))
+            if fam.installed(self.env):
+                return True
+            # a generic family: installed when the engine routes an app to it
+            return bool(getattr(fam, "GENERIC", False)
+                        and self.ctx(fam.NAME).records(generic_only=True))
         except Exception as ex:  # detection must never break apply
             self.warn("%s: install check failed: %s" % (fam.NAME, ex))
             return False
@@ -1660,9 +1683,10 @@ def _selected(app, only):
 
 
 def _family_enabled(app, name):
-    """A family is on unless settings switch it off; an OPT_IN family (a
-    forced or mod adapter) is off until apps.<name>.enabled or the
-    apps.<key>.enabled of one of its KEYS is true."""
+    """A family is on unless settings switch it off. An OPT_IN family (an
+    injected route) is on unless apps.<name>.enabled or every apps.<key>.enabled
+    of its KEYS that is set is false; the engine's gate (engine.family_gate)
+    then decides when it goes live."""
     from . import settings as _settings
     fam = app.families.get(name)
     if not getattr(fam, "OPT_IN", False):
@@ -1670,7 +1694,12 @@ def _family_enabled(app, name):
     own = app.settings.get("apps", {}).get(name)
     if isinstance(own, dict) and "enabled" in own:
         return bool(own["enabled"])
-    return any(_settings.app_enabled(app.settings, k, False) for k in getattr(fam, "KEYS", ()))
+    # the engine's gate in place of OPT_IN (engine.family_gate): on unless
+    # every key is switched off; it goes live once checked
+    keys = getattr(fam, "KEYS", ())
+    vals = [app.settings.get("apps", {}).get(k) for k in keys]
+    vals = [bool(v["enabled"]) for v in vals if isinstance(v, dict) and "enabled" in v]
+    return not vals or any(vals)
 
 
 def _user_removes(app, why, name):
@@ -1712,8 +1741,18 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
         if not names:
             app.info("nothing applied yet: nothing to refresh")
             return
+        names = sorted(set(names) | set(_engine_new_families(app)))
     else:
         names = _selected(app, only)
+        if not only and not dry_run:
+            # a full apply: later hook runs bring in what the engine routes
+            # new apps to (B5); after only `apply --only` they refresh just
+            # what was applied
+            app.state.data["auto"] = True
+        if app.state.data.get("user_removed"):
+            app.state.data["user_removed"] = [n for n in app.state.data["user_removed"]
+                                              if n not in names]
+    from . import engine
     planned = []
     for name in names:
         fam = app.families[name]
@@ -1722,6 +1761,15 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
             why = "not installed"
         elif not _family_enabled(app, name):
             why = "off in settings"
+        gated = None if why else engine.family_gate(app, name)
+        if gated:
+            # waiting for a check, or stale after an update: the files stay
+            # (no apply removes for this), the wrapper starts the plain app
+            # (engine plain/ marker) and niri leaves its windows opaque
+            st_, reason = gated
+            app.info("%s: %s, skipped: %s" % (name, st_, reason) + (
+                " (files kept, the app runs plain)" if name in app.state.owners else ""))
+            continue
         if why:
             if name in app.state.owners and _user_removes(app, why, name):
                 if dry_run:
@@ -1766,9 +1814,54 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
                      % (name, "would delete" if dry_run else "deleted", ", ".join(gone)))
         if not changed:
             app.info("%s: up to date" % name)
+    _engine_pass(app, dry_run, None if from_hook or not only else names)
     app.sync_niri(dry_run=dry_run, extra_ids=planned)
     if not from_hook:
         warn_hand_files(app)
+
+
+def _engine_new_families(app):
+    """The hook run: families not applied yet that the engine now routes
+    apps to (a generic family with a new record, an injected family checked
+    PASS), unless the user removed it (remove --only) or switched it off."""
+    from . import engine
+    if not app.state.owners or not app.state.data.get("auto"):
+        return []
+    removed = set(app.state.data.get("user_removed") or ())
+    out = []
+    for name in sorted(app.families):
+        fam = app.families[name]
+        if name in app.state.owners or name in removed or not _family_enabled(app, name):
+            continue
+        if getattr(fam, "GENERIC", False):
+            ctx = app.ctx(name)
+            try:
+                if ctx.records(generic_only=True) and app.installed(fam):
+                    out.append(name)
+            except Exception as ex:  # a detect bug must not stop the refresh
+                app.warn("%s: engine: %s" % (name, ex))
+        elif getattr(fam, "OPT_IN", False) and app.installed(fam) and \
+                engine.family_gate(app, name) is None and any(
+                    engine.store(app).get(k).get("verify") for k in engine.family_keys(app, name)):
+            out.append(name)
+    return out
+
+
+def _engine_pass(app, dry_run, families=None):
+    """Queue checks and set the plain markers the gate asks for; start the
+    verify unit when the queue is not empty. families: what a typed
+    apply --only applied (its checks only)."""
+    from . import engine
+    try:
+        engine.refresh(app, dry=dry_run, families=families)
+    except (SandboxViolation, LostState, EventRemove):
+        raise
+    except Exception as ex:
+        app.warn("engine: %s: %s" % (type(ex).__name__, ex))
+        return
+    if not dry_run and engine.store(app).data["queue"]:
+        from . import hook
+        hook.start_verify(app)
 
 
 def cmd_remove(app, only=None, keep_hook=False):
@@ -1788,9 +1881,15 @@ def cmd_remove(app, only=None, keep_hook=False):
             if not parked:
                 del app.state.data["parked"]
             app.state.save()
+        removed_now = [n for n in names if n in app.state.owners]
         for name in names:
             if app.remove_owner(name):
                 app.info("%s: removed" % name)
+        if removed_now and app.state.owners:
+            # the hook does not bring a family back the user took out
+            ur = app.state.data.setdefault("user_removed", [])
+            ur.extend(n for n in removed_now if n not in ur)
+            app.state.save()
         app.sync_niri()
         return
     if keep_hook:
@@ -1815,9 +1914,10 @@ def cmd_remove(app, only=None, keep_hook=False):
         # up again, which adopts the parked hand files again
         del app.state.data["parked"]
         app.state.save()
-    from . import learn
+    from . import learn, engine
     if learn.forget(app.env):
         app.info("learned: cache removed")
+    engine.destroy(app.env)
 
 
 def _park_adopted(app, names):
@@ -1880,6 +1980,13 @@ def _adopt_parked(app, dry_run):
     app.state.save()
 
 
+def _shown_files(o):
+    """The files of an owner that status lists: not the hand pieces it
+    retired (deleted, only remove puts them back)."""
+    return sorted(f for f, r in (o or {}).get("files", {}).items()
+                  if not (isinstance(r, dict) and r.get("retired")))
+
+
 def cmd_status(app):
     env, st = app.env, app.state
     p = app.info
@@ -1893,7 +2000,7 @@ def cmd_status(app):
         inst = "installed" if app.installed(fam) else "not installed"
         o = st.owners.get(name)
         if o:
-            files = ", ".join(sorted(o.get("files", {})))
+            files = ", ".join(_shown_files(o))
             p("%-10s %s, applied: %s" % (name, inst, files))
         else:
             p("%-10s %s, not applied" % (name, inst))
@@ -1911,22 +2018,24 @@ def cmd_status(app):
             p("  %-34s %-12s %-16s %-9s %s" % (r["key"][:34], r["toolkit"], route["adapter"],
                                              route["effective"], route["reason"]))
     for h in hand_files(app):
-        if h["status"] != "absent":
+        if h["status"] not in ("absent", "retired"):
             p("hand file %s: %s (%s)" % (h["path"], h["status"], h["adapter"] or "no adapter"))
 
 
 def app_routes(app, records=None):
     """[(record, route)] for every installed, shown app: route = adapters.resolve()."""
-    from . import adapters
+    from . import adapters, engine
     records = detected(app) if records is None else records
+    g = engine.Gate(app)
     out = []
     for r in records:
         if not r.get("installed") or r.get("nodisplay"):
             continue
-        route = adapters.resolve(r, app.families, app.settings)
+        route = adapters.resolve(r, app.families, app.settings, gate=g)
         fam = route.get("family")
         if fam and route["effective"] == "glass" and not app.installed(app.families[fam]):
-            route.update(effective="fallback", reason="family %s: not installed" % fam)
+            route.update(effective="fallback", reason="family %s: not installed" % fam,
+                         state="opaque")
         out.append((r, route))
     return out
 
@@ -1945,7 +2054,9 @@ def hand_files(app):
         p = os.path.join(env.home, rel)
         owner = st.owner_of(p)
         rec = st.owners.get(owner, {}).get("files", {}).get(p) if owner else None
-        if rec and rec.get("adopted"):
+        if rec and rec.get("retired") and not os.path.lexists(p):
+            status = "retired"
+        elif rec and rec.get("adopted"):
             status = "adopted"
         elif owner:
             status = "owned"
@@ -1977,7 +2088,7 @@ def status_doc(app):
         o = st.owners.get(name)
         fams[name] = {"installed": app.installed(app.families[name]),
                       "enabled": _family_enabled(app, name),
-                      "applied": sorted(app.env.tilde(f) for f in o.get("files", {})) if o else []}
+                      "applied": [app.env.tilde(f) for f in _shown_files(o)] if o else []}
     core_owners = {n: sorted(app.env.tilde(f) for f in st.owners[n]["files"])
                    if n in st.owners else [] for n in CORE_OWNERS}
     hands = hand_files(app)
@@ -2254,12 +2365,13 @@ def _enable_adopted(app, paths, dry_run):
     """Adopting the hand files of an opt-in family (a shim the user set up by
     hand) switches it on in settings.json: they were already in use, and
     an apply would otherwise give them back at once."""
-    from . import settings as _settings
+    from . import engine, settings as _settings
     names = []
     for p in paths:
         o = app.state.owner_of(p)
         if o in app.families and getattr(app.families[o], "OPT_IN", False) \
-                and not _family_enabled(app, o) and o not in names:
+                and (not _family_enabled(app, o) or engine.family_gate(app, o)) \
+                and o not in names:
             names.append(o)
     if not names:
         return
@@ -3201,13 +3313,15 @@ def cmd_doctor(app, fix=False):
 
 def detected(app):
     """detect records with the learned cache and the open windows merged in."""
-    from . import detect, learn
-    recs = detect.scan(app.env)
+    from . import engine, learn
+    recs, _ = engine.scan(app.env, owned=engine.owned_files(app.state))
     learned = learn.load(app.env)
     live = learn.learn(app.env)
     if live:
         learned.update(live)
-    return learn.merge(recs, learned)
+    recs = learn.merge(recs, learned)
+    engine.sticky(app, recs)
+    return recs
 
 
 def cmd_learn(app, as_json=False, dry_run=False):
@@ -3308,6 +3422,18 @@ def main(argv=None, environ=None, out=None, err=None):
     rs.add_argument("--list", action="store_true", help="list the ring, newest first")
     sub.add_parser("vibrancy", help="daemon: fade unfocused Alacritty windows (settings "
                                     "inactive; run by appglass-vibrancy.service)")
+    vf = sub.add_parser("verify", help="check an app's glass in a hidden session")
+    vf.add_argument("key", nargs="?")
+    vf.add_argument("--queue", action="store_true", help="check every queued app")
+    lc = sub.add_parser("launch-check", help="(wrappers) watch one launch for a window")
+    lc.add_argument("key")
+    lc.add_argument("pid", type=int)
+    fl = sub.add_parser("fail", help="record a failed glass launch of an app")
+    fl.add_argument("key")
+    fl.add_argument("reason", nargs="?")
+    ks = sub.add_parser("keys", help="(wrappers) print the colour keys of an app")
+    ks.add_argument("key")
+    ks.add_argument("mode", choices=("dark", "light"))
     args = ap.parse_args(argv)
     err = err or sys.stderr
     quiet = getattr(args, "quiet", False)
@@ -3319,7 +3445,16 @@ def main(argv=None, environ=None, out=None, err=None):
         if args.cmd == "vibrancy":
             from . import vibrancy
             return vibrancy.run(env, err=err)
-        if ((args.cmd in ("apply", "remove", "hook", "set", "sync", "learn", "adopt")
+        if args.cmd in ("keys", "launch-check"):
+            # wrappers: never the lock while polling, never an error to the app
+            from . import verify
+            app = App(environ, out=out, err=err, quiet=args.cmd == "keys", lenient=True)
+            app.event = True
+            if args.cmd == "keys":
+                return verify.cmd_keys(app, args.key, args.mode, app.out or sys.stdout)
+            return verify.cmd_launch_check(app, args.key, args.pid)
+        if ((args.cmd in ("apply", "remove", "hook", "set", "sync", "learn", "adopt",
+                          "verify", "fail")
                 and not getattr(args, "dry_run", False) and not getattr(args, "json", False))
                 or (args.cmd == "doctor" and args.fix)
                 or (args.cmd == "restore" and not args.list)):
@@ -3378,6 +3513,14 @@ def main(argv=None, environ=None, out=None, err=None):
             from . import plugin
             (plugin.install if args.action == "install" else plugin.remove)(
                 app, dry_run=args.dry_run)
+        elif args.cmd == "verify":
+            from . import verify
+            if bool(args.key) == bool(args.queue):
+                raise AppglassError("verify: give one app key, or --queue")
+            rc = verify.cmd_verify(app, args.key, queue=args.queue)
+        elif args.cmd == "fail":
+            from . import verify
+            rc = verify.cmd_fail(app, args.key, args.reason)
         elif args.cmd == "hook":
             from . import hook
             if args.action == "install":

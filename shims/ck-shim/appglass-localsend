@@ -11,6 +11,9 @@ ID=org.localsend.localsend_app
 PREFS="$HOME/.var/app/$ID/data/$ID/shared_preferences.json"
 COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
 plain() { exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=localsend --file-forwarding "$ID" @@u "$@" @@; }
+# the engine (appglass verify, launch-check): a plain/ marker means start the plain app
+AGKEY="$ID"
+[ -e "${XDG_STATE_HOME:-$HOME/.local/state}/appglass/plain/$AGKEY" ] && plain "$@"
 [ -f "$LIB/appglass-ck.so" ] || plain "$@"
 lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
@@ -25,7 +28,11 @@ case "$theme" in *light*) mode=light ;; *dark*) mode=dark ;; *)
 esac
 pal=$(jq -r '."flutter.ls_color" // "localsend"' "$PREFS" 2>/dev/null) || pal=localsend
 [ "$pal" = localsend ] || echo "appglass-localsend: colour '$pal' is not the default palette, keys may not match" >&2
-if [ "$mode" = light ]; then keys="f4fbf8:$c,e9efed:$b"; else keys="0e1513:$c,1a2120:$b"; fi
+# colour keys are data (~/.cache/appglass/keys/<app>/<version>/<mode>.json): none, no glass
+keys=$("@APPGLASS@" keys "$ID" "$mode" 2>/dev/null) && [ -n "$keys" ] || plain "$@"
+# two launches with no window on this app version: the engine pauses the glass
+command -v setsid >/dev/null 2>&1 && setsid -f "@APPGLASS@" launch-check "$AGKEY" $$ \
+    >/dev/null 2>&1 </dev/null
 exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=localsend --file-forwarding \
     --filesystem="$LIB:ro" --env=LD_PRELOAD="$LIB/appglass-ck.so" --env=APPGLASS_KEYS="$keys" \
     "$ID" @@u "$@" @@

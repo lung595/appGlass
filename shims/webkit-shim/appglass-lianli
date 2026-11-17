@@ -7,12 +7,19 @@
 set -u
 LIB="$HOME/.local/lib/appglass/lianli"
 APP=/usr/bin/lianli-gui
+plain() { exec "$APP" "$@"; }
+# the engine (appglass verify, launch-check): a plain/ marker means start the plain app
+AGKEY=com.sgtaziz.lianlilinux
+[ -e "${XDG_STATE_HOME:-$HOME/.local/state}/appglass/plain/$AGKEY" ] && plain "$@"
 lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar_over_content":0.125}'
 c=$(printf '%s' "$lv" | jq -r '(.content * 1000 | round) / 10')
 b=$(printf '%s' "$lv" | jq -r '(.bar_over_content * 1000 | round) / 10')
 css="$LIB/lianli-glass.css"
 if [ -f "$LIB/appglass-wk.so" ] && sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" "$LIB/lianli-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css"; then
+# two launches with no window on this app version: the engine pauses the glass
+command -v setsid >/dev/null 2>&1 && setsid -f "@APPGLASS@" launch-check "$AGKEY" $$ \
+    >/dev/null 2>&1 </dev/null
     exec env LD_PRELOAD="$LIB/appglass-wk.so${LD_PRELOAD:+:$LD_PRELOAD}" APPGLASS_CSS="$css" "$APP" "$@"
 fi
 echo "appglass-lianli: shim missing, starting without glass" >&2

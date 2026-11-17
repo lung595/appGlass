@@ -1,9 +1,21 @@
 [Unit]
-Description=appGlass: follow the DMS window rule opacity and the DMS colours
+Description=appGlass: follow the DMS window rule opacity, the DMS colours and app installs
 [Path]
 PathChanged=%h/.config/niri/dms/windowrules.kdl
 PathModified=%h/.config/niri/dms
 PathChanged=%h/.cache/dms/dms-colors.json
+# an app installed, updated or removed (rpm/dnf, flatpak system and user,
+# a hand-written launcher, an AppImage)
+PathChanged=/usr/share/applications
+PathChanged=/usr/lib/sysimage/rpm/rpmdb.sqlite
+PathChanged=/var/lib/flatpak/.changed
+PathChanged=%h/.local/share/flatpak/.changed
+PathChanged=%h/.local/share/applications
+PathChanged=%h/Applications
+# a dnf transaction touches these many times: the service settles and
+# coalesces (flock); past the burst the path unit waits, it never fails
+TriggerLimitIntervalSec=10s
+TriggerLimitBurst=50
 Unit=appglass-sync.service
 [Install]
 WantedBy=default.target

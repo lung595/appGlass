@@ -46,9 +46,20 @@ APPS = {
 }
 APP_IDS = [r"^(solaar|nvidia-settings)$"]
 TARGET = 2.25
+# the engine routes every other host GTK3 app here too (ctx.records())
+GENERIC = True
 
 ENV_PREFIX = "env GTK_THEME=%s " % THEME
 MARK = "# appglass: Exec runs with GTK_THEME=%s (GTK3 glass theme)" % THEME
+
+
+def accepts(rec):
+    """None when a GTK3 record can take the AppGlass theme, else why not."""
+    if rec.get("flatpak"):
+        return "GTK3 flatpak: the AppGlass theme is not visible inside the sandbox"
+    if rec.get("user_only"):
+        return "a launcher of yours with no system one: left as it is"
+    return None
 
 
 def installed_apps(env):
@@ -292,5 +303,15 @@ def apply(ctx):
             if p:
                 paths.append(p)
         apps.append(app)
-    ctx.app_ids = ["^(%s)$" % "|".join(apps)] if apps else []
+    ids = ["^(%s)$" % "|".join(apps)] if apps else []
+    # every other GTK3 app the engine routes here (launcher override only)
+    listed = {d for _, d, _ in APPS.values()}
+    for rec in ctx.records():
+        if rec["desktop_id"] in listed or rec["key"] in APPS:
+            continue
+        p = _override(ctx, ctx.data_path("applications", rec["desktop_id"]), rec["path"])
+        if p:
+            paths.append(p)
+            ids += [x for x in rec.get("app_ids") or () if x not in ids]
+    ctx.app_ids = ids
     return paths

@@ -221,46 +221,110 @@ def routes(rec, families):
     return [n for n in out if not (n in seen or seen.add(n))]
 
 
-def resolve(rec, families, settings=None):
+# adapters that load code into the app (a preload or an inspector): never
+# for a game launcher (its children are games)
+PRELOAD = ("electron-hook", "webkit-shim", "qtquick-shim", "ck-shim", "steam-cdp")
+# toolkits with no route at all, and why (opaque, never faded)
+NO_ROUTE = {
+    "chromium": "Chromium browser: web content has no window alpha",
+    "cef": "Steam client (CEF): no injection, it stays opaque (docs/steam.md)",
+}
+STATES = ("glass", "waiting", "stale", "opaque", "off", "excluded")
+
+
+def _strong(rec):
+    """Strong static evidence for the record's toolkit (a SONAME, a dir
+    marker, a flatpak base, a runtime map), not only a guess."""
+    if "strong" in rec:
+        return bool(rec["strong"])
+    return True
+
+
+def resolve(rec, families, settings=None, gate=None):
     """{"adapter", "tier", "risk", "implemented", "family", "enabled",
-    "effective", "reason"} for one detect record."""
+    "effective", "reason", "state", "injected"} for one detect record.
+    gate(rec, injected, explicit) -> (state, reason): the engine's verdict
+    (engine.Gate); without one, nothing was checked yet."""
     from .. import settings as _settings
     settings = settings or _settings.DEFAULTS
     names = rec.get("names") or []
     key = rec.get("key")
+    classes = rec.get("classes") or {}
+    if gate is None:
+        def gate(r, injected, explicit):
+            if injected and not explicit:
+                return "waiting", "waiting for a check (injected route)"
+            return "glass", None
 
-    def out(adapter, effective, reason, family=None, enabled=None):
+    def out(adapter, effective, reason, family=None, enabled=None, state=None, injected=False,
+            generic=False):
         a = BY_NAME[adapter]
+        if state is None:
+            state = {"glass": "glass", DELEGATED: "excluded", EXCLUDED: "excluded"}.get(
+                effective, "off" if enabled is False else "opaque")
         return {"adapter": a.NAME, "tier": a.TIER, "risk": a.RISK,
                 "implemented": a.implemented if family is None else True,
                 "family": family, "enabled": enabled, "effective": effective,
-                "reason": reason}
+                "reason": reason, "state": state, "injected": injected, "generic": generic}
 
     if any(niri.delegated("^%s$" % re.escape(n)) for n in names):
         return out("browserglass", DELEGATED, "browserGlass owns this browser")
     if _any(EXCLUDED_IDS, names):
         return out("excluded", EXCLUDED, "DMS draws this window")
-    if rec.get("toolkit") == "game":
-        return out("games", OPAQUE, "game: always opaque")
+    if rec.get("toolkit") == "game" or "game" in classes:
+        return out("games", OPAQUE, "game: always opaque, never touched", state="excluded")
+    if "root" in classes:
+        return out("niri-fallback", OPAQUE, "runs as root (%s): never touched" % classes["root"],
+                   state="opaque")
     route = (settings.get("apps", {}).get(key) or {}).get("route")
     fam = family_for(rec, families)
     if fam and route in BY_NAME and fam not in BY_NAME[route].FAMILIES:
         fam = None            # the user picked another adapter for this app
+    generic = None
+    if not fam:
+        a = BY_NAME.get(route) if route else None
+        if a is None:
+            a = next((x for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
+                      and x.TIER in (NATIVE, FORCED, MOD)), None)
+        f = families.get(a.FAMILY) if a and a.FAMILY else None
+        if f is not None and getattr(f, "GENERIC", False):
+            why = f.accepts(rec) if hasattr(f, "accepts") else None
+            if why:
+                return out(a.NAME, OPAQUE, why, state="opaque") | {"implemented": False}
+            if not _strong(rec):
+                return out(a.NAME, OPAQUE, "weak evidence (%s): opaque until its first window "
+                           "is learned" % ((rec.get("evidence") or ["?"])[0]),
+                           state="opaque")
+            fam, generic = a.FAMILY, True
     if fam:
         a = next((x for x in CATALOGUE if fam in x.FAMILIES), None)
-        if getattr(families[fam], "OPT_IN", False):
-            # forced / mod: off until apps.<family> or apps.<key> switches it on
-            own = settings.get("apps", {}).get(fam) or {}
-            on = bool(own["enabled"]) if "enabled" in own else \
-                _settings.app_enabled(settings, key, False)
-            why = "family %s" % fam if on else "%s adapter, off until enabled (risk %s)" % (
-                a.TIER if a else FORCED, a.RISK if a else "medium")
+        injected = bool(getattr(families[fam], "OPT_IN", False))
+        if "sensitive" in classes and a is not None and a.TIER != NATIVE:
+            return out(a.NAME, OPAQUE, "password or secrets app: native routes only",
+                       state="opaque")
+        if "game-launcher" in classes and a is not None and a.NAME in PRELOAD:
+            return out(a.NAME, OPAQUE, "game launcher: never a preload (its children are "
+                       "games)", state="opaque")
+        own = settings.get("apps", {}).get(fam) or {}
+        mine = settings.get("apps", {}).get(key) or {}
+        if injected:
+            # the gate in place of OPT_IN: on unless switched off, live
+            # only with a check for this fingerprint (or the user's own on)
+            exp = own.get("enabled") if "enabled" in own else mine.get("enabled")
+            on = exp is not False
+            state, why = gate(rec, True, exp is True) if on else ("off", "off in settings")
         else:
             on = _settings.app_enabled(settings, fam, True) and \
                 _settings.app_enabled(settings, key, True)
-            why = "family %s" % fam if on else "off in settings"
-        return out(a.NAME if a else "niri-fallback", "glass" if on else FALLBACK,
-                   why, family=fam, enabled=on)
+            state, why = gate(rec, False, None) if on else ("off", "off in settings")
+        if on and state == "glass":
+            why = why if injected and why else (
+                "family %s (any %s app)" % (fam, rec.get("toolkit")) if generic
+                else "family %s" % fam)
+        live = on and state == "glass"
+        return out(a.NAME if a else "niri-fallback", "glass" if live else FALLBACK,
+                   why, family=fam, enabled=on, state=state if on else "off",
+                   injected=injected, generic=bool(generic))
     a = BY_NAME.get(route) if route else None
     if a is None:
         hit = next((ad for rx, ad in APP_ROUTES if _any([rx], names)), None)
@@ -269,14 +333,18 @@ def resolve(rec, families, settings=None):
         a = next((x for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
                   and x.TIER in (NATIVE, FORCED, MOD)), None)
     if a is None:
-        return out("niri-fallback", FALLBACK,
+        return out("niri-fallback", FALLBACK, NO_ROUTE.get(rec.get("toolkit")) or
                    "no adapter for toolkit %s" % rec.get("toolkit", "unknown"))
     default_on = a.TIER == NATIVE
     on = _settings.app_enabled(settings, key, default_on)
+    if rec.get("toolkit") in NO_ROUTE and not a.implemented:
+        # the niri fallback still applies (fallback.mode value fades it whole)
+        return out(a.NAME, FALLBACK, NO_ROUTE[rec["toolkit"]], enabled=on,
+                   state="opaque" if on else "off")
     if a.FAMILY:
         # the toolkit has a family, but the family does not list this app
         return out(a.NAME, FALLBACK, "family %s does not list this app" % a.FAMILY,
-                   enabled=on) | {"implemented": False}
+                   enabled=on, state="opaque") | {"implemented": False}
     if not on:
         return out(a.NAME, FALLBACK, "%s adapter, off until enabled (risk %s)"
                    % (a.TIER, a.RISK), enabled=False)

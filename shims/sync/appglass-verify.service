@@ -1,0 +1,10 @@
+[Unit]
+Description=appGlass: check the queued apps in a hidden headless session
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=50%
+MemoryMax=512M
+TimeoutSec=60
+ExecStart=%h/.local/bin/appglass-sync --verify

@@ -105,7 +105,11 @@ class OptIn(unittest.TestCase):
         try:
             app = core.App(sb.env)
             app.families = {"f": Fam}
+            # the engine's gate replaces OPT_IN (spec 1.4): on unless switched
+            # off, engine.family_gate says when it goes live
             app.settings = {}
+            self.assertTrue(core._family_enabled(app, "f"))
+            app.settings = {"apps": {"org.x.app": {"enabled": False}}}
             self.assertFalse(core._family_enabled(app, "f"))
             app.settings = {"apps": {"org.x.app": {"enabled": True}}}
             self.assertTrue(core._family_enabled(app, "f"))

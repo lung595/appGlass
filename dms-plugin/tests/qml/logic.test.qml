@@ -154,7 +154,7 @@ Item {
         t.check("app-id unescaped", byKey["com.github.tchx84.Flatseal"].appId, "com.github.tchx84.Flatseal");
         const delegated = rows.filter(r => r.effective === "delegated");
         t.ok("a delegated row has no switch", delegated.length > 0 && delegated.every(r => !r.switchable && r.badge === "Delegated" && r.status === "delegated"));
-        t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => byKey[k].status), ["glass", "conflict", "opaque", "delegated", "fallback", "fallback"]);
+        t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => byKey[k].status), ["glass", "conflict", "game", "delegated", "fallback", "waiting"]);
         t.check("the conflict names the file", byKey["vlc"].conflicts, ["~/.local/share/applications/vlc.desktop"]);
         t.check("discord: two routes, the mod first", byKey["discord"].routes, [{
                 "name": "electron-vencord",
@@ -198,7 +198,16 @@ Item {
                         "enabled": false
                     }
                 })], ["Fallback", "Fallback", "Fallback"]);
-        t.check("an opt-in app off: the same label never touched or switched off", [label("discord", {}), label("discord", {
+        // the engine's gate: an injected route waits for its check, a stale
+        // one for its re-check; a game is never touched
+        const stale = JSON.parse(JSON.stringify(status));
+        stale.apps.find(a => a.key === "discord").state = "stale";
+        t.check("gate states", [label("discord", {}), Logic.appRows(stale, {}, true).filter(r => r.key === "discord")[0].statusLabel, label("Pinball", {})], ["Waiting for check", "Stale", "Game: never touched"]);
+        t.check("an opt-in app off: the same label switched off", [label("discord", {
+                    "discord": {
+                        "enabled": false
+                    }
+                }), label("discord", {
                     "discord": {
                         "enabled": false
                     }
@@ -237,7 +246,7 @@ Item {
         const off = {};
         for (const r of Logic.appRows(status, {}, false))
             off[r.key] = r;
-        t.check("glass off: every switchable app paused", ["Alacritty", "vlc", "steam", "Pinball", "org.mozilla.firefox"].map(k => off[k].status), ["paused", "paused", "paused", "opaque", "delegated"]);
+        t.check("glass off: every switchable app paused", ["Alacritty", "vlc", "steam", "Pinball", "org.mozilla.firefox"].map(k => off[k].status), ["paused", "paused", "paused", "game", "delegated"]);
         t.check("badges", [Logic.badge({
                 "effective": "glass",
                 "tier": "forced"

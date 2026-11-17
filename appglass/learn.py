@@ -26,7 +26,7 @@ from . import detect
 
 VERSION = 1
 
-TOPLEVEL = ("electron", "cef", "gecko", "flutter", "qt-webengine", "qt-quick",
+TOPLEVEL = ("game", "electron", "cef", "gecko", "flutter", "qt-webengine", "qt-quick",
             "qt-widgets", "gtk4-adw", "gtk4", "webkitgtk", "gtk3", "sdl")
 
 MAP_LIBS = (
@@ -41,7 +41,15 @@ MAP_LIBS = (
     (r"^libwebkit(2gtk-4\.[01]|gtk-6\.0)\.so", "webkitgtk"),
     (r"^libgtk-3\.so", "gtk3"),
     (r"^libSDL[23]", "sdl"),
+    # Wine / Proton: a game, whatever else it maps (spec 1.3, sticky)
+    (r"^wine64-preloader$", "game"),
+    (r"^wine-preloader$", "game"),
+    (r"^ntdll\.so$", "game"),
+    (r"^winex11\.drv\.so$", "game"),
+    (r"^winewayland\.drv\.so$", "game"),
 )
+# a niri window whose pid is the X11 bridge: the client is behind it
+X11_BRIDGES = ("xwayland-satellite", "Xwayland")
 _MAP_LIBS = tuple((re.compile(r), t) for r, t in MAP_LIBS)
 _FLATPAK_SCOPE = re.compile(r"app-flatpak-([A-Za-z0-9_.-]+?)-\d+\.scope")
 
@@ -115,17 +123,83 @@ def probe_pid(env, pid):
             "flatpak": m.group(1) if m else None}
 
 
+def x11_clients(env):
+    """[{"class", "instance", "pid"}] of the X11 client windows (their
+    _NET_WM_PID), or [] (no DISPLAY, no xprop). APPGLASS_X11_CLIENTS names a
+    JSON file of the same list (tests)."""
+    f = env.environ.get("APPGLASS_X11_CLIENTS")
+    if f:
+        try:
+            with open(f, "rb") as fh:
+                doc = json.loads(fh.read().decode("utf-8"))
+            return [c for c in doc if isinstance(c, dict) and isinstance(c.get("pid"), int)]
+        except (OSError, ValueError):
+            return []
+    if env.sandbox is not None or not env.environ.get("DISPLAY") or not env.which("xprop"):
+        return []
+    try:
+        r = env.run(["xprop", "-root", "_NET_CLIENT_LIST"], timeout=5)
+        ids = re.findall(r"0x[0-9a-fA-F]+", r.stdout.split("#", 1)[-1])
+    except Exception:
+        return []
+    out = []
+    for wid in ids[:200]:
+        try:
+            r = env.run(["xprop", "-id", wid, "_NET_WM_PID", "WM_CLASS"], timeout=5)
+        except Exception:
+            continue
+        pid = re.search(r"_NET_WM_PID\(CARDINAL\) = (\d+)", r.stdout)
+        m = re.search(r"WM_CLASS\(STRING\) = (.*)", r.stdout)
+        cls = re.findall(r'"([^"]*)"', m.group(1)) if m else []
+        if pid:
+            out.append({"pid": int(pid.group(1)), "instance": cls[0] if cls else "",
+                        "class": cls[1] if len(cls) > 1 else (cls[0] if cls else "")})
+    return out
+
+
+def client_pid(env, w, clients=None):
+    """The pid to probe for a niri window: the X11 client's own
+    (_NET_WM_PID) when niri names the bridge (xwayland-satellite)."""
+    try:
+        exe = os.path.basename(os.readlink(os.path.join(proc_root(env), str(w["pid"]), "exe")))
+    except OSError:
+        return w["pid"]
+    if exe not in X11_BRIDGES:
+        return w["pid"]
+    clients = x11_clients(env) if clients is None else clients
+    for c in clients:
+        if w["app_id"] in (c.get("class"), c.get("instance")) or \
+                w["app_id"].lower() in (c.get("class", "").lower(), c.get("instance", "").lower()):
+            return c["pid"]
+    return None          # an X11 window we cannot map: not the bridge's toolkit
+
+
 def learn(env):
     """{app_id: record} for the open windows, or None without niri."""
     ws = windows(env)
     if ws is None:
         return None
     out = {}
+    clients = None
     for w in ws:
         if w["app_id"] in out:
             continue
-        rec = probe_pid(env, w["pid"])
-        rec["pid"] = w["pid"]
+        pid = w["pid"]
+        try:
+            bridged = os.path.basename(os.readlink(os.path.join(proc_root(env), str(pid), "exe")))
+        except OSError:
+            bridged = None
+        if bridged in X11_BRIDGES:
+            if clients is None:
+                clients = x11_clients(env)
+            pid = client_pid(env, w, clients)
+            if pid is None:
+                continue
+        rec = probe_pid(env, pid)
+        rec["pid"] = pid
+        if pid != w["pid"]:
+            rec["evidence"] = rec["evidence"] + ["X11 client of %s (_NET_WM_PID %d)"
+                                                 % (bridged, pid)]
         out[w["app_id"]] = rec
     return out
 
@@ -182,9 +256,13 @@ def merge(records, learned):
             if app_id in r.get("names", ()) or any(re.search(rx, app_id)
                                                    for rx in r.get("app_ids", ())):
                 claimed.add(app_id)
+                if l.get("toolkit") == "game":
+                    r.setdefault("classes", {})["game"] = "runtime: %s" % "; ".join(
+                        l.get("evidence", []))[:200]
                 if l.get("toolkit", "unknown") != "unknown":
                     r["toolkit_static"] = r["toolkit"]
                     r["toolkit"] = l["toolkit"]
+                    r["strong"] = True
                     r["evidence"] = ["runtime: " + e for e in l.get("evidence", [])] + \
                         r.get("evidence", [])
                     if app_id not in r["names"]:
@@ -200,7 +278,7 @@ def merge(records, learned):
             "names": [app_id], "app_ids": [detect._rx(app_id)], "exec": l.get("exe"),
             "toolkit": l.get("toolkit", "unknown"),
             "evidence": ["runtime: " + e for e in l.get("evidence", [])],
-            "fuses": None, "learned": app_id, "source": "learned",
+            "fuses": None, "learned": app_id, "source": "learned", "strong": True,
         })
     records.sort(key=lambda r: r["key"].lower())
     return records

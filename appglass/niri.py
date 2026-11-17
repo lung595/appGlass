@@ -155,15 +155,28 @@ def undo_for(app, path):
 
 
 def app_ids(app, extra=()):
+    """The glass app-ids of the applied families. A family whose every app
+    runs plain (the engine's plain/ markers: waiting, stale, paused after
+    failed launches) is left out, so the catch-all keeps them opaque."""
+    from . import engine
+    plain = set(engine.store(app).plain)
     ids = []
     for name in app.state.families():
+        keys = list(getattr(app.families.get(name), "KEYS", ()) or ())
+        if keys and all(k in plain for k in keys):
+            continue
         for a in app.state.owners[name].get("app_ids", []):
             if a not in ids:
                 ids.append(a)
     for a in extra:
         if a not in ids:
             ids.append(a)
-    return ids
+    # one app of a generic family (gtk3, qtstyle, gtk4) that runs plain
+    drop = set()
+    for k in plain:
+        r = engine.record_for(app, k)
+        drop.update((r or {}).get("app_ids") or ())
+    return [a for a in ids if a not in drop]
 
 
 def validate(env, cfg):
