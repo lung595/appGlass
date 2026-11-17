@@ -32,6 +32,7 @@ class ShimCase:
     BINS = ()
     CSS = None            # rel path of a rendered CSS (step 13)
     BUILDS = 0            # compiler runs of one build
+    REBUILDS = None       # compiler runs to rebuild the first .so of FILES (default BUILDS)
 
     def setUp(self):
         self.w = ShimWorld(bins=self.BINS)
@@ -167,7 +168,8 @@ class ShimCase:
         with open(self.w.user(so), "ab") as f:
             f.write(b"changed by hand")
         self.apply()
-        self.assertEqual(len(self.w.tc.builds()), 2 * self.BUILDS)
+        again = self.BUILDS if self.REBUILDS is None else self.REBUILDS
+        self.assertEqual(len(self.w.tc.builds()), self.BUILDS + again)
 
     # adopt --rescue: every file the family wrote is recorded again, so
     # remove gives the tree back (state.json lost, then the whole state dir)

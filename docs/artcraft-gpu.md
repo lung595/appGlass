@@ -1,20 +1,36 @@
-# ArtCraft Launcher on the GPU (Vulkan layer prototype)
+# ArtCraft Launcher on the GPU (Vulkan layer)
 
-At the moment, the live ArtCraft route (`ck-shim` family `artcraft`, wrapper `appglass-artcraft`) renders the launcher in software:
-
-- It uses Mesa EGL, wgpu's GL backend and llvmpipe.
-- This is because wgpu's Vulkan swapchain is opaque.
-
-This page covers a second route that keeps the launcher on the NVIDIA GPU:
+The ArtCraft family (`ck-shim` family `artcraft`, wrapper `appglass-artcraft`) keeps the launcher on the GPU:
 
 - `shims/vklayer/` holds a small explicit Vulkan layer, `VK_LAYER_APPGLASS_glass`.
 - The layer asks the WSI for a `PRE_MULTIPLIED` swapchain.
 - It runs the same colour key as `appglass-ck.so` as one GPU draw before each present.
 
-It is a prototype:
+Without it, wgpu's Vulkan swapchain is opaque, and the only glass route is the CPU one: Mesa EGL, wgpu's GL backend and llvmpipe ([gpu.md](gpu.md)).
 
-- No family installs it.
-- The live launcher and `appglass-artcraft` are unchanged.
+## Install and routes
+
+`appglass apply --only artcraft` (the family is off until `apps.artcraft.enabled = true`) builds and records, next to `appglass-ck.so`:
+
+- `~/.local/lib/appglass/artcraft/vk/libappglass-vk.so`, built with the host `cc` from `appglass-vk.c` and `glass-spv.h` (rebuilt only when they or the compiler change);
+- `~/.local/lib/appglass/artcraft/vk/appglass-vk.json`, the explicit manifest (`library_path` `./libappglass-vk.so`).
+
+Nothing is written to `/usr/share/vulkan`, `/etc/vulkan` or `~/.local/share/vulkan`. `appglass remove --only artcraft` deletes both files with the rest of the family (a hand-made file it adopted is put back).
+
+The one wrapper, `appglass-artcraft`, picks the route at every start:
+
+| Case | Route |
+|---|---|
+| `APPGLASS_ARTCRAFT=off`, no `appglass-ck.so`, or a light system theme | plain (opaque, as the launcher ships) |
+| both layer files there, a `/dev/dri/renderD*` node, and a Vulkan driver that is not lavapipe (an ICD json in `/etc/vulkan/icd.d`, `/usr/share/vulkan/icd.d` or `/usr/local/share/vulkan/icd.d`, or `VK_DRIVER_FILES` / `VK_ICD_FILENAMES` set) | **GPU**: `WGPU_BACKEND=vulkan`, the layer, the keys; no fps cap |
+| `APPGLASS_ARTCRAFT=cpu`, or no layer, or no Vulkan GPU, and Mesa EGL is installed | **CPU**: Mesa EGL, `WGPU_BACKEND=gl`, llvmpipe 4 threads, the keys, `APPGLASS_MAXFPS=60` |
+| none of the above | plain |
+
+Both routes read the levels from `appglass levels` at start and scrub everything they add from the programs the launcher starts.
+
+When the layer does not build (no Vulkan headers, for example), apply warns once, the CPU route is still installed, and status gives the reason.
+
+`appglass status` shows the route on the family line, `artcraft   installed, applied (renders on the GPU): ...` or `(renders on the CPU: <why>)`. `status --json` has `render` and `render_why` on the family, and the app's route reason says it too, which is what the plugin's app row shows. `appglass doctor` prints `render: artcraft on the GPU` (an information line, not drift). They make the same checks as the wrapper, without `APPGLASS_ARTCRAFT`.
 
 **Result**
 
@@ -108,8 +124,10 @@ APPGLASS_KEYS="121316:0.60,151517:0.60,060607:0.65"  APPGLASS_SNAP=0.25
 | `shims/vklayer/appglass-vk.c` | the layer (about 500 lines of C, no dependencies beyond the Vulkan headers) |
 | `shims/vklayer/appglass-vk.json` | explicit layer manifest, `library_path` `./libappglass-vk.so` (next to it) |
 | `shims/vklayer/glass.vert`, `glass.frag`, `gen-spv.py`, `glass-spv.h` | the pass and its generated SPIR-V |
-| `shims/vklayer/appglass-artcraft-gpu` | prototype wrapper: `$LIB/vk/` layer dir, `WGPU_BACKEND=vulkan`, same keys, levels, light-theme and `APPGLASS_ARTCRAFT=off` handling as `appglass-artcraft` |
-| `tests/test_vklayer.py` | SPIR-V freshness and validity, manifest, exports, and the layer on lavapipe |
+| `shims/ck-shim/appglass-artcraft` | the wrapper: picks the GPU, CPU or plain route (table above) |
+| `appglass/families/artcraft.py` | builds and records the layer, `render_route()` for status |
+| `tests/test_vklayer.py` | SPIR-V freshness and validity, manifest, exports, the layer on lavapipe, and the wrapper's env and scrub on both routes |
+| `tests/test_artcraft.py` | the family's files, a failed layer build, status/doctor render, and every wrapper route |
 
 The layer tests run a small C client on lavapipe through `VK_EXT_headless_surface`, with no display:
 
@@ -133,14 +151,6 @@ A second client (`multi`) runs the swapchain lifecycles of a real app, with two 
 - presents that wait on 70 semaphores.
 
 When the Khronos validation layer is installed (or `APPGLASS_TEST_VVL` names a dir with its manifest), these runs put it under the glass layer with sync validation on, so it checks every call the glass layer makes, and any validation error fails the test. Before round 1 of fixes these runs found a use-after-free of the render pass with two formats (the process crashed), a retired `oldSwapchain` passed again, and dropped wait semaphores past 64. They now report no errors.
-
-To build it by hand (for example to try it):
-
-```
-LIB=~/.local/lib/appglass/artcraft
-gcc -O2 -shared -fPIC -fvisibility=hidden -o $LIB/vk/libappglass-vk.so shims/vklayer/appglass-vk.c -lpthread
-cp shims/vklayer/appglass-vk.json $LIB/vk/
-```
 
 ## Measurements (headless harness)
 
@@ -198,14 +208,31 @@ After round 1 of fixes (per-format passes, the unlocked present), a re-run of th
 
 All shots, logs, traces, recordings (`frames.tsv`, `flash.tsv`) and the harness scripts are kept outside the repo, in the probe notes for this step (`shots/gpu/b1b/`).
 
+## The installed family (headless harness)
+
+The same harness, with the files installed by `appglass apply --only artcraft` into a sandbox HOME (real `cc`, real Vulkan headers) and the launcher started through the installed `appglass-artcraft`, 60 Hz output, no network:
+
+- `appglass status`: `artcraft   installed, applied (renders on the GPU)`, the app row `family artcraft, renders on the GPU`; `appglass doctor`: `render: artcraft on the GPU`, no drift.
+- Default start: the GPU route. `APPGLASS_DEBUG=1` logs `device: NVIDIA ... (vendor 0x10de ...)` and `compositeAlpha OPAQUE -> PRE_MULTIPLIED` for each swapchain.
+- `APPGLASS_ARTCRAFT=cpu`: the CPU route (Mesa EGL, `WGPU_BACKEND=gl`, `LP_NUM_THREADS=4`, `APPGLASS_MAXFPS=60`); the layer is not loaded.
+
+| | GPU route | CPU route |
+|---|---|---|
+| Content alpha (mode) | 153, 88 % of the window | 153, 87 % |
+| Bar alpha | 166 | 166 |
+| White glyph pixels at 255 | 3421 | 3423 |
+| measure.py | pass | pass |
+| CPU while scrolling the app grid (3 x 12 notches down and up, about 17 s), run 1 | 0.73 s (4.1 % of one core), 939 presents | 18.46 s (114.5 %), 844 presents |
+| run 2 | 0.67 s (3.8 %), 936 presents | 18.20 s (113.4 %), 841 presents |
+| CPU per present | 0.7-0.8 ms | 21.6-21.9 ms |
+| Idle 10 s | 0 | 0 |
+
+Scrolling costs about 25 times less CPU on the GPU route. Shots, logs and scripts: `shots/artgpu/` in the probe notes.
+
 ## Limits and open points
 
-- **Not installed.**
-  - Making it the live route takes two steps: a `vklayer` adapter or family change that builds `libappglass-vk.so` into `~/.local/lib/appglass/artcraft/vk/`, and writing `appglass-artcraft-gpu` in place of `appglass-artcraft`.
-  - That is a separate step: the live launcher was not to change here.
-  - The CPU route stays the default until then.
 - **Not tried on the real session.**
-  - Every run was in the headless harness. The real session's outputs have other refresh rates and scales than the harness, and the real niri might treat the window differently.
+  - Every run was in the headless harness (also the run with the installed family, below). The real session's outputs have other refresh rates and scales than the harness, and the real niri might treat the window differently.
   - The real driver was only probed read-only, for its caps.
 - **Formats.**
   - sRGB swapchain formats are refused (left opaque): the pass would need sRGB-aware keys.

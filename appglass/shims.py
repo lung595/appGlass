@@ -62,9 +62,11 @@ def script(env, adapter, name):
     return source(adapter, name).decode("utf-8").replace(PLACEHOLDER, appglass_cmd(env))
 
 
-def wrapper(ctx, adapter, name):
-    """~/.local/bin/<name> from shims/<adapter>/<name>, executable."""
-    return ctx.write_owned(bin_path(ctx.env, name), script(ctx.env, adapter, name), mode=0o755)
+def wrapper(ctx, adapter, name, meta=None):
+    """~/.local/bin/<name> from shims/<adapter>/<name>, executable (meta: kept
+    in its state record)."""
+    return ctx.write_owned(bin_path(ctx.env, name), script(ctx.env, adapter, name), meta=meta,
+                           mode=0o755)
 
 
 def copy(ctx, adapter, app, names, mode=None):

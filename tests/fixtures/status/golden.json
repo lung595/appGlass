@@ -799,6 +799,22 @@
       "what": "the colour-key shim source (ArtCraft)"
     },
     {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/artcraft/vk/libappglass-vk.so",
+      "status": "absent",
+      "what": "the Vulkan glass layer (ArtCraft)"
+    },
+    {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/artcraft/vk/appglass-vk.json",
+      "status": "absent",
+      "what": "the Vulkan glass layer manifest (ArtCraft)"
+    },
+    {
       "adapter": "electron-hook",
       "implemented": true,
       "owner": null,

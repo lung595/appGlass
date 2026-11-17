@@ -9,8 +9,8 @@
   With the layer and keys, the presented image has the key pixels at their glass alpha
   (premultiplied), the text at 255, and the layer asked for PRE_MULTIPLIED. Without keys,
   or without the layer, the image is untouched;
-* the GPU wrapper prototype only adds the layer through its own env, and a child the
-  launcher starts loses all of it (the ck-shim scrub).
+* the wrapper appglass-artcraft only adds the layer through its own env (GPU route), and a
+  child the launcher starts loses all of it, on both routes (the ck-shim scrub).
 """
 
 import ctypes
@@ -455,7 +455,7 @@ class Layer(unittest.TestCase):
         self.assertRegex(log, r"\[appglass-vk\] device: .*llvmpipe")
 
 
-WRAPPER = os.path.join(D, "appglass-artcraft-gpu")
+WRAPPER = os.path.join(REPO, "shims", "ck-shim", "appglass-artcraft")
 
 
 class Wrapper(unittest.TestCase):
@@ -471,15 +471,25 @@ class Wrapper(unittest.TestCase):
         self.assertIn('VK_ADD_LAYER_PATH="$LIB/vk', self.text)
         self.assertIn("VK_INSTANCE_LAYERS=" + LAYER, self.text)
         self.assertIn("WGPU_BACKEND=vulkan", self.text)
-        for g in ("/usr/share/vulkan", "/etc/vulkan", ".local/share/vulkan", "implicit_layer"):
+        for g in ("explicit_layer", "implicit_layer", ".local/share/vulkan"):
             self.assertNotIn(g, self.text)
+        # the system Vulkan dirs are only read, for the driver check
+        sysdirs = [l for l in self.text.splitlines() if "/vulkan" in l and not l.startswith("#")]
+        self.assertEqual(sysdirs, [l for l in self.text.splitlines() if l.startswith("ICD=")])
 
-    def run_wrapped(self, **user):
-        """the wrapper around a fake launcher, with the user's env plus `user`: (parent env, child env)"""
+    def run_wrapped(self, gpu=True, **user):
+        """the wrapper around a fake launcher on a host with a Vulkan GPU (or, gpu False, without),
+        with the user's env plus `user`: (parent env, child env)"""
         d = tempfile.mkdtemp(prefix="appglass-vkw-")
         try:
             lib = os.path.join(d, ".local", "lib", "appglass", "artcraft")
             os.makedirs(os.path.join(lib, "vk"))
+            for sub in ("dri", "icd"):
+                os.makedirs(os.path.join(d, sub))
+            open(os.path.join(d, "mesa.json"), "w").close()
+            if gpu:
+                open(os.path.join(d, "dri", "renderD128"), "w").close()
+                open(os.path.join(d, "icd", "nvidia_icd.json"), "w").close()
             subprocess.run([GCC, "-O2", "-shared", "-fPIC", "-o", os.path.join(lib, "appglass-ck.so"),
                             os.path.join(REPO, "shims", "ck-shim", "appglass-ck.c"), "-ldl", "-lpthread"],
                            check=True, capture_output=True, timeout=120)
@@ -490,14 +500,25 @@ class Wrapper(unittest.TestCase):
                 # the parent's own env through shell builtins (an exec'd env would already be a child)
                 f.write("#!/bin/sh\nprintf '%s\\n' \"VK_INSTANCE_LAYERS=${VK_INSTANCE_LAYERS:-}\" "
                         "\"VK_ADD_LAYER_PATH=${VK_ADD_LAYER_PATH:-}\" \"WGPU_BACKEND=${WGPU_BACKEND:-}\" "
-                        "\"APPGLASS_KEYS=${APPGLASS_KEYS:-}\" > \"$HOME/parent.env\"\n"
+                        "\"APPGLASS_KEYS=${APPGLASS_KEYS:-}\" \"APPGLASS_MAXFPS=${APPGLASS_MAXFPS:-}\" "
+                        "\"__EGL_VENDOR_LIBRARY_FILENAMES=${__EGL_VENDOR_LIBRARY_FILENAMES:-}\" "
+                        "\"LP_NUM_THREADS=${LP_NUM_THREADS:-}\" > \"$HOME/parent.env\"\n"
                         "/usr/bin/env > \"$HOME/child.env\"\n")
             os.chmod(app, 0o755)
             w = os.path.join(d, "wrapper")
+            text = self.text.replace('"@APPGLASS@" levels', "false")
+            for var, val in (("BIN", app), ("MESA", os.path.join(d, "mesa.json")),
+                             ("DRI", os.path.join(d, "dri")), ("ICD", os.path.join(d, "icd"))):
+                text, n = re.subn(r"(?m)^%s=.*$" % var, "%s='%s'" % (var, val), text)
+                self.assertEqual(n, 1, var)
+            os.makedirs(os.path.join(d, "bin"))
+            with open(os.path.join(d, "bin", "gsettings"), "w") as f:
+                f.write("#!/bin/sh\necho \"'prefer-dark'\"\n")
+            os.chmod(os.path.join(d, "bin", "gsettings"), 0o755)
             with open(w, "w") as f:
-                f.write(self.text.replace("BIN=/usr/bin/artcraft-launcher", "BIN=" + app)
-                        .replace('"@APPGLASS@" levels', "false"))
-            env = {"PATH": "/usr/bin:/bin", "HOME": d, "XDG_CACHE_HOME": os.path.join(d, "c")}
+                f.write(text)
+            env = {"PATH": os.path.join(d, "bin") + ":/usr/bin:/bin", "HOME": d,
+                   "XDG_CACHE_HOME": os.path.join(d, "c")}
             env.update(user)
             r = subprocess.run(["sh", w], env=env, capture_output=True, text=True, timeout=60)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -535,6 +556,25 @@ class Wrapper(unittest.TestCase):
         self.assertNotIn(LAYER, child)
         self.assertNotIn("appglass-ck.so", child)
         self.assertNotIn("artcraft/vk", child)
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_cpu_route_child_scrubbed(self):
+        """the CPU route (no Vulkan GPU): the launcher gets llvmpipe and the cap, a child none of it"""
+        parent, child = self.run_wrapped(gpu=False)
+        self.assertIn("WGPU_BACKEND=gl\n", parent)
+        self.assertIn("APPGLASS_MAXFPS=60\n", parent)
+        self.assertIn("LP_NUM_THREADS=4\n", parent)
+        self.assertIn("VK_INSTANCE_LAYERS=\n", parent)
+        for v in ("VK_INSTANCE_LAYERS", "VK_ADD_LAYER_PATH", "WGPU_BACKEND", "APPGLASS_",
+                  "__EGL_VENDOR_LIBRARY_FILENAMES", "LP_NUM_THREADS", "appglass-ck.so"):
+            self.assertNotIn(v, child)
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_cpu_knob(self):
+        parent, child = self.run_wrapped(APPGLASS_ARTCRAFT="cpu")
+        self.assertIn("WGPU_BACKEND=gl\n", parent)
+        self.assertIn("VK_INSTANCE_LAYERS=\n", parent)
+        self.assertNotIn("APPGLASS_", child)
 
 
 if __name__ == "__main__":

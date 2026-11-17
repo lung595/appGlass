@@ -1,12 +1,16 @@
 #!/usr/bin/sh
 # appglass-artcraft: start the ArtCraft Launcher (egui/wgpu) with a glass window.
-# The launcher draws through Vulkan by default, whose buffers carry no alpha. This wrapper moves it to
-# Mesa EGL + wgpu's GL backend (llvmpipe: CPU rendering, NVIDIA GL makes wgpu fail adapter selection)
-# and LD_PRELOADs appglass-ck.so, which colour-keys the launcher's own dark background colours to
-# the DMS glass levels and sends no opaque region (with one, niri leaves out the blur when it redraws
-# the window without a commit). llvmpipe is held to 4 threads and the shim caps swaps at APPGLASS_MAXFPS
-# (60 by default: the launcher otherwise renders as fast as the 240 Hz output asks, on the CPU).
-# APPGLASS_SCRUB keeps all of this out of the apps the launcher starts.
+# The launcher draws through Vulkan, whose swapchain it makes opaque. Two routes give it the glass:
+# - GPU (the layer files are there and the host has a Vulkan GPU): wgpu stays on Vulkan and the
+#   explicit layer VK_LAYER_APPGLASS_glass, named only by this env, asks for a PRE_MULTIPLIED
+#   swapchain and colour-keys the launcher's own dark background colours to the DMS glass levels in
+#   one GPU draw before each present (docs/artcraft-gpu.md).
+# - CPU (APPGLASS_ARTCRAFT=cpu, or no layer, or no Vulkan GPU): Mesa EGL + wgpu's GL backend
+#   (llvmpipe: NVIDIA GL makes wgpu fail adapter selection), the same keys done by appglass-ck.so on
+#   each swap, llvmpipe held to 4 threads and swaps capped at APPGLASS_MAXFPS (60 by default: the
+#   launcher otherwise renders as fast as the 240 Hz output asks, on the CPU).
+# On both, appglass-ck.so sends no opaque region (with one, niri leaves out the blur when it redraws
+# the window without a commit) and APPGLASS_SCRUB keeps all of this out of the apps the launcher starts.
 # Keys are for the launcher's dark theme; with a light system theme it starts plain (opaque, GPU).
 # Plain start on demand: APPGLASS_ARTCRAFT=off appglass-artcraft
 # Undo: appglass remove --only artcraft
@@ -14,20 +18,52 @@ set -u
 LIB="$HOME/.local/lib/appglass/artcraft"
 BIN=/usr/bin/artcraft-launcher
 MESA=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+DRI=/dev/dri
+ICD="/etc/vulkan/icd.d /usr/share/vulkan/icd.d /usr/local/share/vulkan/icd.d"
 COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
 plain() { exec "$BIN" "$@"; }
-[ "${APPGLASS_ARTCRAFT:-on}" = off ] && plain "$@"
-[ -f "$LIB/appglass-ck.so" ] && [ -f "$MESA" ] || plain "$@"
+route="${APPGLASS_ARTCRAFT:-on}"
+[ "$route" = off ] && plain "$@"
+[ -f "$LIB/appglass-ck.so" ] || plain "$@"
 case "$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" in
     *prefer-light*) plain "$@" ;;
     *prefer-dark*) ;;
     *) [ "$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null)" = light ] && plain "$@" ;;
 esac
+# a Vulkan GPU: a render node and a driver that is not lavapipe (or one the user names)
+vulkan_gpu() {
+    for f in "$DRI"/renderD*; do [ -e "$f" ] && break; return 1; done
+    [ -n "${VK_DRIVER_FILES:-}${VK_ICD_FILENAMES:-}" ] && return 0
+    for d in $ICD; do
+        for f in "$d"/*.json; do
+            case "${f##*/}" in lvp_icd*) ;; *) [ -f "$f" ] && return 0 ;; esac
+        done
+    done
+    return 1
+}
+gpu=no
+[ "$route" != cpu ] && [ -f "$LIB/vk/libappglass-vk.so" ] && [ -f "$LIB/vk/appglass-vk.json" ] &&
+    vulkan_gpu && gpu=yes
+[ "$gpu" = yes ] || [ -f "$MESA" ] || plain "$@"
 lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
 c=$(printf '%s' "$lv" | jq -r '.content')
 b=$(printf '%s' "$lv" | jq -r '.bar')
-# only scrub what this wrapper adds: a value the user already set is passed on as before
+if [ "$gpu" = yes ]; then
+    # children never get this route's values: the shim scrubs all three, and a value the user had
+    # set before comes back to them as it was (APPGLASS_ORIG_<var>, which the shim hands back)
+    exec env WGPU_BACKEND=vulkan \
+        VK_ADD_LAYER_PATH="$LIB/vk${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}" \
+        VK_INSTANCE_LAYERS=VK_LAYER_APPGLASS_glass${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS} \
+        ${WGPU_BACKEND+"APPGLASS_ORIG_WGPU_BACKEND=$WGPU_BACKEND"} \
+        ${VK_ADD_LAYER_PATH+"APPGLASS_ORIG_VK_ADD_LAYER_PATH=$VK_ADD_LAYER_PATH"} \
+        ${VK_INSTANCE_LAYERS+"APPGLASS_ORIG_VK_INSTANCE_LAYERS=$VK_INSTANCE_LAYERS"} \
+        LD_PRELOAD="$LIB/appglass-ck.so${LD_PRELOAD:+ $LD_PRELOAD}" \
+        APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 \
+        APPGLASS_SCRUB="WGPU_BACKEND VK_ADD_LAYER_PATH VK_INSTANCE_LAYERS" \
+        "$BIN" "$@"
+fi
+# only scrub what this route adds: a value the user already set is passed on as before
 scrub=''
 [ -n "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" ] || scrub="$scrub __EGL_VENDOR_LIBRARY_FILENAMES"
 [ -n "${WGPU_BACKEND:-}" ] || scrub="$scrub WGPU_BACKEND"
