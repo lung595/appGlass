@@ -3465,8 +3465,10 @@ def main(argv=None, environ=None, out=None, err=None):
             if args.cmd == "keys":
                 return verify.cmd_keys(app, args.key, args.mode, app.out or sys.stdout)
             return verify.cmd_launch_check(app, args.key, args.pid)
+        # verify takes the lock only around each result (verify.with_lock):
+        # its hidden sessions can last minutes
         if ((args.cmd in ("apply", "remove", "hook", "set", "sync", "learn", "adopt",
-                          "verify", "fail")
+                          "fail")
                 and not getattr(args, "dry_run", False) and not getattr(args, "json", False))
                 or (args.cmd == "doctor" and args.fix)
                 or (args.cmd == "restore" and not args.list)):

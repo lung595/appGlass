@@ -861,6 +861,46 @@ class Heal(unittest.TestCase):
         argv, _ = self.hidden_wrapper_argv(self.sb.path("run"))
         self.assertIn("APPGLASS_KEYS=abcdef:", argv)
 
+    def test_the_hidden_session_runs_without_the_lock(self):
+        """A queue run can last 25 min: the user's apply/set, the plugin's
+        sync and the hook run must not wait behind it. The lock is taken
+        only around each result (the record and the hook apply)."""
+        lock = os.path.join(self.sb.state, "appglass", ".lock")
+        probe = self.sb.path("lock-probe")
+        stub = self.sb.path("stub-harness")
+        with open(stub, "w") as f:
+            f.write("#!/bin/sh\n/usr/bin/flock -n -E 9 %s /usr/bin/true 2>>%s.err; echo $? >> %s\ncat %s\n"
+                    % (lock, probe, probe, self.res))
+        self.run_ok("apply")
+        self.assertIn("pass", self.run_ok("verify", "--queue"))
+        with open(probe) as f:
+            self.assertEqual(f.read().split(), ["0"])
+        self.assertEqual(self.state()["state"], "glass")
+
+    def test_a_change_made_while_verify_runs_is_kept(self):
+        """The apply after a result runs on the state as it is then, not on
+        the one verify read at its start."""
+        stub = self.sb.path("stub-harness")
+        with open(stub, "w") as f:
+            f.write("#!/bin/sh\n%s set apps.gtk3.enabled false >/dev/null 2>&1\ncat %s\n"
+                    % (os.path.join(REPO, "bin", "appglass"), self.res))
+        self.run_ok("apply")
+        self.run_ok("verify", "--queue")
+        st = self.sb.json(os.path.join(self.sb.config, "appglass", "settings.json"))
+        self.assertIs(st["apps"]["gtk3"]["enabled"], False)
+        self.assertEqual(self.state()["state"], "glass")
+
+    def test_one_verify_at_a_time(self):
+        import fcntl
+        self.run_ok("apply")
+        d = os.path.join(self.sb.state, "appglass")
+        with open(os.path.join(d, "verify.lock"), "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            code, out, err = self.w.run("verify", "--queue")
+        self.assertEqual(code, verify.EX_TEMPFAIL)
+        self.assertIn("another check", out + err)
+        self.assertEqual(self.harness_calls(), [])
+
     def test_typed_apply_does_not_queue(self):
         self.run_ok("apply", "--only", "gtk3")
         p = os.path.join(self.sb.state, "appglass", "engine.json")

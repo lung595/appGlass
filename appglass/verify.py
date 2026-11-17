@@ -478,6 +478,75 @@ def judge(env, png, level, hist=None):
                 % (mode, want, opaque))
 
 
+def with_lock(app, fn):
+    """fn(a) under the appglass lock, a being an App that read the state
+    under it: verify runs its hidden sessions without the lock (a queue run
+    can last BUDGET) and takes it only to record a result and apply it, on
+    the state as it is then (an apply or set made meanwhile is kept)."""
+    from . import core
+    lockf, created = core._lock(app.env)
+    a = None
+    try:
+        a = core.App(app.env.environ, out=app.out, err=app.err, quiet=app.quiet)
+        a.event = True
+        core.refuse_orphans(a)
+        r = fn(a)
+    except BaseException:
+        core._unlock(app.env, lockf, created, a, failed=True)
+        if a is not None:
+            app.errors += a.errors
+        raise
+    core._unlock(app.env, lockf, created, a)
+    app.errors += a.errors
+    return r
+
+
+def verify_lock(env):
+    """One verify at a time (the hidden sessions are heavy): an open file
+    holding the lock, or None when another verify runs."""
+    import fcntl
+    d = env.state_dir
+    if not os.path.isdir(d):
+        return open(os.devnull)         # nothing applied: nothing to race on
+    p = os.path.join(d, "verify.lock")
+    env.guard(p)
+    f = open(p, "a")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    return f
+
+
+def record(a, key, rec, route, res):
+    """Record one result (under the lock, a: the App that read the state
+    under it); a PASS or FAIL runs the hook apply."""
+    if res.get("result") in ("pass", "fail"):
+        engine.verified(a, key, rec.get("fp"), res["result"], res.get("reason", ""))
+    else:
+        st = engine.store(a)
+        st.app(key)["verify"] = {"fp": rec.get("fp"), "result": "unverifiable",
+                                 "reason": res.get("reason", ""), "route": engine.ROUTE_VERSION,
+                                 "at": time.strftime("%Y-%m-%d %H:%M")}
+        st.dequeue(key)
+        if route.get("injected") and engine.explicit_on(a, route.get("family"), key):
+            # the user's own on stays on (S4): say the check could not run
+            name = engine.app_name(a, key)
+            engine.notify_once(a, key, rec.get("fp"), "%s: glass could not be checked" % name,
+                               "%s keeps the glass you switched on, unchecked: %s"
+                               % (name, res.get("reason", "?")), tag="unverifiable:")
+        st.save()
+    if res.get("result") in ("pass", "fail") and a.state.owners:
+        # a PASS lets a route go live, a FAIL takes it out (S7): the
+        # hook run brings either in now, not at the end of the queue
+        from .core import cmd_apply
+        a.from_hook = True
+        a._engine_records = None
+        cmd_apply(a, None, False, from_hook=True)
+    return res
+
+
 def verify_one(app, key):
     """Check one app. Returns the result dict (also recorded)."""
     rec = engine.record_for(app, key)
@@ -485,26 +554,13 @@ def verify_one(app, key):
         return {"result": "unverifiable", "reason": "no launcher for %s" % key}
     route = route_of(app, rec)
     if route.get("state") == "excluded" or not route.get("family"):
-        engine.store(app).dequeue(key)
-        engine.store(app).save()
+        def skip(a):
+            engine.store(a).dequeue(key)
+            engine.store(a).save()
+        with_lock(app, skip)
         return {"result": "skipped", "reason": route.get("reason")}
     res = run_harness(app, rec, app.levels.content)
-    if res.get("result") in ("pass", "fail"):
-        engine.verified(app, key, rec.get("fp"), res["result"], res.get("reason", ""))
-    else:
-        st = engine.store(app)
-        st.app(key)["verify"] = {"fp": rec.get("fp"), "result": "unverifiable",
-                                 "reason": res.get("reason", ""), "route": engine.ROUTE_VERSION,
-                                 "at": time.strftime("%Y-%m-%d %H:%M")}
-        st.dequeue(key)
-        if route.get("injected") and engine.explicit_on(app, route.get("family"), key):
-            # the user's own on stays on (S4): say the check could not run
-            name = engine.app_name(app, key)
-            engine.notify_once(app, key, rec.get("fp"), "%s: glass could not be checked" % name,
-                               "%s keeps the glass you switched on, unchecked: %s"
-                               % (name, res.get("reason", "?")), tag="unverifiable:")
-        st.save()
-    return res
+    return with_lock(app, lambda a: record(a, key, rec, route, res))
 
 
 def cmd_verify(app, key=None, queue=False):
@@ -518,11 +574,27 @@ def cmd_verify(app, key=None, queue=False):
         app.info("verify: on battery under 20 %: waiting, nothing checked")
         return EX_TEMPFAIL
     install_term_handler()
+    vl = verify_lock(app.env)
+    if vl is None:
+        app.info("verify: another check is running: nothing checked")
+        return EX_TEMPFAIL
+    try:
+        return _verify_keys(app, key, queue)
+    finally:
+        vl.close()
+
+
+def _verify_keys(app, key, queue):
     if queue:
         # the queue as a hook run sees it now (an app may have changed since)
+        def queued(a):
+            a.from_hook = True
+            engine.refresh(a)
+            return list(engine.store(a).data["queue"])
+        keys = with_lock(app, queued)
         app.from_hook = True
-        engine.refresh(app)
-    keys = list(engine.store(app).data["queue"]) if queue else [key]
+    else:
+        keys = [key]
     if not keys:
         app.info("verify: nothing queued")
         return 0
@@ -538,13 +610,6 @@ def cmd_verify(app, key=None, queue=False):
             break
         res = verify_one(app, k)
         app.info("verify: %s: %s (%s)" % (k, res.get("result"), res.get("reason", "")))
-        if res.get("result") in ("pass", "fail") and app.state.owners:
-            # a PASS lets a route go live, a FAIL takes it out (S7): the
-            # hook run brings either in now, not at the end of the queue
-            from .core import cmd_apply
-            app.from_hook = True
-            app._engine_records = None
-            cmd_apply(app, None, False, from_hook=True)
     return 0
 
 
