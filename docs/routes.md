@@ -7,7 +7,7 @@ A route is the way one kind of app is made to paint its own background with alph
 - popups at 1.0;
 - text at 255.
 
-Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by switching its family off, with the family name from the table below: `dms ipc call appGlass app <family> off` while the plugin is installed (for example `dms ipc call appGlass app gtk3 off`), or `appglass set apps.<family>.enabled false --apply` without it. `appglass remove --only <family>` takes the files out too, but only until the next sync or `appglass apply --all` while the family is still on in settings. The switch in Settings > Apps takes the files out only for a Forced or Mod app; for a Native app it shows Paused and the files stay (see [guide.md](guide.md#per-app-switch)). A Forced or Mod route is on by default, but goes live only once its hidden check passes ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)).
+Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by switching its family off, with the family name from the table below: `dms ipc call appGlass app <family> off` while the plugin is installed and enabled (for example `dms ipc call appGlass app gtk3 off`), or `appglass set apps.<family>.enabled false --apply` without it. `appglass remove --only <family>` takes the files out too, but only until the next sync or `appglass apply --all` while the family is still on in settings. The switch in Settings > Apps takes the files out only for a Forced or Mod app; for a Native app it shows Paused and the files stay (see [guide.md](guide.md#per-app-switch)). A Forced or Mod route is on by default, but goes live only once its hidden check passes ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)).
 
 The "Measured" lines come from window screenshots taken in a nested niri session (or, where noted, on the real desktop), with the alpha read per pixel. "0.80" means the measurement was taken at a DMS level of 0.80, where the content target is alpha 204. The per-toolkit pages have the full results.
 
@@ -91,7 +91,7 @@ Native routes through each app's own config files, for the native and the flatpa
 
 - **Writes:** `<vault>/.obsidian/snippets/appglass.css` in every vault listed in Obsidian's `obsidian.json`, and turns the snippet on in that vault's `appearance.json` (your other snippets and keys are kept).
 - **Measured:** content 153, ribbon, sidebars and tab bar 166, menus and modals 255, text 255; the stock `--text-faint` (under 2:1) is replaced. Source: [electron.md](electron.md).
-- **Reload:** later theme changes reload live. The first enable needs an Obsidian restart, or the snippet toggled off and on.
+- **Reload:** later theme changes reload live. Quit Obsidian before the first `appglass apply`: the first enable needs an Obsidian restart, or the snippet toggled off and on.
 - **Undo:** `appglass remove --only obsidian`. A snippet you turn off in Obsidian stays off.
 
 ## Herdr

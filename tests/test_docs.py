@@ -490,6 +490,43 @@ class DocsRound2(unittest.TestCase):
         self.assertEqual(verify.judge(None, None, 0.60, hist)["result"], "pass")
 
 
+class DocsRound2Minors(unittest.TestCase):
+    """The round-2 minors: Obsidian's first apply, and when `appglass set`
+    refuses (settings.plugin_active: installed AND not disabled in DMS)."""
+
+    QUIT = "Quit Obsidian before the first `appglass apply`"
+
+    def test_obsidian_says_quit_before_the_first_apply(self):
+        for text in (section(doc("guide.md"), "First run"),
+                     section(doc("issue-dms.md"), "Limits"),
+                     section(doc("routes.md"), "Obsidian"),
+                     doc("engine.md"), doc("electron.md")):
+            self.assertIn(self.QUIT, text)
+
+    def test_set_refuses_only_while_the_plugin_is_installed_and_enabled(self):
+        sb = Sandbox()
+        try:
+            sb.write("dms/plugins/appGlass/plugin.json", '{"id": "appGlass"}')
+            self.assertEqual(sb.run("set", "fallback.mode", "off")[0], 1)
+            sb.write("dms/plugin_settings.json", '{"appGlass": {"enabled": false}}')
+            self.assertEqual(sb.run("set", "fallback.mode", "off")[0], 0)
+        finally:
+            sb.cleanup()
+        both = "installed and enabled"
+        g = doc("guide.md")
+        self.assertIn(both, section(g, "Per-app switch"))
+        self.assertNotIn("while the plugin is installed it refuses", g)
+        self.assertNotIn("While the plugin is installed it owns", g)
+        p = doc("plugin.md")
+        self.assertIn("## While the plugin is installed and enabled", p)
+        self.assertIn("`appglass set` refuses while the plugin is installed and enabled", p)
+        self.assertIn("disabled in DMS", section(p, "While the plugin is installed"))
+        for name in ("routes.md", "engine.md"):
+            text = doc(name)
+            self.assertNotIn("off` while the plugin is installed (", text, name)
+            self.assertIn("off` while the plugin is installed and enabled (", text, name)
+
+
 class FadeRecorded(unittest.TestCase):
     """Each fading route says what its recorded fade did, or why none was
     recorded (a frame-by-frame capture in a headless niri session)."""

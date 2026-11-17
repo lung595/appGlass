@@ -78,7 +78,7 @@ Measured from window screenshots composited over black and white, in nested niri
 - **Games, Wine/Proton, SDL:** excluded on purpose (opaque, blur off). Nothing runs inside a game process, so there is nothing for an anti-cheat to see.
 - **The inspector hook** (Feishin, VSCodium) opens a Node inspector port on 127.0.0.1 (random port, session id private to the wrapper) for the injection, then closes it. An Electron that cannot close it keeps it on loopback only, with the random port and the private session id.
 - **Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime (Kate and Konsole excepted), Electron apps with no hook:** opaque.
-- GTK apps and Dux Calendar need a restart after a theme change. Alacritty, Herdr and Dux Files reload live. Obsidian needs a restart on the first enable (or the snippet toggled off and on), and reloads live after that.
+- GTK apps and Dux Calendar need a restart after a theme change. Alacritty, Herdr and Dux Files reload live. Quit Obsidian before the first `appglass apply`: Obsidian needs a restart on the first enable (or the snippet toggled off and on), and reloads live after that.
 - Apps started outside their launcher (shell, D-Bus activation) do not get launcher-based routes. They stay opaque and sharp.
 - Tested on Fedora + niri + NVIDIA, dark scheme first. Light mode has been measured less.
 - Dark logos drawn by the app itself can be hard to see on dark glass. CSS cannot reach them.

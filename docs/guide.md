@@ -43,7 +43,7 @@ TODO(engine): `appglass setup` will do the four steps above in one command, and 
 
 - `apply` writes the glass files for the apps it finds, and one niri rule file, `~/.config/niri/appglass.kdl`, included right after `dms/windowrules.kdl`. That rule sets `opacity 1.0` for every app that paints its own glass, and blur stays on.
 - Every other window also gets `opacity 1.0` by default: opaque and sharp, never faded. You can change this in Settings > Fallback.
-- Apps on a native route are glass the next time they start. Alacritty, Herdr and Dux Files reload live. GTK apps and Dux Calendar need a restart. Obsidian needs a restart on the first enable (or the snippet toggled off and on in Obsidian), and reloads live after that.
+- Apps on a native route are glass the next time they start. Alacritty, Herdr and Dux Files reload live. GTK apps and Dux Calendar need a restart. Quit Obsidian before the first `appglass apply`: Obsidian needs a restart on the first enable (or the snippet toggled off and on in Obsidian), and reloads live after that.
 - Apps on a Forced or Mod route (a shim, a hook or a client mod) are on, but they wait for a hidden check first: Settings > Apps shows "Waiting for check", and the app runs plain until the check passes in a headless session, off your screen ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)). To keep one off, switch it off (see [Per-app switch](#per-app-switch)).
 - Games and root GUIs are never touched, and password managers never get an injected route. Games get opaque windows with no blur behind them.
 
@@ -76,7 +76,7 @@ In Settings > Apps, each app has its own switch, and a route choice when it has 
 Off takes the app's files out only for a Forced or Mod app (Feishin, VSCodium, Lian Li, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. To take them out, switch its whole family off with its family name (in [routes.md](routes.md)): `gtk3` covers both Solaar and nvidia-settings.
 
 - With the plugin: `dms ipc call appGlass app gtk3 off` (the settings page has no family switch yet). `dms ipc call appGlass app gtk3 on` brings it back.
-- Without the plugin: `appglass set apps.gtk3.enabled false --apply`. `appglass set` works only without the plugin: while the plugin is installed it refuses ("settings are managed by the DMS plugin").
+- Without the plugin: `appglass set apps.gtk3.enabled false --apply`. `appglass set` works only without the plugin, or with the plugin disabled in DMS Settings > Plugins: while the plugin is installed and enabled it refuses ("settings are managed by the DMS plugin"). A change made with `appglass set` while the plugin is disabled is replaced by the plugin's own settings when it is enabled again.
 - `appglass remove --only gtk3` takes the files out too, but it lasts only until the next sync (plugin load, Re-apply, any switch) or `appglass apply --all`, because the family is still on in settings.
 
 `appglass status` and Copy report show such a Native app as fallback with the reason "off in settings", even though it keeps its glass until its family is off.
@@ -96,7 +96,7 @@ appglass set apps.<key>.enabled true --apply   # on again (a Forced route you tu
 appglass set apps.<key>.route <name>           # pick a route, when the app lists several
 ```
 
-`<key>` is the family name (`alacritty`, `gtk3`, `feishin`, ...), or the key `appglass status` shows for a Forced or Mod app, when it has no dots (`discord`). An app id with dots in it (`org.gnome.Nautilus`, every flatpak id) does not work here: `appglass set` reads each dot as a level of the key and refuses ("unknown key in apps.org"). Switch such an app from the settings page or with IPC (`dms ipc call appGlass app org.jeffvli.feishin off`). While the plugin is installed it owns the settings, and `appglass set` refuses with a hint: use the settings page or IPC then.
+`<key>` is the family name (`alacritty`, `gtk3`, `feishin`, ...), or the key `appglass status` shows for a Forced or Mod app, when it has no dots (`discord`). An app id with dots in it (`org.gnome.Nautilus`, every flatpak id) does not work here: `appglass set` reads each dot as a level of the key and refuses ("unknown key in apps.org"). Switch such an app from the settings page or with IPC (`dms ipc call appGlass app org.jeffvli.feishin off`). While the plugin is installed and enabled it owns the settings, and `appglass set` refuses with a hint: use the settings page or IPC then.
 
 TODO(engine): `appglass set` taking an app id with dots.
 
