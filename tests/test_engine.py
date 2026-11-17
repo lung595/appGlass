@@ -464,6 +464,22 @@ class Routing(unittest.TestCase):
         self.run_ok("remove")
         self.assertFalse(os.path.exists(self.user_launcher("org.example.QtThing.desktop")))
 
+    def test_a_new_qt_app_gets_the_unfocused_fade(self):
+        """The engine's generic Qt launcher passes the fade like the
+        hand-listed ones (qtstyle.launcher)."""
+        self.sb.set_level(0.8)
+        self.run_ok("apply")
+        q = bin_elf(self.w, "qtthing", QT6)
+        self.w.launcher("org.example.QtThing.desktop", desktop("Qt Thing", q))
+        self.run_ok("apply", "--from-hook")
+        qt = self.sb.read(self.user_launcher("org.example.QtThing.desktop"))
+        self.assertIn(" APPGLASS_CONTENT=0.8 APPGLASS_INACTIVE=0.72 APPGLASS_FADE_MS=180 "
+                      "APPGLASS_FADE_EASING=ease-out-cubic " + q, qt)
+        self.assertEqual(self.run_ok("set", "inactive.enabled", "false").count("error"), 0)
+        self.run_ok("apply", "--from-hook")
+        qt = self.sb.read(self.user_launcher("org.example.QtThing.desktop"))
+        self.assertIn(" APPGLASS_INACTIVE=0.8 APPGLASS_FADE_MS=0 ", qt)
+
     def test_stage_carries_what_the_glass_files_import(self):
         """The AppGlass theme imports ~/.config/gtk-3.0/dank-colors.css by
         file:// URL: the hidden session gets it too (else its colours are

@@ -95,13 +95,19 @@ def _steps(tc, d):
     return [moc, cxx]
 
 
+def _env_prefix(env, content, fade):
+    """The ``env ..`` words a launcher's Exec= gets (fade: inactive.fields(),
+    none: no fade)."""
+    fade = fade or {"inactive": content, "fade_ms": 0, "fade_easing": "linear"}
+    return ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
+            "APPGLASS_CONTENT=%s APPGLASS_INACTIVE=%s APPGLASS_FADE_MS=%d APPGLASS_FADE_EASING=%s "
+            % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"), shims.jq_raw(content),
+               shims.jq_raw(fade["inactive"]), int(fade["fade_ms"]), fade["fade_easing"]))
+
+
 def launcher(env, text, cmd, content, fade=None):
     """``fade``: inactive.fields() (the unfocused level and the fade); none: no fade."""
-    fade = fade or {"inactive": content, "fade_ms": 0, "fade_easing": "linear"}
-    pre = ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
-           "APPGLASS_CONTENT=%s APPGLASS_INACTIVE=%s APPGLASS_FADE_MS=%d APPGLASS_FADE_EASING=%s "
-           % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"), shims.jq_raw(content),
-              shims.jq_raw(fade["inactive"]), int(fade["fade_ms"]), fade["fade_easing"]))
+    pre = _env_prefix(env, content, fade)
     out = []
     for line in text.splitlines(True):
         if line.startswith("Exec=") and not line.startswith("Exec=env QT_PLUGIN_PATH="):
@@ -139,12 +145,10 @@ def flatpak_launcher(env, text, levels, app=None, fade=None):
     return "".join(out)
 
 
-def launcher_any(env, text, content):
+def launcher_any(env, text, content, fade=None):
     """launcher() for an app found by the engine: every Exec= line (its
     first word may be a full path or a wrapper name)."""
-    pre = ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
-           "APPGLASS_CONTENT=%s " % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"),
-                                     shims.jq_raw(content)))
+    pre = _env_prefix(env, content, fade)
     out = []
     for line in text.splitlines(True):
         if line.startswith("Exec=") and not line.startswith("Exec=env QT_PLUGIN_PATH=") \
@@ -193,7 +197,7 @@ def apply(ctx):
             continue
         try:
             p = ctx.desktop_override(rec["desktop_id"],
-                                     lambda t: launcher_any(env, t, ctx.levels.content))
+                                     lambda t: launcher_any(env, t, ctx.levels.content, fade))
         except Conflict as ex:
             ctx.warn("%s: %s" % (rec["key"], ex))
             continue
