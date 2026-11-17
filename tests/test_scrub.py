@@ -213,6 +213,72 @@ class CkShim(Tmp):
             self.assertEqual(leaks(e), [])
             self.assertEqual(e.get("KEEP"), "1")
 
+    # The shell reads its own initial environment from /proc: a shim inside
+    # that shell would scrub its own children, so ``env`` there proves nothing.
+    LIBC = textwrap.dedent(r"""
+        #define _GNU_SOURCE
+        #include <fcntl.h>
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <string.h>
+        #include <unistd.h>
+        extern char **environ;
+        #define SELF "tr '\\0' '\\n' < /proc/$$/environ"
+        int main(int argc, char **argv) {
+            const char *m = argv[1];
+            if (!strcmp(m, "system")) return system(SELF) ? 3 : 0;
+            if (!strcmp(m, "popen")) {
+                FILE *f = popen(SELF, "r"); if (!f) return 3;
+                char b[4096]; size_t n;
+                while ((n = fread(b, 1, sizeof b, f)) > 0) fwrite(b, 1, n, stdout);
+                return pclose(f) ? 4 : 0;
+            }
+            if (!strcmp(m, "popen-w")) {
+                FILE *f = popen("cat >/dev/null; " SELF, "w"); if (!f) return 3;
+                fputs("x\n", f); return pclose(f) ? 4 : 0;
+            }
+            if (!strcmp(m, "execl")) execl("/usr/bin/env", "env", (char *)NULL);
+            if (!strcmp(m, "execlp")) execlp("env", "env", (char *)NULL);
+            if (!strcmp(m, "execle")) execle("/usr/bin/env", "env", (char *)NULL, environ);
+            if (!strcmp(m, "fexecve")) {
+                char *a[] = {"env", NULL}; int fd = open("/usr/bin/env", O_RDONLY | O_CLOEXEC);
+                fexecve(fd, a, environ);
+            }
+            return 5;
+        }
+    """)
+
+    def test_libc_helpers_scrub(self):
+        """system(), popen() and the execl family run their child through
+        glibc's internal spawn/exec, past the interposed execve."""
+        src = os.path.join(self.dir, "libc.c")
+        with open(src, "w") as f:
+            f.write(self.LIBC)
+        probe = os.path.join(self.dir, "libc")
+        subprocess.run([GCC, "-O1", "-o", probe, src], check=True, capture_output=True, timeout=120)
+        env = self.base_env(LD_PRELOAD=self.so, APPGLASS_KEYS="121316:0.6", APPGLASS_SCRUB="")
+        for mode in ("system", "popen", "popen-w", "execl", "execlp", "execle", "fexecve"):
+            with self.subTest(mode=mode):
+                r = subprocess.run([probe, mode], env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                e = parse_env(r.stdout)
+                self.assertEqual(e.get("KEEP"), "1", r.stdout)
+                self.assertEqual(leaks(e), [])
+
+    def test_libc_helpers_without_scrub_keep_the_env(self):
+        """Without APPGLASS_SCRUB the helpers behave as libc's own."""
+        src = os.path.join(self.dir, "libc.c")
+        with open(src, "w") as f:
+            f.write(self.LIBC)
+        probe = os.path.join(self.dir, "libc")
+        subprocess.run([GCC, "-O1", "-o", probe, src], check=True, capture_output=True, timeout=120)
+        env = self.base_env(LD_PRELOAD=self.so, APPGLASS_KEYS="121316:0.6")
+        for mode in ("system", "popen", "execl"):
+            with self.subTest(mode=mode):
+                r = subprocess.run([probe, mode], env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(parse_env(r.stdout).get("APPGLASS_KEYS"), "121316:0.6")
+
     def test_wrapper_script_hands_the_shim_to_the_app(self):
         """A flatpak command is often a script that execs the real binary
         (/app/bin/subl -> /app/extra/sublime_text/sublime_text). That one exec,
