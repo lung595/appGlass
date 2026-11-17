@@ -796,6 +796,62 @@ class Heal(unittest.TestCase):
         self.assertEqual(self.notes(), [])
         del fp1
 
+    def glass_rule(self):
+        t = self.sb.read(self.sb.cfg("niri", "appglass.kdl"))
+        return t.split("// glass:", 1)[1].split("// games")[0] if "// glass:" in t else ""
+
+    def test_waiting_again_with_files_on_disk_runs_plain(self):
+        """E3: an injected route whose check record is lost (engine.json
+        broken, then an update) is "waiting" again with its wrapper on disk:
+        it runs plain and has no niri rule until it passes again."""
+        self.live()
+        self.assertIn("LD_PRELOAD", self.wrapper_argv())
+        self.assertIn("localsend_app", self.glass_rule())
+        with open(os.path.join(self.sb.state, "appglass", "engine.json"), "w") as f:
+            f.write("{broken")
+        self.update("feedc0de")
+        self.run_ok("apply", "--from-hook")
+        s = self.state()
+        self.assertEqual(s["state"], "waiting")
+        self.assertIn("waiting for a check", s["reason"])
+        self.assertTrue(os.path.exists(self.marker()))
+        self.assertEqual(self.store()["apps"][LS]["plain"]["why"], "waiting")
+        self.assertTrue(os.path.exists(self.w.user(".local/bin/appglass-localsend")))
+        argv = self.wrapper_argv()
+        self.assertNotIn("LD_PRELOAD", argv)
+        self.assertIn("--command=localsend", argv)
+        self.assertNotIn("localsend_app", self.glass_rule())
+        self.assertIn(LS, self.store()["queue"])
+        # a second hook run keeps it so (no flip-flop of the marker)
+        self.run_ok("apply", "--from-hook")
+        self.assertTrue(os.path.exists(self.marker()))
+        # its check passes: glass again, the marker goes
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.state()["state"], "glass")
+        self.assertFalse(os.path.exists(self.marker()))
+        self.assertIn("LD_PRELOAD", self.wrapper_argv())
+        self.assertIn("localsend_app", self.glass_rule())
+        self.assertEqual(self.notes(), [])
+
+    def test_waiting_marker_survives_a_second_reset(self):
+        """E3: a waiting marker read back from plain/ after engine.json is
+        lost again stays a waiting one (checked, not paused for good)."""
+        self.live()
+        with open(os.path.join(self.sb.state, "appglass", "engine.json"), "w") as f:
+            f.write("{broken")
+        self.update("feedc0de")
+        self.run_ok("apply", "--from-hook")
+        self.assertTrue(os.path.exists(self.marker()))
+        os.remove(os.path.join(self.sb.state, "appglass", "engine.json"))
+        with open(os.path.join(self.sb.state, "appglass", "engine.json"), "w") as f:
+            f.write("{broken again")
+        self.run_ok("apply", "--from-hook")
+        self.assertEqual(self.state()["state"], "waiting")
+        self.assertIn(LS, self.store()["queue"])
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.state()["state"], "glass")
+        self.assertFalse(os.path.exists(self.marker()))
+
     def test_verify_fail_pauses_with_one_notification(self):
         """B5c Accept 2: a broken shim."""
         self.result("fail", "the window is opaque (no glass)")

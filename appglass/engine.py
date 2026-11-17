@@ -37,6 +37,10 @@ CACHE_VERSION = 3       # 2: the spawner class, more elevators, Categories=Game
                         #    binary not found yet ("missing", re-probed)
 STORE_VERSION = 1
 ROUTE_VERSION = 1
+WAITING = "waiting for a check (injected route)"
+# plain markers the gate does not read as a verdict: refresh sets them for
+# an injected route that is not live but has its files (its wrapper) on disk
+UNJUDGED = ("stale", "waiting")
 
 
 # ---------------------------------------------------------------- fingerprints
@@ -245,6 +249,10 @@ class Store:
                     why = f.read().strip()
             except (OSError, UnicodeDecodeError):
                 why = ""
+            if why == WAITING:
+                # an injected app waiting for its check: still waiting
+                apps[k] = {"plain": {"fp": None, "why": "waiting", "reason": why}}
+                continue
             # plain until this app's next fingerprint (refresh sets it)
             apps[k] = {"plain": {"fp": None, "why": "kept",
                                  "reason": why or "paused before engine.json was reset"}}
@@ -260,10 +268,13 @@ class Store:
     def plain(self):
         return {k: a["plain"] for k, a in self.data["apps"].items() if a.get("plain")}
 
-    def set_plain(self, key, fp, reason):
+    def set_plain(self, key, fp, reason, why=None):
         a = self.app(key)
-        if a.get("plain", {}).get("fp") != fp or a["plain"].get("reason") != reason:
+        p = a.get("plain") or {}
+        if p.get("fp") != fp or p.get("reason") != reason or p.get("why") != why:
             a["plain"] = {"fp": fp, "reason": reason}
+            if why:
+                a["plain"]["why"] = why
 
     def clear_plain(self, key):
         self.data["apps"].get(key, {}).pop("plain", None)
@@ -383,7 +394,7 @@ def gate(st, rec, injected, explicit):
     key, fp = rec.get("key"), rec.get("fp")
     a = st.get(key)
     p = a.get("plain")
-    if p and (p.get("fp") == fp and p.get("why") != "stale" or p.get("why") == "kept"):
+    if p and (p.get("fp") == fp and p.get("why") not in UNJUDGED or p.get("why") == "kept"):
         return "opaque", p["reason"]
     v = a.get("verify")
     if v:
@@ -405,7 +416,7 @@ def gate(st, rec, injected, explicit):
     if injected:
         if explicit:
             return "glass", "enabled by you (not checked yet)"
-        return "waiting", "waiting for a check (injected route)"
+        return "waiting", WAITING
     return "glass", None
 
 
@@ -489,12 +500,11 @@ def refresh(app, dry=False, families=None):
         injected = route.get("injected")
         if state == "stale":
             if (a.get("plain") or {}).get("fp") != fp:
-                st.set_plain(key, fp, "updated: opaque until it is checked again")
-                st.app(key)["plain"]["why"] = "stale"
+                st.set_plain(key, fp, "updated: opaque until it is checked again", why="stale")
                 changed.append(key)
             st.queue(key)
         elif state == "glass" and injected:
-            if (a.get("plain") or {}).get("why") == "stale":
+            if (a.get("plain") or {}).get("why") in UNJUDGED:
                 st.clear_plain(key)
                 changed.append(key)
             # on by the user's own switch: consent, not a check (S4). It is
@@ -504,6 +514,20 @@ def refresh(app, dry=False, families=None):
                 st.queue(key)
         elif state == "waiting" and route.get("enabled") is not False:
             st.queue(key)
+            if injected and route.get("family") in app.state.owners:
+                # its wrapper is on disk (a check record lost, an engine.json
+                # reset): it starts the plain app and niri keeps the window
+                # opaque until the check passes (E3)
+                had = a.get("plain") or {}
+                if had.get("fp") != fp or had.get("why") != "waiting":
+                    st.set_plain(key, fp, WAITING, why="waiting")
+                    changed.append(key)
+        elif state == "opaque" and injected and route.get("family") in app.state.owners \
+                and not a.get("plain"):
+            # could not be checked (and not switched on by you): the same,
+            # plain for this fingerprint
+            st.set_plain(key, fp, route.get("reason") or "opaque")
+            changed.append(key)
         elif state == "glass" and route.get("family") and not injected:
             if a.get("plain") and a["plain"].get("fp") != fp:
                 st.clear_plain(key)      # plain until the next fingerprint (S7)
@@ -611,7 +635,7 @@ def verified(app, key, fp, result, reason=""):
     st.dequeue(key)
     if result == "pass":
         if (a.get("plain") or {}).get("fp") in (fp, None) or \
-                (a.get("plain") or {}).get("why") == "stale":
+                (a.get("plain") or {}).get("why") in UNJUDGED:
             st.clear_plain(key)
         a.pop("fails", None)
     else:

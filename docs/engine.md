@@ -117,7 +117,7 @@ A theme route (GTK, Qt, a config key, the GTK4 config dir) goes live at once. An
 
 What the hidden session does not isolate: the network, abstract Unix sockets, the system D-Bus and USB devices (there is no `unshare -n` without user namespaces). An app checked there runs for real for up to 50 s: LocalSend announces itself on the LAN and listens on its port (a file sent to it lands in the throwaway HOME, deleted after), and Lian Li's GUI talks to its daemon as it does at every start. An app the kernel kills for memory under the 2 GB shows no window, so it counts as unverifiable: its injected route stays off, unless you switched the app on yourself.
 
-Every glass wrapper reads a plain marker (`~/.local/state/appglass/plain/<key>`) first, and starts the plain app while the gate says so. Every wrapper also starts `appglass launch-check`. If the app dies with no window twice on the same version, it runs plain until its next update. `appglass fail <key>` records a failed launch by hand.
+Every glass wrapper reads a plain marker (`~/.local/state/appglass/plain/<key>`) first, and starts the plain app while the gate says so: waiting, stale, opaque or paused. An app whose check record was lost (engine.json reset) while its wrapper is on disk is waiting again, so it gets the marker too and loses its niri rule until it passes. Every wrapper also starts `appglass launch-check`. If the app dies with no window twice on the same version, it runs plain until its next update. `appglass fail <key>` records a failed launch by hand.
 
 ck-shim colour keys are data (`~/.cache/appglass/keys/<key>/<fp>/<mode>.json`, one file per dark and light mode, written by `appglass keys`), so an update or a theme flip never needs a wrapper edit.
 

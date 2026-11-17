@@ -547,6 +547,27 @@ class ExplicitInjected(Stubbed):
         self.run_ok("verify", "--queue")
         self.assertEqual(len(self.notes()), 1)
 
+    def test_unverifiable_without_your_on_runs_plain(self):
+        """E3: your on taken back by hand (no longer in settings.json) after
+        a check that could not run: opaque, and its wrapper still on disk
+        starts the plain app."""
+        self.run_ok("set", "apps.localsend.enabled", "true")
+        self.run_ok("apply")
+        self.result("unverifiable", "no window within 10 s")
+        self.run_ok("verify", "--queue")
+        p = self.sb.cfg("appglass", "settings.json")
+        s = self.sb.json(p)
+        s.get("apps", {}).pop("localsend", None)
+        with open(p, "w") as f:
+            json.dump(s, f)
+        self.run_ok("apply", "--from-hook")
+        st = self.state()
+        self.assertEqual(st["state"], "opaque")
+        self.assertIn("could not be checked", st["reason"])
+        self.assertTrue(os.path.exists(self.w.user(".local/bin/appglass-localsend")))
+        self.assertTrue(os.path.exists(self.marker(LS)))
+        self.assertNotIn("localsend_app", self.kdl().split("// games")[0])
+
 
 class LostState(Stubbed):
     """The lost-state guard covers the engine's commands too."""
