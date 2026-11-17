@@ -803,6 +803,64 @@ class Heal(unittest.TestCase):
         # the hidden session starts the staged glass launcher
         self.assertIn(staged, verify.launcher_exec(app, engine.record_for(app, LS), home))
 
+    def hidden_wrapper_argv(self, run):
+        """Stage the throwaway HOME for LocalSend and run its staged wrapper
+        in the hidden session's environment (flatpak a stub)."""
+        app = core.App(self.sb.env, quiet=True)
+        rec = engine.record_for(app, LS)
+        os.makedirs(run)
+        home = verify.stage(app, rec, run)
+        e = verify.session_env(app.env, home, run, fp=rec.get("fp"))
+        e["PATH"] = os.path.dirname(shutil.which("jq") or "/usr/bin/jq") + ":/usr/bin:/bin"
+        for k in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+            os.makedirs(e[k], exist_ok=True)
+        src = self.sb.read(os.path.join(home, ".local", "bin", "appglass-localsend"))
+        fake = self.sb.path("fake-flatpak")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\nprintf '%s\\n' \"$*\"\n")
+        os.chmod(fake, 0o755)
+        p = os.path.join(run, "wrapper-copy")
+        with open(p, "w") as f:
+            f.write(src.replace("/usr/bin/flatpak", fake).replace("setsid -f", "true"))
+        r = subprocess.run(["sh", p], env=e, capture_output=True, text=True, timeout=30)
+        return r.stdout.strip(), home
+
+    def test_hidden_session_reaches_appglass_with_the_repo_under_home(self):
+        """The repo under HOME (~/Projects/appGlass): the wrappers call
+        "$HOME/Projects/appGlass/bin/appglass". In the hidden session HOME
+        is the throwaway one, which holds no repo: without care the wrapper
+        finds no appglass, starts the plain app and verify FAILs every
+        injected family. The staged wrapper must reach the real repo, and the
+        throwaway HOME must not look like a lost state (keys refused)."""
+        from unittest import mock
+        from appglass import shims
+        under = os.path.join(self.sb.home, "Projects", "appGlass")
+        os.makedirs(os.path.dirname(under))
+        os.symlink(shims.REPO, under)
+        with mock.patch.object(shims, "REPO", under), \
+                mock.patch.object(shims, "APPGLASS", os.path.join(under, "bin", "appglass")):
+            self.live()
+            mine = self.sb.read(self.w.user(".local/bin/appglass-localsend"))
+            self.assertIn('"$HOME/Projects/appGlass/bin/appglass" keys', mine)
+            argv, home = self.hidden_wrapper_argv(self.sb.path("run"))
+            self.assertIn("LD_PRELOAD", argv)          # glass: keys and levels answered
+            staged = self.sb.read(os.path.join(home, ".local", "bin", "appglass-localsend"))
+            self.assertIn('"%s/bin/appglass" keys' % under, staged)
+
+    def test_hidden_session_uses_the_learned_keys(self):
+        """Keys learned for this app version are what verify must check,
+        not the family defaults: the hidden session reads the same file."""
+        self.live()
+        app = core.App(self.sb.env, quiet=True)
+        fp = engine.record_for(app, LS)["fp"]
+        for mode in ("dark", "light"):
+            p = verify.keys_file(app.env, LS, fp, mode)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as f:
+                json.dump({"keys": [["abcdef", "content"]], "source": "measured"}, f)
+        argv, _ = self.hidden_wrapper_argv(self.sb.path("run"))
+        self.assertIn("APPGLASS_KEYS=abcdef:", argv)
+
     def test_typed_apply_does_not_queue(self):
         self.run_ok("apply", "--only", "gtk3")
         p = os.path.join(self.sb.state, "appglass", "engine.json")

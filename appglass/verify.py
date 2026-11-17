@@ -177,19 +177,46 @@ def stage(app, rec, run):
             if p not in staged and os.path.isfile(p):
                 with open(p, "rb") as f:
                     staged[p] = (f.read(), 0o644)
+    # state.json: without it the staged appglass files look like a lost
+    # state and `appglass keys` refuses (the wrapper then starts the plain
+    # app); the colour keys of this app version (learned ones included)
+    sp = os.path.join(env.state_dir, "state.json")
+    if os.path.isfile(sp):
+        with open(sp, "rb") as f:
+            staged[sp] = (f.read(), 0o644)
+    kd = os.path.dirname(keys_file(env, rec.get("key") or "", rec.get("fp"), "dark"))
+    if rec.get("key") and "/" not in rec["key"] and os.path.isdir(kd):
+        for n in sorted(os.listdir(kd)):
+            if n.endswith(".json") and os.path.isfile(os.path.join(kd, n)):
+                with open(os.path.join(kd, n), "rb") as f:
+                    staged[os.path.join(kd, n)] = (f.read(), 0o644)
     for p, (data, mode) in sorted(staged.items()):
         if not p.startswith(env.home + os.sep):
             continue
         dst = os.path.join(home, os.path.relpath(p, env.home))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         try:
-            data = data.decode("utf-8").replace(env.home, home).encode("utf-8")
+            data = _rehome(env, home, data.decode("utf-8")).encode("utf-8")
         except UnicodeDecodeError:
             pass
         with open(dst, "wb") as f:
             f.write(data)
         os.chmod(dst, mode if mode is not None else 0o644)
     return home
+
+
+def _rehome(env, home, text):
+    """A staged text file with the real $HOME rewritten to the throwaway
+    one, except the appglass repo: a wrapper calls bin/appglass as
+    "$HOME/<repo>" when the repo is under HOME, and the throwaway HOME holds
+    no repo (every check would start the plain app and fail)."""
+    from . import shims
+    hold = "\0appglass-repo\0"
+    repo = shims.REPO
+    text = text.replace(repo, hold)
+    if repo.startswith(env.home + os.sep):
+        text = text.replace("$HOME" + repo[len(env.home):], hold)
+    return text.replace(env.home, home).replace(hold, repo)
 
 
 KDL = """screenshot-path "%(run)s/shot-%%s.png"
@@ -236,9 +263,11 @@ def private_base(env):
 HINTS = ("ELECTRON_OZONE_PLATFORM_HINT", "FLATPAK_USER_DIR")
 
 
-def session_env(env, home, run):
+def session_env(env, home, run, fp=None):
     """The environment of the hidden session: built from nothing (env -i), a
-    throwaway HOME, the private runtime dir run/rt, caches in run."""
+    throwaway HOME, the private runtime dir run/rt, caches in run. fp: the
+    app version checked (the throwaway launcher has another fingerprint;
+    `appglass keys` reads the keys of this one)."""
     e = {"HOME": home, "XDG_CONFIG_HOME": os.path.join(home, ".config"),
          "XDG_DATA_HOME": os.path.join(home, ".local", "share"),
          "XDG_STATE_HOME": os.path.join(home, ".local", "state"),
@@ -256,6 +285,8 @@ def session_env(env, home, run):
     for k in HINTS:
         if env.environ.get(k):
             e[k] = env.environ[k]
+    if fp:
+        e["APPGLASS_VERIFY_FP"] = fp
     return e
 
 
@@ -363,7 +394,7 @@ def run_harness(app, rec, level):
         real = env.environ.get("XDG_RUNTIME_DIR") or ""
         if os.path.realpath(rt) == os.path.realpath(real or "/nonexistent"):
             raise Busy("refusing: the private runtime dir is the real one")
-        clean = session_env(env, home, run)
+        clean = session_env(env, home, run, fp=rec.get("fp"))
         for k in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
             os.makedirs(clean[k], exist_ok=True)
         shot = os.path.join(run, "window.png")
@@ -639,7 +670,8 @@ def cmd_keys(app, key, mode, out):
     if mode not in ("dark", "light") or "/" in key or key.startswith("."):
         return 1
     rec = engine.record_for(app, key)
-    fp = (rec or {}).get("fp")
+    # the hidden session (verify) names the app version it checks
+    fp = env.environ.get("APPGLASS_VERIFY_FP") or (rec or {}).get("fp")
     p = keys_file(env, key, fp, mode)
     data = None
     try:
