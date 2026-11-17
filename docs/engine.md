@@ -17,7 +17,11 @@ is needed. After an app update the glass is checked again before an injected rou
 - `appglass hook install` installs all three units (path, service, timer) and the verify service.
 
 Each run starts with a stat-only fingerprint pass over every launcher (`~/.cache/appglass/detect.json`).
-Only new or changed launchers are probed again, so a run with no change costs a few milliseconds.
+Only new or changed launchers are probed again.
+The sync script's run (`apply --from-hook --quiet`) also remembers every path it looked at, with its stat (`~/.cache/appglass/hook/inputs.json`), when it wrote nothing and started no program.
+The next such run stats those paths and appglass's own sources first; when none changed it exits before the lock, in about 20 ms with Python's start included.
+The compiler and Qt versions in a shim's build stamp are kept in `~/.cache/appglass/toolchain.json` while the tools and the `.pc` files stay the same, so a run that builds nothing starts no compiler.
+A warning that holds from one run to the next (GTK4 with no `dank-colors.css` yet) is printed once, not on every hook run.
 
 ## Classes: what is never touched
 

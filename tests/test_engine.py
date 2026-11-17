@@ -14,6 +14,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import time
 import unittest
 
@@ -260,11 +261,95 @@ class Cache(unittest.TestCase):
                                        for r in recs]) for _ in range(5))
         self.assertLess(best, 0.010)
 
-    def test_no_change_run_under_50ms(self):
+    HOOK = ("apply", "--from-hook", "--quiet", "--list-changed")
+
+    def hook_proc(self):
+        """The sync script's run, as a process (Python start and imports
+        count against the budget)."""
+        return subprocess.run([sys.executable, os.path.join(REPO, "bin", "appglass")]
+                              + list(self.HOOK), env=self.w.sb.env, capture_output=True,
+                              text=True, stdin=subprocess.DEVNULL)
+
+    def full_run(self):
+        """A hook run that did the work (it saved its inputs again), not
+        the early exit."""
+        from appglass import inputs
+        p = inputs.path(core.Env(self.w.sb.env))
+        before = inputs.sig(p)
+        r = self.hook_proc()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return inputs.sig(p) != before
+
+    def settle(self):
         self.assertEqual(self.w.run("apply")[0], 0)
-        self.assertEqual(self.w.run("apply", "--from-hook")[0], 0)
-        best = min(self._time(lambda: self.w.run("apply", "--from-hook")) for _ in range(3))
-        self.assertLess(best, 0.050)
+        for _ in range(2):
+            r = self.hook_proc()
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_no_change_run_under_50ms(self):
+        self.settle()
+        runs = []
+        for _ in range(5):
+            t = time.perf_counter()
+            r = self.hook_proc()
+            runs.append(time.perf_counter() - t)
+            self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertLess(min(runs), 0.050)
+
+    def test_quiet_hook_run_prints_no_warning(self):
+        # ~/.config/gtk-4.0/dank-colors.css is missing here: gtk4 warns
+        self.assertEqual(self.w.run("apply")[0], 0)
+        r = self.hook_proc()
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+
+    def test_input_changes_after_a_quiet_run_are_applied(self):
+        self.settle()
+        sb = self.w.sb
+        # a palette change
+        dms = os.path.join(sb.cache, "dms", "dms-colors.json")
+        doc = sb.json(dms)
+        for k in ("primary", "background", "surface", "surface_container"):
+            doc["colors"]["dark"][k] = "#102030"
+        with open(dms, "w") as f:
+            json.dump(doc, f)
+        r = self.hook_proc()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gtk-4.0/dank-glass.css", r.stdout)
+        self.assertEqual(self.hook_proc().stdout, "")
+        # a file that was missing appears (DMS writes the GTK4 colours)
+        self.assertFalse(self.full_run())
+        d = os.path.join(sb.config, "gtk-4.0")
+        with open(os.path.join(d, "dank-colors.css"), "w") as f:
+            f.write("@define-color accent_color #ff0000;\n")
+        self.assertTrue(self.full_run())
+        self.assertFalse(self.full_run())
+        # a launcher added
+        p = bin_elf(self.w, "late", GTK3)
+        self.w.launcher("org.example.Late.desktop", desktop("Late", p))
+        r = self.hook_proc()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("org.example.Late", sb.json(engine.cache_path(core.Env(sb.env))).__repr__())
+        # a setting changed by hand
+        st = os.path.join(sb.config, "appglass", "settings.json")
+        os.makedirs(os.path.dirname(st), exist_ok=True)
+        with open(st, "w") as f:
+            json.dump({"levels": {"content": 0.42}}, f)
+        r = self.hook_proc()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotEqual(r.stdout, "")
+
+    def test_a_new_appglass_version_runs_in_full(self):
+        from appglass import inputs
+        self.settle()
+        env = core.Env(self.w.sb.env)
+        self.assertTrue(inputs.fresh(env, list(self.HOOK)))
+        src = os.path.join(REPO, "appglass", "engine.py")
+        st = os.stat(src)
+        try:
+            os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+            self.assertFalse(inputs.fresh(env, list(self.HOOK)))
+        finally:
+            os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns))
 
     @staticmethod
     def _time(fn):

@@ -30,7 +30,7 @@ import os
 import re
 import time
 
-from . import detect
+from . import detect, inputs
 
 CACHE_VERSION = 2       # 2: the spawner class, more elevators, Categories=Game
 STORE_VERSION = 1
@@ -40,6 +40,7 @@ ROUTE_VERSION = 1
 # ---------------------------------------------------------------- fingerprints
 
 def _sig(p):
+    inputs.full(p)          # a directory's mtime counts here (inputs.py)
     try:
         st = os.stat(p)
     except OSError:
@@ -570,13 +571,16 @@ def destroy(env):
     """remove (everything): the engine cache goes with the state dir."""
     import shutil
     p = cache_path(env)
-    if os.path.exists(p):
-        env.guard(p)
-        os.remove(p)
-    k = os.path.join(os.path.dirname(p), "keys")
-    if os.path.isdir(k):
-        env.guard(k)
-        shutil.rmtree(k)
+    # the toolchain versions (shims._cached) and the hook digest (inputs.py)
+    # are caches of the same kind
+    for f in (p, os.path.join(os.path.dirname(p), "toolchain.json"), inputs.path(env)):
+        if os.path.exists(f):
+            env.guard(f)
+            os.remove(f)
+    for k in (os.path.join(os.path.dirname(p), "keys"), os.path.dirname(inputs.path(env))):
+        if os.path.isdir(k):
+            env.guard(k)
+            shutil.rmtree(k)
     try:
         os.rmdir(os.path.dirname(p))
     except OSError:

@@ -65,6 +65,14 @@ class QtStyle(unittest.TestCase):
         self.apply()
         self.assertEqual(len(self.w.tc.builds()), 2)
 
+    def test_an_apply_that_builds_nothing_starts_no_tool(self):
+        # the versions in the stamp are kept while the tools and the .pc
+        # files stay the same: the hook run stays fast and cacheable
+        self.apply()
+        n = len(self.w.tc.calls())
+        self.apply()
+        self.assertEqual(self.w.tc.calls()[n:], [])
+
     def test_hand_files_conflict_then_adopt(self):
         hand_so = self.w.hand(SO, b"\x7fELF hand-built", 0o755)
         hand_l = self.w.hand(LAUNCHER, self.expected("0.8"))

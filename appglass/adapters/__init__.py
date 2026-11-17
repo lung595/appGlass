@@ -18,6 +18,7 @@ resolve() maps one detect record to its adapter and to what apply does with
 it today ("effective": glass, fallback, opaque, delegated, excluded).
 """
 
+import functools
 import re
 
 from .. import niri
@@ -169,13 +170,18 @@ HAND_FILES = (
 )
 
 
+@functools.lru_cache(maxsize=None)
+def _rx(rx):
+    try:
+        return re.compile(rx)
+    except re.error:
+        return None
+
+
 def _any(rxs, names):
     for rx in rxs:
-        try:
-            r = re.compile(rx)
-        except re.error:
-            continue
-        if any(r.search(n) for n in names):
+        r = _rx(rx)
+        if r is not None and any(r.search(n) for n in names):
             return True
     return False
 

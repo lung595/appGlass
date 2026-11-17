@@ -257,10 +257,19 @@ class Env:
     def flatpak_installed(self, app_id):
         if not self.which("flatpak"):
             return False
+        from . import inputs
+        # what flatpak info answers from: the installations' app dirs
+        inputs.full("/etc/flatpak/installations.d")
+        for root in (self.environ.get("FLATPAK_USER_DIR") or self.data_path("flatpak"),
+                     self.environ.get("FLATPAK_SYSTEM_DIR") or "/var/lib/flatpak"):
+            for p in ("app", os.path.join("app", app_id), os.path.join("app", app_id, "current"),
+                      os.path.join("app", app_id, "current", "active")):
+                inputs.full(os.path.join(root, p))
         try:
-            r = subprocess.run(["flatpak", "info", app_id], env=self.environ,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               stdin=subprocess.DEVNULL, timeout=20)
+            with inputs.covered():
+                r = subprocess.run(["flatpak", "info", app_id], env=self.environ,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   stdin=subprocess.DEVNULL, timeout=20)
         except (OSError, subprocess.TimeoutExpired):
             return False
         return r.returncode == 0
@@ -3448,8 +3457,18 @@ def main(argv=None, environ=None, out=None, err=None):
     app = None
     lockf = None
     created = []
+    # the sync script's hook run, as a process of its own (the recorder
+    # patches os.stat and friends process-wide): nothing changed since the
+    # last one that did nothing, nothing to do (inputs.py)
+    hookrun = (argv is None and environ is None and args.cmd == "apply" and args.from_hook
+               and quiet and not args.dry_run)
     try:
         env = Env(environ)
+        if hookrun:
+            from . import inputs
+            if inputs.fresh(env, sys.argv[1:]):
+                return 0
+            inputs.start(env)
         if args.cmd == "vibrancy":
             from . import vibrancy
             return vibrancy.run(env, err=err)
@@ -3551,6 +3570,10 @@ def main(argv=None, environ=None, out=None, err=None):
         if lockf is not None:
             _unlock(env, lockf, created, app)
             lockf = None
+        if hookrun:
+            # (a queued check starts appglass-verify.service: a program, so
+            # that run is not cacheable either)
+            inputs.save(env, sys.argv[1:], rc == 0 and not app.errors and not app.changed)
         return 1 if app.errors else rc
     except AppglassError as ex:
         print("appglass: %s" % ex, file=err)
@@ -3566,3 +3589,6 @@ def main(argv=None, environ=None, out=None, err=None):
                 _unlock(Env(environ), lockf, created, app, failed=True)
             except AppglassError:
                 pass
+        if hookrun:
+            from . import inputs
+            inputs.save(Env(environ), sys.argv[1:], False)     # no-op after a save

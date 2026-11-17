@@ -242,7 +242,7 @@ def apply(ctx):
     glass = os.path.join(d, "dank-glass.css")
     gtk = os.path.join(d, "gtk.css")
     if not os.path.isfile(os.path.join(d, "dank-colors.css")):
-        ctx.warn("%s/dank-colors.css not found: GTK4 keeps the stock Adwaita colours "
+        ctx.warn_once("dank-colors", "%s/dank-colors.css not found: GTK4 keeps the stock Adwaita colours "
                  "under the glass until DMS writes it" % ctx.env.tilde(d))
     if os.path.islink(gtk):
         raise Conflict("%s is a symlink (user-managed); left untouched" % gtk)
