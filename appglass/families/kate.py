@@ -4,17 +4,25 @@ The appglass Qt style (qt-style family, its launcher for org.kde.kate) paints
 the window at the content level and, since B5b, clears WA_OpaquePaintEvent
 on the children of glass windows. KTextEditor still fills its view and icon
 border with the colour theme's background, opaque, over that glass. For each
-installed Kate (native: $XDG_DATA_HOME + $XDG_CONFIG_HOME/katerc; flatpak
-org.kde.kate: ~/.var/app/org.kde.kate/{data,config}):
+installed Kate (native: $XDG_DATA_HOME; flatpak org.kde.kate:
+~/.var/app/org.kde.kate/data):
 
 - org.kde.syntax-highlighting/themes/appglass.theme (owned): the theme
   "AppGlass" from the DMS colours: BackgroundColor and IconBorder at alpha
   00 (the style's fill is the glass), the current line, selection and
   search marks as light tints, the text styles readable on the glass.
-- katerc (edited, backed up): ``[KTextEditor Renderer]`` ``Auto Color Theme
-  Selection=false`` and ``Color Theme=AppGlass``. Kate rewrites katerc
-  itself; a katerc changed since apply is left as it is, and remove takes
-  the keys out only while they still name AppGlass.
+
+The theme is chosen only for the glass start, never in the user's katerc:
+without the style nothing clears an alpha-0 background (black editor, old
+text smeared after a scroll). Flatpak: ~/.var/app/org.kde.kate/config/
+appglass/katerc (owned) sets ``[KTextEditor Renderer]`` ``Auto Color Theme
+Selection[$i]=false`` and ``Color Theme[$i]=AppGlass``; the qt-style
+launcher puts that dir in front of XDG_CONFIG_DIRS, KConfig cascades it under
+the user's katerc and ``[$i]`` (immutable) wins over the user's own theme.
+A plain ``flatpak run org.kde.kate`` never reads it, and the style takes the
+dir out of XDG_CONFIG_DIRS once Kate runs (its terminal and tools never see
+it). The user's katerc is not touched. A native Kate has no glass launcher:
+it only gets the theme file (selectable by hand together with the style).
 
 niri: ``^org\\.kde\\.kate$`` gets opacity 1.0 (the style paints the alpha).
 """
@@ -23,7 +31,7 @@ import json
 import os
 
 from . import _term
-from ..core import Conflict, mix, norm_hex, readable
+from ..core import mix, norm_hex, readable
 
 NAME = "kate"
 APP_IDS = [r"^org\.kde\.kate$"]
@@ -32,6 +40,7 @@ CMDS = ("kate",)
 THEME = "AppGlass"
 SECTION = "KTextEditor Renderer"
 KEYS = (("Auto Color Theme Selection", "false"), ("Color Theme", THEME))
+XDG = "appglass"   # ~/.var/app/org.kde.kate/config/appglass: the glass start's katerc
 
 # text style -> DMS role
 STYLES = {
@@ -106,30 +115,21 @@ def theme(ctx):
     return json.dumps(doc, indent=2, sort_keys=True) + "\n"
 
 
-def edit_rc(text):
-    for k, v in KEYS:
-        text = _term.ini_set(text, SECTION, k, v)
-    return text
+def xdg_dir(env):
+    """The config dir the qt-style launcher puts in front of XDG_CONFIG_DIRS."""
+    return _term.var_app(env, FLATPAK, "config", XDG)
 
 
-def undo(env, path, text):
-    if os.path.basename(path) != "katerc":
-        return text
-    for k, v in KEYS:
-        text = _term.ini_unset(text, SECTION, k, v)
-    return text + "\n" if text and not text.endswith("\n") else text
+def glass_rc():
+    head = "".join("# %s\n" % h.strip() for h in _term.header("", "Kate glass start"))
+    return head + "[%s]\n%s" % (SECTION, "".join("%s[$i]=%s\n" % kv for kv in KEYS))
 
 
 def apply(ctx):
     paths = []
     for t in _term.targets(ctx.env, CMDS, FLATPAK):
-        rc = t.config_path("katerc")
-        if os.path.islink(rc):
-            raise Conflict("%s is a symlink (user-managed); left untouched" % rc)
         paths.append(ctx.write_owned(
             t.data_path("org.kde.syntax-highlighting", "themes", "appglass.theme"), theme(ctx)))
-        changed = ctx.changed_since_apply(rc)
-        ctx.edit_text(rc, lambda text: text if changed else edit_rc(text),
-                      undo=lambda text, p=rc: undo(ctx.env, p, text))
-        paths.append(rc)
+        if t.kind == "flatpak":
+            paths.append(ctx.write_owned(os.path.join(xdg_dir(ctx.env), "katerc"), glass_rc()))
     return paths

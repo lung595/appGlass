@@ -174,9 +174,11 @@ class QtStyleFlatpak(unittest.TestCase):
         flags = ("--filesystem=%s:ro --filesystem=%s:ro "
                  "--env=QT_PLUGIN_PATH=%s:/app/lib/plugins:/usr/share/runtime/lib/plugins "
                  "--env=QT_STYLE_OVERRIDE=appglass --env=APPGLASS_COLORS=%s "
-                 "--env=APPGLASS_CONTENT=%s --env=APPGLASS_BAR=%s"
+                 "--env=APPGLASS_CONTENT=%s --env=APPGLASS_BAR=%s "
+                 "--env=XDG_CONFIG_DIRS=%s:/app/etc/xdg:/etc/xdg"
                  % (pd, dms, pd, os.path.join(dms, "dms-colors.json"),
-                    repr(float(lv["content"])), repr(float(lv["bar_over_content"]))))
+                    repr(float(lv["content"])), repr(float(lv["bar_over_content"])),
+                    os.path.join(sb.home, ".var/app/org.kde.kate/config/appglass")))
         execs = re.findall(r"(?m)^Exec=(.*)$", text)
         self.assertEqual(execs, [
             "/usr/bin/flatpak run %s --branch=stable --arch=x86_64 --command=kate "

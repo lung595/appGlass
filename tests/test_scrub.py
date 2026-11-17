@@ -94,8 +94,13 @@ class QtStyle(Tmp):
             std::printf(" style=%s\n", qPrintable(app.style()->name()));
             std::printf(" child_opaque=%d\n", child->testAttribute(Qt::WA_OpaquePaintEvent) ? 1 : 0);
             std::printf(" popup_child_opaque=%d\n", item->testAttribute(Qt::WA_OpaquePaintEvent) ? 1 : 0);
+            const char *x = std::getenv("XDG_CONFIG_DIRS");
+            std::printf(" xdg_early=%s\n", x ? x : "-");
             std::fflush(stdout);
-            return std::system("env");
+            int rc = 0;   // children start from the event loop
+            QTimer::singleShot(0, &app, [&] { rc = std::system("env"); app.quit(); });
+            app.exec();
+            return rc;
         }
     """)
 
@@ -127,7 +132,8 @@ class QtStyle(Tmp):
         env = self.base_env(QT_QPA_PLATFORM="offscreen", QT_STYLE_OVERRIDE="appglass",
                             QT_PLUGIN_PATH=plugins + ":/opt/other/plugins",
                             APPGLASS_COLORS=colors, APPGLASS_CONTENT="0.8", APPGLASS_BAR="0",
-                            APPGLASS_DIALOGS="glass", XDG_RUNTIME_DIR=self.dir)
+                            APPGLASS_DIALOGS="glass", XDG_RUNTIME_DIR=self.dir,
+                            XDG_CONFIG_DIRS="/x/kate/config/appglass:/app/etc/xdg:/etc/xdg")
         r = subprocess.run([self.probe], env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout, parse_env(r.stdout)
@@ -139,6 +145,15 @@ class QtStyle(Tmp):
         self.assertEqual(leaks(e), [])
         self.assertEqual(e.get("QT_PLUGIN_PATH"), "/opt/other/plugins")
         self.assertEqual(e.get("KEEP"), "1")
+
+    def test_kate_glass_config_kept_for_kconfig_only(self):
+        # the Kate launcher's glass katerc dir: KConfig reads the cascade
+        # while the app starts, the children (Kate's terminal, its tools, a
+        # plain kate started from there) never see it
+        self.build()
+        out, e = self.run_probe()
+        self.assertIn(" xdg_early=/x/kate/config/appglass:/app/etc/xdg:/etc/xdg", out)
+        self.assertEqual(e.get("XDG_CONFIG_DIRS"), "/app/etc/xdg:/etc/xdg")
 
     def test_opaque_paint_children_cleared(self):
         # KTextEditor's view sets WA_OpaquePaintEvent and then fills only

@@ -9,7 +9,8 @@
 // Environment: the style reads its variables once and takes them out of the process
 // environment (APPGLASS_*, QT_STYLE_OVERRIDE=appglass, its own QT_PLUGIN_PATH entry), so a
 // shell, a game or any app the Qt app starts never inherits them. Qt has read
-// QT_STYLE_OVERRIDE and QT_PLUGIN_PATH before it creates the style.
+// QT_STYLE_OVERRIDE and QT_PLUGIN_PATH before it creates the style. An appglass dir in
+// XDG_CONFIG_DIRS (Kate's glass katerc) is taken out once the event loop runs.
 // Opaque-paint widgets (WA_OpaquePaintEvent: KTextEditor's view and icon border) in a glass
 // window lose the attribute, so the glass under them is painted (no holes, no double fill).
 #include <QtWidgets>
@@ -65,6 +66,17 @@ void scrubEnv() {
     }
 }
 
+// the Kate launcher's glass katerc dir (<...>/appglass) in front of XDG_CONFIG_DIRS: KConfig reads
+// the cascade while the app starts, so it leaves only once the event loop runs (before any child)
+void scrubXdg() {
+    if (!qEnvironmentVariableIsSet("XDG_CONFIG_DIRS")) return;
+    QStringList keep;
+    for (const QString &d : qEnvironmentVariable("XDG_CONFIG_DIRS").split(':', Qt::SkipEmptyParts))
+        if (!QDir::cleanPath(d).endsWith("/appglass")) keep << d;
+    if (keep.isEmpty()) qunsetenv("XDG_CONFIG_DIRS");
+    else qputenv("XDG_CONFIG_DIRS", keep.join(':').toLocal8Bit());
+}
+
 bool isBar(const QWidget *w) {
     return qobject_cast<const QMenuBar *>(w) || qobject_cast<const QToolBar *>(w) || qobject_cast<const QStatusBar *>(w)
         || qobject_cast<const QTabBar *>(w) || qobject_cast<const QHeaderView *>(w);
@@ -86,6 +98,7 @@ public:
         dbg2 = qEnvironmentVariable("APPGLASS_DEBUG") == "2"; if (dbg2) qApp->installEventFilter(this);
         opaqueApps = qEnvironmentVariable("APPGLASS_OPAQUE").split(',', Qt::SkipEmptyParts);
         scrubEnv();
+        QTimer::singleShot(0, qApp, scrubXdg);
     }
     // opaque base palette (popups, dialogs) - text roles always opaque
     QPalette opaquePalette() const {

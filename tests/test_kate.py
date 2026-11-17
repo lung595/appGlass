@@ -4,6 +4,7 @@ import json
 import os
 import unittest
 
+from appglass import core
 from test_terminals import TermCase, World  # noqa: F401  (World: used by TermCase)
 
 THEME = "org.kde.syntax-highlighting/themes/appglass.theme"
@@ -35,35 +36,27 @@ class Kate(TermCase, unittest.TestCase):
         self.assert_readable([s["text-color"] for s in t["text-styles"].values()]
                              + [ed["LineNumbers"]])
 
-    def test_katerc_keys(self):
+    def test_user_katerc_untouched(self):
+        # the theme is chosen only for the glass start (the qt-style launcher):
+        # a plain Kate keeps the user's theme, an alpha-0 background without
+        # the style is never cleared (black, smeared text)
         self.apply()
-        rc = self.sb.read(self.sb.cfg("katerc"))
-        self.assertIn("[KTextEditor Renderer]\nColor Theme=AppGlass\nShow Indentation Lines=true\n"
-                      "Auto Color Theme Selection=false\n", rc)
-        self.assertIn("Show Full Path in Title=true", rc)
-        self.assertNotIn("Breeze Dark", rc)
+        self.assertEqual(self.sb.read(self.sb.cfg("katerc")), RC)
+        self.assertFalse(os.path.exists(self.w.var("org.kde.kate", "config", "katerc")))
 
-    def test_flatpak_target(self):
+    def test_flatpak_glass_config(self):
+        # the launcher puts this dir in front of XDG_CONFIG_DIRS: KConfig
+        # cascades it under the user's katerc, [$i] keeps the user's own
+        # Color Theme from overriding it
         self.apply()
         self.assertEqual(self.theme(self.w.var("org.kde.kate", "data"))["metadata"]["name"], "AppGlass")
-        rc = self.sb.read(self.w.var("org.kde.kate", "config", "katerc"))
-        self.assertEqual(rc, "[KTextEditor Renderer]\nAuto Color Theme Selection=false\n"
-                             "Color Theme=AppGlass\n")
-
-    def test_kate_rewrote_katerc(self):
-        # Kate writes katerc on exit: a re-apply keeps its file, remove takes
-        # out only the keys that still name AppGlass
-        self.apply()
-        p = self.sb.cfg("katerc")
-        text = self.sb.read(p).replace("Show Indentation Lines=true", "Show Indentation Lines=false")
-        with open(p, "w") as f:
-            f.write(text)
-        self.apply()
-        self.assertEqual(self.sb.read(p), text)
-        code, out, err = self.w.run("remove")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(self.sb.read(p), "[General]\nShow Full Path in Title=true\n\n"
-                                          "[KTextEditor Renderer]\nShow Indentation Lines=false\n")
+        rc = self.sb.read(self.w.var("org.kde.kate", "config", "appglass", "katerc"))
+        self.assertEqual(rc.splitlines()[-3:], ["[KTextEditor Renderer]",
+                                                "Auto Color Theme Selection[$i]=false",
+                                                "Color Theme[$i]=AppGlass"])
+        from appglass.families import kate
+        self.assertEqual(kate.xdg_dir(core.Env(self.sb.env)),
+                         self.w.var("org.kde.kate", "config", "appglass"))
 
 
 if __name__ == "__main__":
