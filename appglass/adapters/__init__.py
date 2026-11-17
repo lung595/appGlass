@@ -161,6 +161,11 @@ HAND_FILES = (
     (".config/Vencord/themes/appglass-discord.css", "electron-vencord", "the Discord glass theme"),
     (".config/systemd/user/appglass-sync.path", "hook", "watches the theme files"),
     (".config/systemd/user/appglass-sync.service", "hook", "runs appglass-sync"),
+    (".config/systemd/user/appglass-vibrancy.service", "hook",
+     "runs appglass-vibrancy (the Alacritty inactive fade)"),
+    (".config/systemd/user/appglass-discord.path", "hook", "watches ~/.config/discord"),
+    (".config/systemd/user/appglass-discord.service", "hook", "runs appglass-sync --discord"),
+    (".local/bin/appglass-vibrancy", "hook", "the vibrancy daemon wrapper"),
 )
 
 

@@ -9,6 +9,7 @@ tree back byte-identical.
 """
 
 import argparse
+import contextlib
 import errno
 import fcntl
 import hashlib
@@ -47,6 +48,13 @@ class LostState(AppglassError):
 
 class Conflict(AppglassError):
     """A target exists, is not ours and cannot be merged safely: skip the owner."""
+
+
+class EventRemove(AppglassError):
+    """An event run (the plugin's sync, the hook, the path units, doctor,
+    status) reached what reverts, removes or forgets a file: S6 says only a
+    command the user typed, or the user's own switch, does that."""
+    exit_code = 3
 
 
 # ---------------------------------------------------------------- colour helpers
@@ -445,6 +453,7 @@ class State:
         self.data = d
         self.dry = False      # a dry run put records in memory: never saved
         self.save_guard = None  # raises before a save over a lost state
+        self.event_guard = None  # raises in an event run (App.no_event)
 
     @property
     def owners(self):
@@ -495,6 +504,8 @@ class State:
         """Remove the state dir and any parent dirs it created (when empty).
         Kept whole while backup/ holds an original no record names; returns
         those (else [])."""
+        if self.event_guard is not None:
+            self.event_guard("take out the state dir")
         d = self.env.state_dir
         kept = self.unnamed_backups()
         if kept:
@@ -518,28 +529,40 @@ class State:
 RING_KEEP = 5
 RESCUE_HINT = ("appglass restore puts back the newest saved state.json and files "
                "(appglass restore --list shows the ring, appglass restore <id> picks one); "
-               "without a saved one, delete the files appglass wrote and take its lines "
-               "out of the files it edited (appglass doctor lists them), then apply again")
+               "without a saved one, appglass adopt --rescue saves the appglass files "
+               "(appglass doctor lists them) into a new ring entry and records them "
+               "again, then apply runs and remove takes appglass's parts out")
 
 
 UNREADABLE_HINT = ("appglass restore puts back the newest saved state.json and files, and "
                    "keeps the unreadable one in the ring (appglass restore --list shows the "
-                   "ring); without a saved one, move state.json away: appglass doctor then "
-                   "lists the files appglass wrote or edited, to delete or clean by hand")
+                   "ring); without a saved one, appglass adopt --rescue keeps the unreadable "
+                   "state.json in a new ring entry and records the appglass files on disk "
+                   "again (appglass doctor lists them)")
 
 
 def ring_dir(env):
     return os.path.join(env.state_dir, "ring")
 
 
+def _ring_seq(env, name):
+    """An entry's sequence number (its manifest's seq; 0 for an entry from
+    before seq, those sort by their time names)."""
+    m = _load_json(os.path.join(ring_dir(env), name, "manifest.json"))
+    seq = m.get("seq") if isinstance(m, dict) else None
+    return seq if isinstance(seq, int) and not isinstance(seq, bool) else 0
+
+
 def ring_entries(env):
-    """The ring's entries, oldest first (their names sort by time)."""
+    """The ring's entries, oldest first: by the sequence number each run
+    takes (one more than the ring's highest), never by the clock."""
     d = ring_dir(env)
     try:
         names = os.listdir(d)
     except OSError:
         return []
-    return sorted(n for n in names if os.path.isfile(os.path.join(d, n, "manifest.json")))
+    names = [n for n in names if os.path.isfile(os.path.join(d, n, "manifest.json"))]
+    return sorted(names, key=lambda n: (_ring_seq(env, n), n))
 
 
 def _missing_dirs(d):
@@ -981,6 +1004,11 @@ class App:
         self.quiet = quiet
         self.from_hook = False      # apply --from-hook (the matugen post_hook)
         self.typed = False          # appglass apply typed by the user (not an event)
+        # an event run (the plugin's sync, the hook, the path units, doctor,
+        # status: main sets it for every run that is not a command the user
+        # typed): it never reverts, removes or forgets a file (no_event)
+        self.event = False
+        self.switched_off = set()   # the families the user's sync switched off
         self.dry_run = False
         self.changed = []           # every path written, deleted or restored this run
         from . import settings as _settings
@@ -1007,6 +1035,7 @@ class App:
         self.ring_entry = None      # this run's ring entry (made at its first write)
         self.ring_keep = None       # an entry pruning must keep (restore's source)
         self._ring_files = {}
+        self._ring_seq = None
         self.keep_state_dir = False
         self.full_remove = False    # appglass remove (every owner, the hook too)
         self._orphans = None
@@ -1016,6 +1045,25 @@ class App:
             # sticky: while appglass files or originals are on disk without
             # their record, no command saves a fresh state.json over them
             self.state.save_guard = self.refuse_lost
+        self.state.event_guard = self.no_event
+
+    def no_event(self, what):
+        """Raise in an event run: what reverts, removes or forgets a file
+        (or the state dir) is the user's to ask for."""
+        if self.event:
+            raise EventRemove("an event run cannot %s (only a command typed by the user, "
+                              "or the user's own switch, does); nothing taken out" % what)
+
+    @contextlib.contextmanager
+    def user_action(self):
+        """The user's own switch inside an event run (glass off, a family
+        switched off in the plugin): what it takes out is theirs to ask for."""
+        ev = self.event
+        self.event = False
+        try:
+            yield
+        finally:
+            self.event = ev
 
     def refuse_lost(self):
         why = lost_state_text(self)
@@ -1113,7 +1161,7 @@ class App:
 
     def _write_manifest(self):
         doc = {"created": time.strftime("%Y-%m-%dT%H:%M:%S"), "files": self._ring_files,
-               "state": self._state_bytes is not None}
+               "state": self._state_bytes is not None, "seq": self._ring_seq}
         _atomic_write(os.path.join(self.ring_entry, "manifest.json"),
                       (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode())
 
@@ -1130,6 +1178,10 @@ class App:
             name = "%s-%d" % (base, n)
             n += 1
         entry = os.path.join(root, name)
+        # the ring's order: one more than its highest (the clock may stand
+        # still or go back; names that collide get -1, -2 .. -10, which do
+        # not sort)
+        self._ring_seq = max([_ring_seq(env, x) for x in ring_entries(env)] + [0]) + 1
         for d in _missing_dirs(entry):
             env.guard(d)
         os.makedirs(entry)
@@ -1180,13 +1232,20 @@ class App:
             return changed
         if st.save_guard is not None:
             st.save_guard()     # before the first byte, not at the first save
-        if not self.from_hook:
-            # a file the owner no longer writes goes back; never from the
-            # hook (an event removes nothing): the next apply or sync does it
+        if not self.event:
+            # a file the owner no longer writes goes back, on a command the
+            # user typed only
             for p in stale:
                 self._revert(ctx.owner, p, owner["files"][p])
                 self._drop_backup(owner["files"].pop(p))
                 self._note(p)
+        else:
+            # an event (the hook, the plugin's sync): a target that vanished
+            # (a vault on a drive not mounted) or is no longer planned keeps
+            # its record, the disk is not touched; a later remove (or an
+            # apply the user types) gives it back
+            for p in stale:
+                owner["files"][p]["unplanned"] = True
         for p in ctx.kept_absent:
             rec = owner["files"].get(p)
             if rec is not None and rec.get("how") in ("edit", "json"):
@@ -1215,6 +1274,7 @@ class App:
                 continue
             if rec is not None:
                 rec.pop("retired", None)
+                rec.pop("unplanned", None)
             cur = _read(p)
             if cur != op.data or (op.mode is not None and _mode(p) != op.mode):
                 self.snapshot(p)
@@ -1272,6 +1332,7 @@ class App:
             self.changed.append(p)
 
     def _revert(self, owner_name, p, rec):
+        self.no_event("revert %s" % p)
         env = self.env
         env.guard(p)
         self.snapshot(p)
@@ -1368,9 +1429,7 @@ class App:
                 return
             except Exception as ex:
                 self.warn("%s: undo failed (%s); restoring the original" % (p, ex))
-        keep = p + ".appglass-changed"
-        env.guard(keep)
-        self.snapshot(keep)     # an earlier saved-aside version is not lost
+        keep = _aside_name(env, p)   # an earlier saved-aside version stays
         with open(keep, "wb") as f:
             f.write(cur)
         _inplace_write(p, orig)
@@ -1403,6 +1462,7 @@ class App:
 
     def _drop_backup(self, rec):
         """Delete rec's backup/*.orig once no record refers to it."""
+        self.no_event("forget a backup")
         b = rec.get("backup")
         if not b:
             return
@@ -1424,6 +1484,7 @@ class App:
             pass
 
     def remove_owner(self, name):
+        self.no_event("remove %s's files" % name)
         owner = self.state.owners.get(name)
         if not owner:
             return False
@@ -1438,7 +1499,13 @@ class App:
             try:
                 os.rmdir(d)
             except OSError:
-                pass
+                # another owner's file is in it (a dir both write into): the
+                # dir goes with that owner's remove
+                heir = next((o for n, o in self.state.owners.items() if n != name
+                             and any(f.startswith(d + os.sep) for f in o.get("files", {}))),
+                            None)
+                if heir is not None and d not in heir.setdefault("dirs", []):
+                    heir["dirs"].append(d)
         del self.state.owners[name]
         self.state.save()
         return True
@@ -1488,7 +1555,9 @@ def _unlock(env, lockf, created, app, failed=False):
     except OSError:
         pass
     st = app.state if app is not None else None
-    if st is None or failed or app.lost_state:
+    if st is None or failed or app.lost_state or (
+            app.event and not (st.owners or st.data.get("parked") or app.keep_state_dir)):
+        # (an event run takes no state dir out: only its own lock)
         # touch nothing but our own lock
         if created:
             try:
@@ -1510,7 +1579,7 @@ def _unlock(env, lockf, created, app, failed=False):
     # stale colors.json). The ring goes with it only after a full remove or
     # a run that wrote (its own entry ends the ring's story); a run that
     # wrote nothing (an event, after a restore) leaves the ring as it is
-    if not (st.owners or st.data.get("parked") or app.keep_state_dir) and (
+    if not (st.owners or st.data.get("parked") or app.keep_state_dir) and not app.event and (
             app.full_remove or app.ring_entry is not None or not ring_entries(env)):
         kept = st.destroy(created)
         if kept:
@@ -1544,19 +1613,25 @@ def _family_enabled(app, name):
     return any(_settings.app_enabled(app.settings, k, False) for k in getattr(fam, "KEYS", ()))
 
 
-def _user_removes(app, why):
+def _user_removes(app, why, name):
     """Whether apply takes out the files of a family it skips for why. An
     event removes nothing (the matugen hook, the path units, the plugin's
-    sync at its start): never from the hook; a family the user switched
-    off goes; a family not detected goes only on an apply the user typed
-    (detection can miss an app for a moment)."""
+    sync at load, reload or re-seed): never from the hook; in the plugin's
+    sync only a family this very sync switched off (the user's switch); on
+    a command typed, a family off in settings goes, and a family not
+    detected goes only on an apply the user typed (detection can miss an
+    app for a moment)."""
     if app.from_hook:
         return False
+    if app.event:
+        return why == "off in settings" and name in app.switched_off
     return why == "off in settings" or app.typed
 
 
 def cmd_apply(app, only=None, dry_run=False, from_hook=False):
     app.from_hook = from_hook
+    if from_hook:
+        app.event = True
     app.dry_run = dry_run
     refuse_orphans(app)
     if app.settings_error and not from_hook:
@@ -1588,11 +1663,12 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
         elif not _family_enabled(app, name):
             why = "off in settings"
         if why:
-            if name in app.state.owners and _user_removes(app, why):
+            if name in app.state.owners and _user_removes(app, why, name):
                 if dry_run:
                     app.info("%s: %s, would remove its files" % (name, why))
                 else:
-                    app.remove_owner(name)
+                    with app.user_action():
+                        app.remove_owner(name)
                     app.info("%s: %s, files removed" % (name, why))
             elif name in app.state.owners:
                 app.info("%s: %s, left as is (appglass apply --only %s or appglass "
@@ -1610,7 +1686,7 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
                     app.warn("%s: %s" % (name, m))
             ids = list(fam.APP_IDS if ctx.app_ids is None else ctx.app_ids)
             changed = app.commit(ctx, app_ids=ids, dry_run=dry_run)
-        except (SandboxViolation, LostState):
+        except (SandboxViolation, LostState, EventRemove):
             raise
         except Conflict as ex:
             app.warn("%s: skipped: %s" % (name, ex))
@@ -1636,6 +1712,7 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
 
 
 def cmd_remove(app, only=None, keep_hook=False):
+    app.no_event("remove")
     if app.lost_state:
         raise AppglassError("state.json is %s (%s) but the backup ring holds saved states: "
                             "nothing removed. %s"
@@ -1704,8 +1781,9 @@ def _parked_unchanged(p, rec):
 
 
 def _adopt_parked(app, dry_run):
-    """Glass on again: the files glass off handed back are adopted again,
-    per owner, when every one of them still holds the bytes it had then. An
+    """Glass on again: each file glass off handed back is adopted again when
+    it still holds the bytes it had then; one changed since stays the
+    user's (its family then skips it as a conflict, as status says). An
     owner whose family is off or not installed stays parked."""
     parked = app.state.data.get("parked")
     if not parked:
@@ -1718,24 +1796,18 @@ def _adopt_parked(app, dry_run):
         if fam is not None and not (app.installed(fam) and _family_enabled(app, owner)):
             continue
         # a file the same owner already holds again (appglass adopt while
-        # off) is fine; the owner's other files are adopted only when none
-        # of them changed (a family needs all of its files)
-        held = [p for p in paths if app.state.owner_of(p) == owner]
-        free = [p for p in paths if p not in held]
-        changed = [p for p in free
-                   if not (app.state.owner_of(p) is None and _parked_unchanged(p, parked[p]))]
-        for p in free:
+        # off) is fine; each other one is adopted again on its own
+        for p in paths:
+            if app.state.owner_of(p) == owner:
+                continue
             t = app.env.tilde(p)
-            if not changed:
+            if app.state.owner_of(p) is None and _parked_unchanged(p, parked[p]):
                 adopt_path(app, p, owner, dry_run=dry_run)
                 app.info("adopt: %s %s (owner %s, as before glass off)"
                          % ("would adopt again" if dry_run else "adopted again", t, owner))
-            elif p in changed:
+            else:
                 app.warn("%s: %s changed while glass was off; left as is (appglass "
                          "adopt hands it over)" % (owner, t))
-            else:
-                app.info("adopt: %s left as is with the changed %s files"
-                         % (t, owner))
     if dry_run:
         return
     for owner, paths in by_owner.items():
@@ -1802,15 +1874,12 @@ def app_routes(app, records=None):
 def hand_files(app):
     """The hand-made files appglass knows: [{path, adapter, what, exists,
     status}] with status adopted | owned | parked | conflict | absent.
-    parked: adopted, handed back by glass off; glass on adopts it again,
-    so it is not in the way. One changed since (glass on leaves it as is)
-    is a conflict, and so are its unchanged siblings (glass on adopts an
-    owner's files only all together, as _adopt_parked)."""
+    parked: adopted, handed back by glass off, unchanged since; glass on
+    adopts it again, so it is not in the way. One changed since (glass on
+    leaves it as is, _adopt_parked decides per file) is a conflict."""
     from . import adapters
     env, st = app.env, app.state
     parked = st.data.get("parked") or {}
-    stuck = {rec.get("owner") for p, rec in parked.items()
-             if st.owner_of(p) is None and not _parked_unchanged(p, rec)}
     out = []
     for rel, adapter, what in adapters.HAND_FILES:
         p = os.path.join(env.home, rel)
@@ -1820,8 +1889,7 @@ def hand_files(app):
             status = "adopted"
         elif owner:
             status = "owned"
-        elif (p in parked and _parked_unchanged(p, parked[p])
-              and parked[p].get("owner") not in stuck):
+        elif p in parked and _parked_unchanged(p, parked[p]):
             status = "parked"
         elif os.path.lexists(p):
             status = "conflict"
@@ -1959,19 +2027,30 @@ def cmd_sync(app, settings_file, dry_run=False):
     except (ValueError, UnicodeDecodeError) as ex:
         raise AppglassError("sync: %s rejected, nothing saved: %s" % (settings_file, ex))
     refuse_orphans(app)
+    app.event = True    # the plugin runs it on load, reload and re-seed too
     if dry_run:
         app.info("settings: would save %s" % app.env.tilde(_settings.path(app.env)))
     else:
         if save_settings(app, new):
             app.info("settings: saved %s" % app.env.tilde(_settings.path(app.env)))
+    # what the user switched in this sync (against the saved settings): only
+    # that takes files out; the same settings again remove nothing
+    was_on = app.settings.get("enabled", True)
+    on = {n for n in app.families if _family_enabled(app, n)}
     _reload_settings(app, new)
+    app.switched_off = {n for n in on if not _family_enabled(app, n)}
     if not new["enabled"]:
         # the hook stays: it applies nothing while glass is off, and turning
         # glass on again from the plugin brings the regeneration back with it
         if dry_run:
-            app.info("glass off: would remove every appglass file but the hook")
+            app.info("glass off: would remove every appglass file but the hook"
+                     if was_on else "glass is off: nothing to remove")
+        elif was_on:
+            with app.user_action():     # the user's switch
+                cmd_remove(app, keep_hook=True)
         else:
-            cmd_remove(app, keep_hook=True)
+            app.info("glass is off: nothing to remove (appglass remove takes "
+                     "the files out)")
         return
     cmd_apply_all(app, dry_run=dry_run)
 
@@ -2182,6 +2261,9 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
 MARK = re.compile(rb"(?i)appglass(?::|-sync:|-vibrancy:| for | hook)"
                   rb"|(?-i:\bAPPGLASS_[A-Z]+=)|/bin/appglass-[A-Za-z0-9]")
 ADOPTED_MARK = b"appglass adopted it"
+# what hook install writes in the wrappers it puts in ~/.local/bin (paths a
+# hand-made wrapper may have taken before)
+HOOK_MARK = b"written by appglass hook install"
 
 
 class _ProbeCtx(Ctx):
@@ -2200,6 +2282,13 @@ class _ProbeCtx(Ctx):
     def artifact(self, name, build, stamp, dest=None, mode=None):
         return self.write_owned(dest or os.path.join(self.cache_dir, name), "")
 
+    def edit_text(self, path, fn, undo=None):
+        # the fn too: what it makes of an empty file is what a file
+        # appglass created by editing holds of its own (adopt --rescue)
+        self.fns = getattr(self, "fns", {})
+        self.fns[os.path.abspath(path)] = fn
+        return Ctx.edit_text(self, path, fn, undo)
+
 
 def _engine_paths(app):
     """Every path appglass would write here: the installed families' plans,
@@ -2210,6 +2299,14 @@ def _engine_paths(app):
 def _engine_plan(app):
     """{path: undo} for every path appglass would write here; undo(text)
     takes appglass's lines out of a file it edits (None for the others)."""
+    return {p: (undo if kind == "edit" else None)
+            for p, (owner, kind, undo, fn) in _engine_ops(app).items()}
+
+
+def _engine_ops(app):
+    """{path: (owner, kind, undo, fn)} for every path appglass would write
+    here: kind owned | edit | json | retire; for an edit, undo(text) takes
+    appglass's lines out and fn(text) puts them in."""
     from . import hook, niri
     env = app.env
     paths = {}
@@ -2227,17 +2324,18 @@ def _engine_plan(app):
                 warn("%s: probe failed (%s: %s); the files it writes after that are "
                      "not checked" % (name, type(ex).__name__, ex))
             for p, op in ctx.ops.items():
-                paths[p] = ((op.undo or app._undo_for(name, p))
-                            if op.kind == "edit" else None)
+                undo = (op.undo or app._undo_for(name, p)) if op.kind == "edit" else None
+                paths[p] = (name, op.kind, undo, getattr(ctx, "fns", {}).get(p))
     finally:
         app.warn, app.dry_run = warn, dry
     cfg = niri.config_path(env)
-    paths[cfg] = niri.strip_include
-    paths[os.path.join(os.path.dirname(cfg), niri.FILE)] = None
+    paths[cfg] = ("niri", "edit", niri.strip_include, niri.add_include)
+    paths[os.path.join(os.path.dirname(cfg), niri.FILE)] = ("niri", "owned", None, None)
     for p in [hook.unit_path(env, n) for n in hook.UNITS] + [hook.sync_path(env),
                                                              hook.vibrancy_path(env)]:
-        paths[p] = None
-    paths[hook.config_path(env)] = hook.strip
+        paths[p] = ("hook", "owned", None, None)
+    block = hook.section(env)
+    paths[hook.config_path(env)] = ("hook", "edit", hook.strip, lambda t: hook.add(t, block))
     return paths
 
 
@@ -2269,7 +2367,8 @@ def orphans(app):
             if not data:
                 continue
             if p in hand:
-                mine = ADOPTED_MARK in data
+                # a hand file appglass took over, or the hook's own wrapper
+                mine = ADOPTED_MARK in data or HOOK_MARK in data
             elif undo is not None:
                 # the user's file, appglass's lines in it; not a JSON file
                 # (an app's settings: the user may have set the same key)
@@ -2310,6 +2409,162 @@ def refuse_orphans(app):
     why = lost_state_text(app)
     if why:
         raise AppglassError("%s. Nothing written. %s" % (why, RESCUE_HINT))
+
+
+def _rescue_claims(app):
+    """adopt --rescue: [(path, owner, kind, data, undo, fn)] for the files on
+    disk appglass wrote (owned: its marker in them; a hand file: the stub of
+    an adopted one, or the hook's own wrapper; a hook unit: the repo's bytes
+    while the hook's section or wrappers are there) or edited (its undo
+    takes something out)."""
+    from . import adapters, hook
+    env = app.env
+    hand = {os.path.join(env.home, rel) for rel, _, _ in adapters.HAND_FILES}
+    ops = _engine_ops(app)
+    cfg = hook.config_path(env)
+    hook_on = (os.path.isfile(cfg) and hook.BEGIN.encode() in (_read(cfg) or b"")) or any(
+        os.path.isfile(p) and HOOK_MARK in (_read(p) or b"")
+        for p in (hook.sync_path(env), hook.vibrancy_path(env)))
+    units = {hook.unit_path(env, n): n for n in hook.UNITS}
+    out, skipped = [], []
+    for p, (owner, kind, undo, fn) in sorted(ops.items()):
+        if os.path.islink(p) or not os.path.isfile(p):
+            continue
+        try:
+            data = _read(p)
+        except OSError:
+            continue
+        if not data:
+            continue
+        if p in units:
+            mine = (hook_on and data == hook.unit_render(units[p])) or HOOK_MARK in data
+            kind = "owned"
+        elif p in hand:
+            mine = ADOPTED_MARK in data or HOOK_MARK in data
+            kind = "owned"
+        elif kind == "edit":
+            mine = undo is not None and _edited(undo, data)
+        elif kind == "json":
+            # an app's settings: its keys cannot be told from the user's
+            if MARK.search(data):
+                skipped.append(p)
+            continue
+        else:
+            mine = bool(MARK.search(data))
+        if mine:
+            out.append((p, owner, kind, data, undo, fn))
+    for p in skipped:
+        app.warn("adopt --rescue: %s holds keys appglass merged: left as is (not "
+                 "recorded; set them back by hand if you want them gone)" % env.tilde(p))
+    return out
+
+
+def cmd_rescue(app, dry_run=False):
+    """adopt --rescue: state.json lost (missing or unreadable) with no
+    saved one to restore. Every appglass file on disk and every original in
+    backup/ goes into a new ring entry first (the unreadable state.json
+    too); then state.json is made again: the files appglass wrote are
+    recorded as its own (remove deletes them, or gives back the hand file
+    whose original backup/ still holds), the files it edited are recorded
+    with the original that is the file without appglass's lines."""
+    env = app.env
+    t = env.tilde
+    lost = app.state_unreadable or (app.state_missing and bool(
+        orphans(app) or orphan_backups(app)))
+    if not lost:
+        raise AppglassError("adopt --rescue: %s is %s: nothing to rescue (appglass doctor "
+                            "lists the drift)" % (t(app.state.path), "there and readable"
+                                                  if not app.state_missing else
+                                                  "missing, with no appglass file on disk"))
+    claims = _rescue_claims(app)
+    bdir = app.backup_dir()
+    try:
+        backups = sorted(os.listdir(bdir))
+    except OSError:
+        backups = []
+
+    def bname(p):
+        return hashlib.sha1(p.encode()).hexdigest()[:16] + ".orig"
+    if dry_run:
+        for p, owner, kind, _, _, _ in claims:
+            app.info("adopt --rescue: would record %s (%s, %s)" % (t(p), owner,
+                                                                 "edited" if kind == "edit"
+                                                                 else "written by appglass"))
+        app.info("adopt --rescue: would save them and %d original%s of backup/ in a new "
+                 "ring entry first" % (len(backups), "" if len(backups) == 1 else "s"))
+        return
+    # 1. everything into one new ring entry, before a byte changes
+    app._ring_entry()
+    for p, *_ in claims:
+        app.snapshot(p)
+    for n in backups:
+        app.snapshot(os.path.join(bdir, n))
+    entry = os.path.basename(app.ring_entry)
+    # 2. state.json made again
+    st = app.state
+    st.unreadable = False
+    st.save_guard = None
+    st.data = {"version": STATE_VERSION, "owners": {}, "state_parents": []}
+    app.lost_state = app.state_missing = app.state_unreadable = False
+    app._orphans, app.backups_at_start = None, []
+    used = set()
+    for p, owner, kind, data, undo, fn in claims:
+        o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
+        b = bname(p)
+        if kind == "owned":
+            rec = {"kind": "created", "how": "owned", "sha256": sha(data)}
+            if b in backups and ADOPTED_MARK in data:
+                # an adopted hand file: its original is still in backup/
+                orig = _read(os.path.join(bdir, b))
+                rec = {"kind": "modified", "how": "owned", "sha256": sha(data),
+                       "adopted": True, "backup": os.path.join("backup", b),
+                       "orig_sha256": sha(orig)}
+                used.add(b)
+            elif ADOPTED_MARK in data:
+                app.warn("adopt --rescue: %s: the hand file appglass adopted is not in "
+                         "backup/ any more; remove deletes the stub (the ring entry %s "
+                         "keeps it)" % (t(p), entry))
+        else:
+            text = undo(data.decode("utf-8"))
+            orig = text.encode("utf-8")
+            try:
+                pristine = undo(fn("")).encode("utf-8").strip() if fn else None
+            except Exception:
+                pristine = None
+            if not orig.strip() or (pristine is not None and orig.strip() == pristine):
+                # nothing of the user's in it: appglass made it from empty
+                rec = {"kind": "created", "how": "edit", "sha256": sha(data)}
+                if pristine is not None:
+                    rec["pristine_sha256"] = sha(pristine)
+            else:
+                path = os.path.join(bdir, b)
+                env.guard(path)
+                os.makedirs(bdir, exist_ok=True)
+                with open(path, "wb") as f:
+                    f.write(orig)
+                rec = {"kind": "modified", "how": "edit", "sha256": sha(data),
+                       "backup": os.path.join("backup", b), "orig_sha256": sha(orig)}
+                used.add(b)
+        o["files"][p] = rec
+        app.info("adopt --rescue: recorded %s (%s, %s)"
+                 % (t(p), owner, "edited: its original is the file without appglass's "
+                    "lines" if kind == "edit" else "written by appglass"))
+    # 3. originals no record names: in the ring entry, out of backup/ (a
+    # later apply would refuse over them)
+    left = [n for n in backups if n not in used]
+    for n in left:
+        bp = os.path.join(bdir, n)
+        env.guard(bp)
+        os.remove(bp)
+    if left:
+        app.warn("adopt --rescue: %d original%s in backup/ named by no file on disk moved "
+                 "to the ring entry %s (appglass restore %s puts them back)"
+                 % (len(left), "" if len(left) == 1 else "s", entry, entry))
+    st.save()
+    app.info("adopt --rescue: %d file%s recorded; the files as they were are in the ring "
+             "entry %s (appglass restore %s puts them back); appglass apply runs again, "
+             "appglass remove takes appglass's parts out"
+             % (len(claims), "" if len(claims) == 1 else "s", entry, entry))
 
 
 def cmd_restore(app, ident=None, list_only=False):
@@ -2404,6 +2659,7 @@ def cmd_restore(app, ident=None, list_only=False):
         if os.path.lexists(st):
             os.remove(st)
     app.state = State(env)
+    app.state.event_guard = app.no_event
     if not os.path.lexists(st):
         # an empty state when nothing of appglass is left on disk: remove and
         # glass off run again (with appglass files left, the refusal stays)
@@ -2433,15 +2689,25 @@ def _quiet(app, fn, *a, **kw):
         app.quiet = q
 
 
+def _aside_name(env, p):
+    """The first free <file>.appglass-changed, .appglass-changed.1, .2 ..:
+    a version saved aside earlier is never written over."""
+    keep = p + ".appglass-changed"
+    n = 0
+    while os.path.lexists(keep if n == 0 else "%s.%d" % (keep, n)):
+        n += 1
+    keep = keep if n == 0 else "%s.%d" % (keep, n)
+    env.guard(keep)
+    return keep
+
+
 def _save_aside(app, paths):
     """doctor --fix re-renders files appglass owns: a hand version is saved
-    as <file>.appglass-changed first (the ring keeps it only RING_KEEP runs)."""
+    as <file>.appglass-changed (or the first free .appglass-changed.N) first."""
     for p in paths:
         if not os.path.isfile(p) or os.path.islink(p):
             continue
-        keep = p + ".appglass-changed"
-        app.env.guard(keep)
-        app.snapshot(keep)      # an earlier saved-aside version is not lost
+        keep = _aside_name(app.env, p)
         with open(keep, "wb") as f:
             f.write(_read(p))
         app.warn("%s re-rendered; your version saved as %s"
@@ -2465,16 +2731,22 @@ def doctor_drift(app):
     # the hook: its units, scripts and matugen section
     if hook.installed(app):
         try:
-            ctx = hook.plan(app)
+            ctx = hook.plan(app, keep_optout=True)
             changed = app.commit(ctx, dry_run=True)
         except Conflict as ex:
             changed, ctx = [], None
             out.append(("hook: %s" % ex, None))
         owned = [p for p in changed if ctx is not None and ctx.ops[p].kind == "owned"]
+        if hook.opted_out(app):
+            # the user took the section out: matugen no longer re-applies;
+            # theirs to decide, like the niri include (spec 1.10)
+            out.append(("hook: %s no longer holds the appglass hook section: a theme "
+                        "change no longer re-applies the glass (appglass hook install "
+                        "puts it back)" % tilde(hook.config_path(env)), None))
 
         def fix_hook():
             _save_aside(app, owned)
-            hook.install(app)
+            hook.install(app, keep_optout=True)
         for p in changed:
             what = "is missing" if not os.path.lexists(p) else "differs from the repo render"
             out.append(("hook: %s %s" % (tilde(p), what), ("hook", fix_hook)))
@@ -2491,8 +2763,8 @@ def doctor_drift(app):
             p = hook.unit_path(env, n)
             if os.path.isfile(p) and st.owner_of(p) is None and _read(p) != hook.unit_render(n):
                 out.append(("hook: %s is hand-made and differs from the repo render "
-                            "(appglass adopt takes it over, then appglass hook install)"
-                            % tilde(p), None))
+                            "(appglass adopt %s takes it over and installs the hook)"
+                            % (tilde(p), tilde(p)), None))
     # the niri rule and include
     if "niri" in st.owners:
         frag = os.path.join(os.path.dirname(niri.config_path(env)), niri.FILE)
@@ -2516,7 +2788,9 @@ def doctor_drift(app):
             continue
         drift = []
         for p, rec in sorted(st.owners[name].get("files", {}).items()):
-            if rec.get("how") != "owned" or rec.get("retired"):
+            if rec.get("how") != "owned" or rec.get("retired") or rec.get("unplanned"):
+                # (unplanned: an event run found its target gone, a vault on
+                # a drive not mounted; kept for remove, not re-rendered)
                 continue
             cur = _read(p) if os.path.isfile(p) else None
             if cur is not None and sha(cur) == rec.get("sha256"):
@@ -2641,6 +2915,9 @@ def main(argv=None, environ=None, out=None, err=None):
     ad.add_argument("paths", nargs="*", help="files to adopt (default: every one appglass "
                                              "has an owner for)")
     ad.add_argument("--dry-run", action="store_true")
+    ad.add_argument("--rescue", action="store_true",
+                    help="state.json lost with no saved one to restore: save the appglass "
+                         "files on disk in a new ring entry, then record them again")
     r = sub.add_parser("remove", help="restore every file appglass touched")
     r.add_argument("--only", help="comma-separated family names")
     sp = sub.add_parser("status", help="show colours, levels, applied families and app routes")
@@ -2699,9 +2976,16 @@ def main(argv=None, environ=None, out=None, err=None):
         # restore, doctor and get run on an unreadable state.json (the
         # way out the error names)
         app = App(environ, out=out, err=err, quiet=quiet,
-                  lenient=args.cmd in ("restore", "doctor", "get"))
+                  lenient=args.cmd in ("restore", "doctor", "get")
+                  or (args.cmd == "adopt" and args.rescue))
         app.dry_run = getattr(args, "dry_run", False)
         app.typed = args.cmd in ("apply", "set") and not getattr(args, "from_hook", False)
+        # S6: every run but a command the user typed is an event (sync is the
+        # plugin's, doctor and status look, the hook re-applies): it never
+        # reverts, removes or forgets a file (App.no_event)
+        app.event = not (args.cmd in ("apply", "set", "remove", "adopt", "restore",
+                                      "hook", "plugin")
+                         and not getattr(args, "from_hook", False))
         rc = 0
         if args.cmd == "apply" and args.all:
             cmd_apply_all(app, dry_run=args.dry_run, adopt=args.adopt)
@@ -2709,6 +2993,11 @@ def main(argv=None, environ=None, out=None, err=None):
             if args.adopt:
                 raise AppglassError("apply: --adopt goes with --all")
             cmd_apply(app, args.only, args.dry_run, from_hook=args.from_hook)
+        elif args.cmd == "adopt" and args.rescue:
+            if args.paths:
+                raise AppglassError("adopt: --rescue takes no paths (it records every "
+                                    "appglass file on disk)")
+            cmd_rescue(app, dry_run=args.dry_run)
         elif args.cmd == "adopt":
             cmd_adopt(app, args.paths, dry_run=args.dry_run)
         elif args.cmd == "remove":

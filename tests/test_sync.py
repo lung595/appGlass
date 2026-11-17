@@ -396,9 +396,13 @@ class GlassOffOn(unittest.TestCase):
             f.write("# mine\n")
         out = self.sync(on)
         self.assertIn("changed while glass was off", out)
-        self.assertNotIn("qtstyle", self.w.state()["owners"])
+        # per file: the unchanged .so adopted again, the changed launcher
+        # the user's (qtstyle skips it as a conflict)
+        self.assertEqual(list(self.w.state()["owners"]["qtstyle"]["files"]), [self.so])
         self.assertIn("# mine", self.read(self.desk).decode())
         self.run_ok("remove")
+        self.assertEqual(self.read(self.so), self.hand[self.so])
+        self.assertIn("# mine", self.read(self.desk).decode())
         self.assertFalse(os.path.exists(os.path.join(self.w.sb.state, "appglass")))
 
     def test_apply_all_while_off_leaves_parked_files(self):
@@ -470,17 +474,28 @@ class GlassOffOn(unittest.TestCase):
         st = {h["path"]: h["status"] for h in doc["hand_files"]}
         tilde = lambda p: "~" + p[len(self.w.sb.home):]
         self.assertEqual(st[tilde(self.desk)], "conflict")
-        # its unchanged sibling stays too (glass on adopts an owner's files
-        # only all together): not parked any more, in the way as well
-        self.assertEqual(st[tilde(self.so)], "conflict")
+        # its unchanged sibling is still parked: glass on adopts each file
+        # that kept its bytes (_adopt_parked, per file), the changed one
+        # stays the user's
+        self.assertEqual(st[tilde(self.so)], "parked")
         self.assertIn(tilde(self.desk), [c for a in doc["apps"] for c in a["conflicts"]])
-        self.assertIn(tilde(self.so), [c for a in doc["apps"] for c in a["conflicts"]])
+        self.assertNotIn(tilde(self.so), [c for a in doc["apps"] for c in a["conflicts"]])
         # a link in its place is changed too
         os.remove(self.desk)
         os.symlink(self.so, self.desk)
         doc = self.json.loads(self.run_ok("status", "--json"))
         st = {h["path"]: h["status"] for h in doc["hand_files"]}
         self.assertEqual(st[tilde(self.desk)], "conflict")
+        self.assertEqual(st[tilde(self.so)], "parked")
+        # glass on does what status said: the sibling adopted again, the
+        # changed one left as is (and still in the way)
+        out = self.sync(on)
+        self.assertIn("vlc.desktop changed while glass was off", out)
+        doc = self.json.loads(self.run_ok("status", "--json"))
+        st = {h["path"]: h["status"] for h in doc["hand_files"]}
+        self.assertEqual(st[tilde(self.so)], "adopted")
+        self.assertEqual(st[tilde(self.desk)], "conflict")
+        self.assertTrue(os.path.islink(self.desk))
 
     def test_remove_only_while_off_drops_its_parked_files(self):
         self.run_ok("apply", "--all", "--adopt")

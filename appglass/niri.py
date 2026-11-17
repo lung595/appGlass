@@ -244,9 +244,12 @@ def sync(app, dry_run=False, extra_ids=()):
     kw = rule_inputs(app)
     wanted = kw.pop("_wanted")
     if not ids and not wanted:
-        if "niri" in app.state.owners and not dry_run and not app.from_hook:
+        if "niri" in app.state.owners and not dry_run and not app.event:
             app.remove_owner("niri")
             app.info("niri: no glass apps, rule removed")
+        elif "niri" in app.state.owners and not dry_run:
+            app.info("niri: no glass apps, rule left as is (appglass apply or remove "
+                     "takes it out)")
         return []
     cfg = config_path(app.env)
     ctx = app.ctx("niri")
@@ -297,7 +300,10 @@ def sync(app, dry_run=False, extra_ids=()):
     if changed and os.path.isfile(cfg):
         ok, out = validate(app.env, cfg)
         if ok is False:
-            app.remove_owner("niri")
+            # the rule this run wrote breaks the niri config: taken out again
+            # (the ring holds the files as they were), an event run too
+            with app.user_action():
+                app.remove_owner("niri")
             app.error("niri validate failed, rule removed again:\n%s" % out)
             return []
         if ok is None:

@@ -7,7 +7,17 @@ runs, the path units, the matugen post_hook and the vibrancy daemon.
 The checks are static: the plugin QML/JS is cut into handlers and
 functions and walked from every event root; the Python package is walked
 with ast from the event entry points. Each checker also runs on a planted
-violation, so a checker that finds nothing proves it can find something."""
+violation, so a checker that finds nothing proves it can find something.
+
+The static checks follow names and literal strings: a sink reached by a
+name built at run time (getattr(app, name) with name from a variable, an
+argv read from a file) is out of their reach. The runtime guard closes that
+part: main marks every run that is not a command the user typed as an
+event (App.event), and in an event run App._revert, App.remove_owner,
+App._drop_backup, State.destroy, cmd_remove, hook.remove and plugin.remove
+raise EventRemove whatever reached them (test_safety.EventGuard); only the
+user's own switch (App.user_action: glass off, a family switched off in the
+plugin) lifts it."""
 
 import ast
 import os
@@ -112,6 +122,21 @@ def _handler_body(text, j):
     return text[j:len(text) if e < 0 else e]
 
 
+_CONCAT = re.compile(r"""(["'`])([^"'`\\\n]*)\1\s*\+\s*(["'`])([^"'`\\\n]*)\3""")
+
+
+def _fold_concat(text):
+    """String literals joined with + made one literal ("re" + "move" is
+    "remove"), so the sink patterns see the word the program builds. A word
+    built from variables ("re" + x) is past a static check: the engine's
+    run-time guard (App.event) stops what this misses."""
+    while True:
+        new = _CONCAT.sub(lambda m: '"%s%s"' % (m.group(2), m.group(4)), text)
+        if new == text:
+            return text
+        text = new
+
+
 def qml_units(text, js=False):
     """(functions, roots): functions {name: (params, body)} and the event
     roots [(label, body)]: every on<Signal> handler, every function declared
@@ -119,7 +144,7 @@ def qml_units(text, js=False):
     file without its functions and handlers: every property binding and
     object, a Process's command among them, is evaluated when it loads; a
     .js library's top level (js) is data: its search keywords, its tables)."""
-    text = _strip_comments(text)
+    text = _fold_concat(_strip_comments(text))
     funcs, roots, spans = {}, [], []
     for m in FUNC.finditer(text):
         end = _block_end(text, m.end() - 1)
@@ -338,29 +363,32 @@ PY_ROOTS = [("core", "cmd_apply"), ("core", "cmd_apply_all"), ("core", "cmd_sync
 # of its `and` terms) that matches:
 #  - sync: the user's pause (settings enabled false; keeps the hook, checked
 #    by test_sync_removes_only_for_the_pause);
-#  - apply: a family the user switched off, never from the hook, and a family
-#    gone only when the user typed appglass apply (_user_removes);
-#  - commit: a file the owner no longer writes is reverted, never from the
-#    hook (the next apply or sync does it);
-#  - niri.sync: the rule with no glass app left, never from the hook; and the
-#    rule niri validate rejects (its own write taken back: S7, every failure
-#    ends opaque);
+#  - apply: a family the user switched off (in an event run: in this very
+#    sync), never from the hook, and a family gone only when the user typed
+#    appglass apply (_user_removes);
+#  - commit: a file the owner no longer writes is reverted, never in an
+#    event run (the record is kept, marked unplanned);
+#  - niri.sync: the rule with no glass app left, never in an event run; and
+#    the rule niri validate rejects (its own write taken back: S7, every
+#    failure ends opaque);
 #  - main: the remove commands the user typed (appglass remove, hook remove,
 #    plugin remove);
-#  - _unlock: the state dir of a run that ended with nothing owned.
+#  - _unlock: the state dir of a run, not an event, that ended with nothing
+#    owned.
 # A guard is a regex or a tuple of regexes that each match one guard term.
 GUARDED = {
     (("core", "cmd_sync"), ("core", "cmd_remove")): r"not .*\benabled\b.*",
-    (("core", "cmd_apply"), ("core", "App.remove_owner")): r"_user_removes\(app, why\)",
-    (("core", "App.commit"), ("core", "App._revert")): r"not self\.from_hook",
-    (("niri", "sync"), ("core", "App.remove_owner")): r"not app\.from_hook|ok is False",
+    (("core", "cmd_apply"), ("core", "App.remove_owner")): r"_user_removes\(app, why, name\)",
+    (("core", "App.commit"), ("core", "App._revert")): r"not self\.event",
+    (("niri", "sync"), ("core", "App.remove_owner")): r"not app\.event|ok is False",
     (("core", "main"), ("core", "cmd_remove")): r"args\.cmd == 'remove'",
     (("core", "main"), ("hook", "remove")): (
         r"args\.cmd == 'hook'", r"not \(args\.action == 'install'\)", r"not \(args\.dry_run\)"),
     (("core", "main"), ("plugin", "remove")): (
         r"args\.cmd == 'plugin'", r"not \(args\.action == 'install'\)"),
     (("core", "_unlock"), ("core", "State.destroy")): (
-        r"not \(st\.owners or st\.data\.get\('parked'\) or app\.keep_state_dir\)",),
+        r"not \(st\.owners or st\.data\.get\('parked'\) or app\.keep_state_dir\)",
+        r"not app\.event"),
 }
 
 
@@ -429,6 +457,56 @@ RUNNERS = re.compile(r"system|popen|Popen|run|call|check_call|check_output|getou
 PARSER_CALLS = ("add_parser", "add_argument")
 
 
+def _str_value(node):
+    """The string an expression of literals builds ("re" + "move",
+    "".join(["re", "move"])), else None."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        a, b = _str_value(node.left), _str_value(node.right)
+        return None if a is None or b is None else a + b
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "join" and len(node.args) == 1
+            and isinstance(node.args[0], (ast.List, ast.Tuple))):
+        sep = _str_value(node.func.value)
+        parts = [_str_value(e) for e in node.args[0].elts]
+        if sep is not None and None not in parts:
+            return sep.join(parts)
+    return None
+
+
+# what deletes a file or a dir by hand, not through a sink
+DELETES = {("shutil", "rmtree"), ("os", "remove"), ("os", "unlink"), ("os", "rmdir"),
+           ("os", "removedirs")}
+# the event-path functions allowed to delete, each for its own files only:
+DELETE_SITES = {
+    ("core", "App.commit"),        # a retired hand file (its backup kept for remove)
+    ("core", "App._drop_backup"),  # a backup no record names (after a user's revert)
+    ("core", "App._ring_entry"),   # ring entries past RING_KEEP, half-written ones
+    ("core", "_unlock"),           # its own lock and the dirs the lock made
+    ("core", "cmd_restore"),       # restore (typed): files the entry says were absent
+    ("core", "cmd_rescue"),        # adopt --rescue (typed): originals no file names,
+                                   # saved in its ring entry first
+    ("core", "doctor_drift"),      # a dangling plugin link, snapshotted first
+    ("shims", "build"),            # its own temporary build dir
+}
+
+
+def deletes(mods, nodes):
+    """Deletions by hand (os.remove, shutil.rmtree ..) in a function of
+    nodes outside DELETE_SITES: [(node, text)]."""
+    out = []
+    for m, q in sorted(nodes):
+        if m not in mods or (m, q) in DELETE_SITES:
+            continue
+        for node in ast.walk(_function(mods, m, q)):
+            f = getattr(node, "func", None)
+            if (isinstance(node, ast.Call) and isinstance(f, ast.Attribute)
+                    and isinstance(f.value, ast.Name) and (f.value.id, f.attr) in DELETES):
+                out.append(((m, q), ast.unparse(node)))
+    return out
+
+
 def remove_argv(mods, nodes):
     """In a function of nodes: a list or tuple literal holding "remove" (an
     argv for appglass remove, plugin remove or hook remove), a string that is
@@ -459,10 +537,11 @@ def remove_argv(mods, nodes):
             if id(node) in skip:
                 continue
             if isinstance(node, (ast.List, ast.Tuple)) and any(
-                    isinstance(e, ast.Constant) and e.value == "remove" for e in node.elts):
+                    _str_value(e) == "remove" for e in node.elts):
                 out.append(((m, q), ast.unparse(node)))
-            elif isinstance(node, ast.Constant) and node.value in SINK_NAMES:
-                out.append(((m, q), repr(node.value)))
+            elif (isinstance(node, (ast.Constant, ast.BinOp, ast.Call))
+                    and _str_value(node) in SINK_NAMES):
+                out.append(((m, q), repr(_str_value(node))))
             elif isinstance(node, ast.Call):
                 f = node.func
                 name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
@@ -483,7 +562,7 @@ def py_violations(sources=None):
     mods = _modules(sources)
     graph = call_graph(mods)
     seen = reach(graph, PY_ROOTS, allowed_edges(mods, graph))
-    return sorted(seen & PY_SINKS), remove_argv(mods, seen)
+    return sorted(seen & PY_SINKS), remove_argv(mods, seen) + deletes(mods, seen)
 
 
 def pause_calls_ok(mods):
@@ -610,11 +689,29 @@ class QmlInvariant(unittest.TestCase):
             teardown + '        Proc.runCommand("x", (root.bin + " remove").split(" "), null);\n',
             teardown + '        Quickshell.execDetached(["sh", "-c", root.bin + " remove"]);\n',
             teardown + '        const verb = "remove";\n        Proc.runCommand("x", [root.bin].concat(verb), null);\n',
+            # a remove word put together from literals
+            teardown + '        Proc.runCommand("x", Logic.cliArgv(root.bin, ["re" + "move"]), null);\n',
+            teardown + "        Proc.runCommand('x', [root.bin, 'rem' + 'ov' + 'e'], null);\n",
         )
         for plant in plants:
             with self.subTest(plant=plant):
                 hits = qml_violations(dict(src, **{path: body.replace(teardown, plant)}))
                 self.assertTrue([h for h in hits if h[0] == path], plant)
+
+    def test_checker_follows_a_logic_helper_that_builds_the_argv(self):
+        # logic.js with a helper that concatenates the remove word, called
+        # from the teardown: the helper's body is followed and folded
+        src = plugin_sources()
+        path = os.path.join("components", "DaemonBody.qml")
+        lpath = os.path.join("components", "logic.js")
+        teardown = "    Component.onDestruction: {\n"
+        helper = ('\nfunction wipeArgv(bin) {\n    return [bin, "re" + "move"];\n}\n')
+        planted = dict(src, **{
+            lpath: src[lpath] + helper,
+            path: src[path].replace(teardown, teardown
+                                    + '        Proc.runCommand("x", Logic.wipeArgv(root.bin), null);\n')})
+        hits = qml_violations(planted)
+        self.assertEqual([(p, r) for p, r, _ in hits], [(path, "Component.onDestruction")], hits)
 
 
 class PythonInvariant(unittest.TestCase):
@@ -678,6 +775,16 @@ class PythonInvariant(unittest.TestCase):
             ("vibrancy", "run", "a = 'remove'; subprocess.run([sys.argv[0], a])"),
             ("vibrancy", "run", "os.system('appglass remove')"),
             ("vibrancy", "run", "os.system('%s remove' % sys.argv[0])"),
+            # the remove word put together from literals
+            ("vibrancy", "run", "subprocess.run([sys.argv[0], 're' + 'move'])"),
+            ("core", "cmd_sync", "getattr(app, 'remove' + '_owner')('hook')"),
+            ("core", "cmd_sync", "subprocess.run([sys.argv[0], ''.join(['re', 'move'])])"),
+            # files or the state dir taken out by hand, not through a sink
+            ("core", "cmd_apply_all", "shutil.rmtree(app.env.state_dir)"),
+            ("core", "cmd_apply_all", "os.remove(app.state.path)"),
+            ("core", "cmd_apply_all",
+             "[os.remove(p) for o in app.state.owners.values() for p in o['files']]"),
+            ("core", "cmd_sync", "os.unlink(app.state.path)"),
         ]
         for mod, func, line in plants:
             with self.subTest(line=line):
@@ -695,12 +802,15 @@ class PythonInvariant(unittest.TestCase):
     def test_checker_catches_a_guard_taken_out(self):
         src = py_sources()
         for mod, old, new in (
-                ("core", "if not self.from_hook:", "if True:"),
-                ("core", "if name in app.state.owners and _user_removes(app, why):",
+                ("core", "if not self.event:", "if True:"),
+                ("core", "if name in app.state.owners and _user_removes(app, why, name):",
                  "if name in app.state.owners:"),
+                ("niri", 'if "niri" in app.state.owners and not dry_run and not app.event:',
+                 'if "niri" in app.state.owners and not dry_run:'),
                 ("core", 'elif args.cmd == "remove":', "elif True:"),
-                ("core", "if not (st.owners or st.data.get(\"parked\") or app.keep_state_dir) and (",
-                 "if (")):
+                ("core", "if not (st.owners or st.data.get(\"parked\") or app.keep_state_dir) "
+                 "and not app.event and (", "if not (st.owners or st.data.get(\"parked\") "
+                 "or app.keep_state_dir) and (")):
             with self.subTest(old=old):
                 self.assertTrue(old in src[mod], old)
                 sinks, _ = py_violations(dict(src, **{mod: src[mod].replace(old, new, 1)}))

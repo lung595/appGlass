@@ -53,6 +53,8 @@ def install(app, dry_run=False):
 
 def remove(app, dry_run=False):
     from .core import AppglassError
+    if not dry_run:
+        app.no_event("take the plugin link out")
     env, dst = app.env, target(app.env)
     if not os.path.lexists(dst):
         app.info("plugin: not installed (%s)" % env.tilde(dst))

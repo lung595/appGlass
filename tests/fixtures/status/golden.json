@@ -949,6 +949,38 @@
       "path": "~/.config/systemd/user/appglass-sync.service",
       "status": "absent",
       "what": "runs appglass-sync"
+    },
+    {
+      "adapter": "hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.config/systemd/user/appglass-vibrancy.service",
+      "status": "absent",
+      "what": "runs appglass-vibrancy (the Alacritty inactive fade)"
+    },
+    {
+      "adapter": "hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.config/systemd/user/appglass-discord.path",
+      "status": "absent",
+      "what": "watches ~/.config/discord"
+    },
+    {
+      "adapter": "hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.config/systemd/user/appglass-discord.service",
+      "status": "absent",
+      "what": "runs appglass-sync --discord"
+    },
+    {
+      "adapter": "hook",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/bin/appglass-vibrancy",
+      "status": "absent",
+      "what": "the vibrancy daemon wrapper"
     }
   ],
   "inactive": {

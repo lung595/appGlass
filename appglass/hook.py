@@ -200,13 +200,27 @@ def unit_render(name):
         return f.read()
 
 
-def plan(app, ctx=None):
+def opted_out(app):
+    """The user took the hook section out of the matugen config (the file
+    is there, recorded, and holds no BEGIN line)."""
+    p = config_path(app.env)
+    if not installed(app) or not os.path.isfile(p):
+        return False
+    with open(p, "rb") as f:
+        return BEGIN.encode() not in f.read()
+
+
+def plan(app, ctx=None, keep_optout=False):
     """What hook install writes, planned in a ctx (doctor compares it with
-    the disk). Raises Conflict for a hand-made unit or script."""
+    the disk). Raises Conflict for a hand-made unit or script. keep_optout
+    (doctor): a section the user took out stays out."""
     env = app.env
     ctx = ctx or app.ctx("hook")
     block = section(env)
-    ctx.edit_text(config_path(env), lambda t: add(t, block), undo=strip)
+    if keep_optout and opted_out(app):
+        ctx.edit_text(config_path(env), lambda t: t, undo=strip)
+    else:
+        ctx.edit_text(config_path(env), lambda t: add(t, block), undo=strip)
     for n in UNITS:
         ctx.write_owned(unit_path(env, n), unit_render(n), mode=0o644)
     ctx.write_owned(sync_path(env), sync_shim(env), mode=0o755)
@@ -214,7 +228,7 @@ def plan(app, ctx=None):
     return ctx
 
 
-def install(app, dry_run=False):
+def install(app, dry_run=False, keep_optout=False):
     from .core import refuse_orphans
     env = app.env
     refuse_orphans(app)
@@ -223,7 +237,7 @@ def install(app, dry_run=False):
             app.error("hook: %s is missing" % p)
             return
     try:
-        ctx = plan(app)
+        ctx = plan(app, keep_optout=keep_optout)
     except Conflict as ex:
         app.error("hook: %s (appglass adopt takes the hand-made sync files over)" % ex)
         return
@@ -270,6 +284,7 @@ def install(app, dry_run=False):
 
 def remove(app):
     from .core import refuse_orphans
+    app.no_event("remove the hook")
     env = app.env
     refuse_orphans(app)
     out = output_path(env)

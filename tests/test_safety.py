@@ -159,6 +159,26 @@ class Ring(Base):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.sb.readb(self.state_json), states, "the newest entry put back")
 
+    def test_ring_order_is_a_sequence_not_the_clock(self):
+        # eleven entries in the same microsecond (or a clock that stands
+        # still): the newest is still the one restore puts back, and pruning
+        # drops the oldest
+        from unittest import mock
+        with mock.patch("appglass.core.time.time", return_value=1.0e9):
+            for i in range(12):
+                self.sb.set_level(0.5 if i % 2 else 0.6)
+                if i == 11:
+                    states = self.sb.readb(self.state_json)
+                self.apply()
+            names = core.ring_entries(self.env)
+            self.assertEqual(len(names), 5, names)
+            seqs = [self.manifest(n)["seq"] for n in names]
+            self.assertEqual(seqs, sorted(seqs))
+            self.assertEqual(seqs, list(range(seqs[-1] - 4, seqs[-1] + 1)))
+        code, out, err = self.sb.run("restore")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.readb(self.state_json), states, "the newest entry put back")
+
     def test_a_dropped_backup_goes_into_the_ring(self):
         # remove --only drops the backup of alacritty.toml: restoring the
         # state before it must find that backup again
@@ -183,7 +203,7 @@ class Ring(Base):
 
 
 class Refusal(Base):
-    HINT = ("appglass doctor", "appglass restore")
+    HINT = ("appglass doctor", "appglass restore", "appglass adopt --rescue")
 
     def assertHint(self, err):
         for h in self.HINT:
@@ -225,7 +245,10 @@ class Refusal(Base):
         os.remove(self.state_json)
         code, out, err = self.apply(ok=False)
         self.assertNotEqual(code, 0)
-        self.assertIn("appglass-vibrancy.service", err)
+        # the units are hand files too (a hand copy of the repo unit is the
+        # same bytes); the wrappers hook install writes carry its marker
+        self.assertIn(self.env.tilde(hook.vibrancy_path(self.env)), err)
+        self.assertIn(self.env.tilde(hook.config_path(self.env)), err)
 
     def test_unreadable_state_gives_the_hint(self):
         self.apply()
@@ -753,6 +776,34 @@ class DoctorRound2(Base):
         self.assertEqual(code, 0, out + err)
         self.assertEqual(self.sb.readb(self.owned() + ".appglass-changed"), hand)
 
+    def test_fix_never_overwrites_a_saved_aside_version(self):
+        self.apply()
+        aside = self.owned() + ".appglass-changed"
+        with open(aside, "wb") as f:
+            f.write(b"older\n")
+        with open(self.owned(), "a") as f:
+            f.write("# hand\n")
+        hand = self.sb.readb(self.owned())
+        code, out, err = self.doctor("--fix")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.readb(aside), b"older\n")
+        self.assertEqual(self.sb.readb(aside + ".1"), hand)
+
+    def test_fix_leaves_out_a_hook_section_the_user_took_out(self):
+        code, out, err = self.sb.run("hook", "install")
+        self.assertEqual(code, 0, err)
+        cfg = hook.config_path(self.env)
+        text = hook.strip(self.sb.read(cfg))
+        with open(cfg, "w") as f:
+            f.write(text)
+        code, out, err = self.doctor()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(self.env.tilde(cfg), out)
+        code, out, err = self.doctor("--fix")
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("yours to decide", out)
+        self.assertEqual(self.sb.read(cfg), text)
+
     def test_relink_snapshots_the_link(self):
         self.apply()
         dst = plugin.target(self.env)
@@ -765,6 +816,206 @@ class DoctorRound2(Base):
         self.assertEqual(rec, {"link": gone})
 
 
+class HandHookFiles(Base):
+    """The hook's files made by hand before appglass (the vibrancy and
+    discord units, the vibrancy wrapper) are hand files, not appglass files
+    whose record is gone."""
+
+    UNITS = (hook.VIBRANCY_UNIT, "appglass-discord.path", "appglass-discord.service")
+
+    def hand(self):
+        paths = []
+        for n in self.UNITS:
+            p = self.sb.cfg("systemd", "user", n)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            shutil.copyfile(os.path.join(REPO, "shims", "sync", n), p)
+            paths.append(p)
+        p = os.path.join(self.sb.home, ".local", "bin", "appglass-vibrancy")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write("#!/bin/sh\nAPPGLASS_HAND=1 exec ~/.local/bin/appglass-sync vibrancy\n")
+        return paths + [p]
+
+    def test_a_fresh_install_with_hand_made_hook_files_applies(self):
+        paths = self.hand()
+        data = {p: self.sb.readb(p) for p in paths}
+        code, out, err = self.apply()
+        self.assertNotIn("state.json is missing", err)
+        code, out, err = self.sb.run("status", "--json")
+        self.assertEqual(code, 0, err)
+        st = {h["path"]: h["status"] for h in json.loads(out)["hand_files"]}
+        for p in paths:
+            self.assertEqual(st[self.env.tilde(p)], "conflict", p)
+            self.assertEqual(self.sb.readb(p), data[p])
+
+    def test_doctor_names_an_adopt_that_runs(self):
+        p = self.sb.cfg("systemd", "user", hook.VIBRANCY_UNIT)
+        os.makedirs(os.path.dirname(p))
+        with open(p, "w") as f:
+            f.write("[Service]\nExecStart=%h/.local/bin/appglass-vibrancy\n")
+        code, out, err = self.sb.run("doctor")
+        self.assertEqual(code, 1, out + err)
+        cmd = "appglass adopt %s" % self.env.tilde(p)
+        self.assertIn(cmd, out)
+        code, out, err = self.sb.run(*cmd.split()[1:])
+        self.assertEqual(code, 0, out + err)
+        with open(self.state_json) as f:
+            self.assertIn(p, json.load(f)["owners"]["hook"]["files"])
+        code, out, err = self.sb.run("doctor")
+        self.assertEqual(code, 0, out + err)
+
+
+class EventGuard(Base):
+    """S6 at run time: a run that is an event (the plugin's sync, the hook,
+    the path units, doctor, status) cannot revert, remove or forget a file;
+    only a command the user typed, or the user's own switch, does."""
+
+    def test_an_event_run_cannot_revert_remove_or_forget(self):
+        self.apply()
+        data = self.sb.readb(self.owned())
+        app = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+        app.event = True
+        rec = app.state.owners["alacritty"]["files"][self.owned()]
+        for name, fn in (
+                ("remove_owner", lambda: app.remove_owner("alacritty")),
+                ("_revert", lambda: app._revert("alacritty", self.owned(), rec)),
+                ("cmd_remove", lambda: core.cmd_remove(app)),
+                ("cmd_remove only", lambda: core.cmd_remove(app, "alacritty")),
+                ("State.destroy", lambda: app.state.destroy()),
+                ("hook.remove", lambda: hook.remove(app)),
+                ("plugin.remove", lambda: plugin.remove(app))):
+            with self.subTest(name):
+                with self.assertRaises(core.EventRemove):
+                    fn()
+        self.assertEqual(self.sb.readb(self.owned()), data)
+        with open(self.state_json) as f:
+            self.assertIn(self.owned(), json.load(f)["owners"]["alacritty"]["files"])
+        # the user's own switch, inside an event run, is not an event
+        with app.user_action():
+            self.assertTrue(app.remove_owner("alacritty"))
+        self.assertFalse(os.path.exists(self.owned()))
+        self.assertTrue(app.event)
+
+    def test_which_runs_are_events(self):
+        from unittest import mock
+        seen = {}
+
+        def spy(name, rc=None):
+            def f(app, *a, **kw):
+                seen[name] = app.event
+                return rc
+            return f
+        self.apply()
+        p = self.sync_file()
+        runs = (
+            (("sync", "--settings-file", p), "cmd_sync", True),
+            (("apply", "--from-hook"), "cmd_apply", True),
+            (("doctor",), "cmd_doctor", True),
+            (("doctor", "--fix"), "cmd_doctor", True),
+            (("status",), "cmd_status", True),
+            (("apply", "--only", "alacritty"), "cmd_apply", False),
+            (("apply", "--all"), "cmd_apply_all", False),
+            (("remove",), "cmd_remove", False),
+            (("set", "fallback.mode", "off"), "cmd_set", False),
+            (("adopt",), "cmd_adopt", False),
+            (("restore",), "cmd_restore", False),
+        )
+        for argv, fn, event in runs:
+            with self.subTest(argv=argv):
+                seen.clear()
+                with mock.patch.object(core, fn, spy(fn, 0)):
+                    code, out, err = self.sb.run(*argv, assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(seen, {fn: event})
+
+    def test_a_sync_that_switches_a_family_off_removes_it(self):
+        self.apply()
+        code, out, err = self.sb.run("get")
+        obj = json.loads(out)
+        obj.setdefault("apps", {})["alacritty"] = {"enabled": False}
+        p = self.sb.path("plugin-settings.json")
+        with open(p, "w") as f:
+            json.dump(obj, f)
+        code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertIn("alacritty: off in settings, files removed", out)
+        self.assertFalse(os.path.exists(self.owned()))
+        # the same settings again: nothing switched, nothing to remove
+        code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
+        self.assertEqual(code, 0, err)
+
+
+class Rescue(Base):
+    """adopt --rescue: state.json and the ring both gone, the appglass files
+    still on disk. It saves them into a new ring entry, then records them
+    again: the files appglass wrote as its own (remove deletes them), the
+    files it edited with their originals (its lines taken out)."""
+
+    def test_rescue_after_the_whole_state_dir_is_gone(self):
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        cfg = self.sb.cfg("niri", "config.kdl")
+        before = {p: self.sb.read(p) for p in (main, cfg)}
+        self.apply()
+        code, out, err = self.sb.run("hook", "install")
+        self.assertEqual(code, 0, err)
+        mat = hook.config_path(self.env)
+        shutil.rmtree(self.state_dir)           # state.json, backup/ and the ring
+        code, out, err = self.apply(ok=False)
+        self.assertNotEqual(code, 0)
+        self.assertIn("appglass adopt --rescue", err)
+        self.assertIn("appglass restore", err)
+        marked = {p: self.sb.readb(p) for p in (self.owned(), main, cfg, mat)}
+        code, out, err = self.sb.run("adopt", "--rescue", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        # every marked file went into a new ring entry first
+        ents = self.entries()
+        self.assertEqual(len(ents), 1, ents)
+        files = self.manifest(ents[0])["files"]
+        for p, data in marked.items():
+            self.assertIn(p, files)
+            with open(os.path.join(self.ring, ents[0], files[p]["blob"]), "rb") as f:
+                self.assertEqual(f.read(), data)
+        self.apply()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        for p, text in before.items():
+            self.assertEqual(self.sb.read(p), text, p)
+        self.assertFalse(os.path.exists(self.owned()))
+        self.assertFalse(os.path.exists(mat) and hook.BEGIN in self.sb.read(mat))
+        for dp, dns, fns in os.walk(self.sb.root):
+            for fn in fns:
+                q = os.path.join(dp, fn)
+                if os.path.islink(q):
+                    continue
+                data = self.sb.readb(q)
+                self.assertFalse(core.MARK.search(data), q)
+                self.assertNotIn(b'"appglass.kdl"', data, q)
+                self.assertNotIn(core.ADOPTED_MARK, data, q)
+
+    def test_rescue_over_an_unreadable_state(self):
+        self.apply()
+        with open(self.state_json, "w") as f:
+            f.write("{garbage")
+        code, out, err = self.apply(ok=False)
+        self.assertIn("appglass adopt --rescue", err)
+        code, out, err = self.sb.run("adopt", "--rescue", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        # the unreadable state.json is kept in the new ring entry
+        ent = self.entries()[-1]
+        with open(os.path.join(self.ring, ent, "state.json")) as f:
+            self.assertEqual(f.read(), "{garbage")
+        self.apply()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(self.owned()))
+
+    def test_rescue_needs_a_lost_state(self):
+        self.apply()
+        code, out, err = self.sb.run("adopt", "--rescue", assume="alacritty")
+        self.assertNotEqual(code, 0)
+        self.assertIn("nothing to rescue", err)
+
+
 class Hints(Base):
     def test_the_hint_names_only_what_works(self):
         self.apply()
@@ -772,6 +1023,7 @@ class Hints(Base):
         code, out, err = self.apply(ok=False)
         self.assertNotIn("appglass adopt <file>", err)
         self.assertIn("appglass doctor", err)
+        self.assertIn("appglass adopt --rescue", err)
         code, out, err = self.sb.run("adopt", self.owned())
         self.assertNotEqual(code, 0)
 

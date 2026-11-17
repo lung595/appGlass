@@ -448,6 +448,49 @@ class Obsidian(unittest.TestCase):
         self.assertFalse(os.path.exists(self.snippet_path()))
         self.assertEqual(self.sb.read(self.appearance_path()), APPEARANCE)
 
+    def sync(self):
+        code, out, err = self.sb.run("get")
+        self.assertEqual(code, 0, err)
+        p = os.path.join(self.tmp_settings, "plugin-settings.json")
+        with open(p, "w") as f:
+            f.write(out)
+        code, out, err = self.sb.run("sync", "--settings-file", p, assume="obsidian")
+        self.assertEqual(code, 0, out + err)
+        return out + err
+
+    def test_a_vault_gone_for_a_while_keeps_its_records(self):
+        # two vaults, B on a drive that is not mounted at the plugin's next
+        # sync: the sync (an event) keeps B's records and touches nothing;
+        # with B back, remove gives both vaults back byte-identical
+        self.tmp_settings = tempfile.mkdtemp(prefix="appglass-obs-")
+        self.addCleanup(shutil.rmtree, self.tmp_settings, True)
+        b = os.path.join(self.sb.home, "Drive", "VaultB")
+        self.sb.write("b.md", "# b\n", base=b)
+        self.sb.write(os.path.join(".obsidian", "appearance.json"), APPEARANCE, base=b)
+        self.obsidian_json([self.vault, b])
+        before = self.sb.tree_hash()
+        self.sync()
+        self.assertTrue(os.path.isfile(self.snippet_path(b)))
+        self.assertIn('"appglass"', self.sb.read(self.appearance_path(b)))
+        recs = sorted(json.loads(self.sb.read(os.path.join(
+            self.sb.state, "appglass", "state.json")))["owners"]["obsidian"]["files"])
+        away = b + ".unmounted"
+        os.rename(b, away)                      # the drive goes
+        out = self.sync()
+        self.assertNotIn("left deleted", out)
+        st = json.loads(self.sb.read(os.path.join(self.sb.state, "appglass", "state.json")))
+        self.assertEqual(sorted(st["owners"]["obsidian"]["files"]), recs)
+        # doctor does not take the kept records for drift to re-render
+        code, out, err = self.sb.run("doctor")
+        self.assertNotIn("VaultB", out + err)
+        os.rename(away, b)                      # and comes back
+        self.sync()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.read(self.appearance_path(b)), APPEARANCE)
+        self.assertFalse(os.path.exists(self.snippet_path(b)))
+        self.assertEqual(self.sb.tree_hash(), before)
+
     def test_vault_outside_sandbox_refused(self):
         outside = os.path.realpath(tempfile.mkdtemp(prefix="appglass-outside-"))
         try:

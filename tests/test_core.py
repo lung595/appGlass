@@ -688,11 +688,12 @@ class Writes(unittest.TestCase):
         self.assertEqual(self.sb.read(p + ".appglass-changed"), "line\nours\nuser\n")
         self.assertTrue(err)
 
-    def test_a_saved_aside_version_is_not_overwritten_blind(self):
+    def test_a_saved_aside_version_is_never_overwritten(self):
         # an earlier .appglass-changed (the user's version from a previous
-        # remove) goes into the ring before the new one replaces it
+        # remove) stays; the new one takes the next free number
         p = self.sb.write("app/conf", "line\n")
         older = self.sb.write("app/conf.appglass-changed", "older\n")
+        self.sb.write("app/conf.appglass-changed.1", "older 1\n")
         app = self._app()
         ctx = app.ctx("t")
         ctx.edit_text(p, lambda t: t + "ours\n")
@@ -700,13 +701,13 @@ class Writes(unittest.TestCase):
         with open(p, "a") as f:
             f.write("user\n")
         app = self._app()
-        app.warn = lambda m: None
+        err = []
+        app.warn = err.append
         app.remove_owner("t")
-        self.assertEqual(self.sb.read(older), "line\nours\nuser\n")
-        with open(os.path.join(app.ring_entry, "manifest.json")) as f:
-            rec = json.load(f)["files"][older]
-        with open(os.path.join(app.ring_entry, rec["blob"])) as f:
-            self.assertEqual(f.read(), "older\n")
+        self.assertEqual(self.sb.read(older), "older\n")
+        self.assertEqual(self.sb.read(older + ".1"), "older 1\n")
+        self.assertEqual(self.sb.read(older + ".2"), "line\nours\nuser\n")
+        self.assertIn("conf.appglass-changed.2", "".join(err))
         app.finish()
 
     def test_non_utf8_is_conflict(self):
