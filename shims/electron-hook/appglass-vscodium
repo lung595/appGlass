@@ -1,0 +1,82 @@
+#!/usr/bin/sh
+# appglass-vscodium: start the VSCodium flatpak with a glass window.
+# VSCodium is started through its normal flatpak command with --verbose (without it the codium CLI
+# detaches the main process and its stderr) and a Node inspector on 127.0.0.1, a random port and
+# --inspect-publish-uid=stderr: the inspector target is NOT listed over HTTP, so a client needs the
+# random session UUID printed on the app's stderr, which only this wrapper reads (a 0700 dir in a
+# private XDG_RUNTIME_DIR, else no inspector at all; the log is deleted after the injection attempt,
+# whatever its result). The port stays open while VSCodium runs (Electron cannot close it).
+# agl-inject.py requires agl-hook.js in the main process (clear window background + glass CSS from
+# AGL_CSS). CSS generated at launch from DMS colours + levels. The canvas-painted parts (minimap,
+# overview ruler, current line, terminal) take their colours from the settings.json block appglass apply
+# wrote. Every start without glass logs its reason on stderr.
+# No flatpak override: the read-only --filesystem below is for this run only.
+# Undo: rm ~/.local/bin/appglass-vscodium ~/.local/share/applications/com.vscodium.codium.desktop
+#       rm -r ~/.local/lib/appglass/vscodium
+set -u
+LIB="$HOME/.local/lib/appglass/vscodium"
+ID=com.vscodium.codium
+COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
+FP=/usr/bin/flatpak
+[ -n "${APPGLASS_SANDBOX:-}" ] && [ -n "${APPGLASS_FLATPAK:-}" ] && FP=$APPGLASS_FLATPAK  # tests only
+RUNARGS="--branch=stable --arch=x86_64 --command=$ID"
+# every start without glass says why on stderr (the journal of the launching session)
+say() { echo "appglass-vscodium: $*" >&2; }
+plain() { say "$1, running without glass"; shift; exec "$FP" run $RUNARGS "$ID" "$@"; }
+# a directory only we can write to (not a link): the inspector UUID is a secret
+private_dir() {
+    [ -n "$1" ] && [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] || return 1
+    case $(stat -c %a "$1" 2>/dev/null || echo 2) in *[2367] | *[2367]?) return 1 ;; esac
+}
+# already running: VSCodium hands a second start to the running instance
+"$FP" ps --columns=application 2>/dev/null | grep -qx "$ID" &&
+    plain "VSCodium already runs (a second start goes to it)" "$@"
+[ -f "$LIB/agl-hook.js" ] && [ -f "$LIB/agl-inject.py" ] || plain "agl-hook.js or agl-inject.py missing" "$@"
+lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
+[ -n "$lv" ] || lv='{"content":0.6,"bar_over_content":0.125}'
+c=$(printf '%s' "$lv" | jq -r '.content')
+b=$(printf '%s' "$lv" | jq -r '.bar_over_content')
+mode=$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null) || mode=dark
+rgb() {  # DMS colour key -> "r, g, b"
+    h=$(jq -r --arg m "$mode" --arg k "$1" '.colors[$m][$k] // empty' "$COLORS" 2>/dev/null | tr -d '#')
+    printf '%s' "$h" | grep -qxE '[0-9a-fA-F]{6}' || h=$2   # nothing else reaches sed
+    printf '%d, %d, %d' "0x$(echo $h | cut -c1-2)" "0x$(echo $h | cut -c3-4)" "0x$(echo $h | cut -c5-6)"
+}
+css="$LIB/vscode-glass.css"
+sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" \
+    -e "s/{{surface}}/$(rgb surface 101418)/g" -e "s/{{surface_container}}/$(rgb surface_container 1e2226)/g" \
+    -e "s/{{surface_container_high}}/$(rgb surface_container_high 282c30)/g" \
+    "$LIB/vscode-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css" || plain "cannot write $css" "$@"
+# no /tmp fallback: without a private runtime dir VSCodium runs without glass
+private_dir "${XDG_RUNTIME_DIR:-}" || plain "no private XDG_RUNTIME_DIR" "$@"
+RUN="$XDG_RUNTIME_DIR/appglass"
+[ -e "$RUN" ] || mkdir -m 700 "$RUN" 2>/dev/null
+private_dir "$RUN" || plain "$RUN is not a private dir" "$@"
+# --verbose logs a lot: the app's output goes through a fifo to a reader that keeps only the
+# inspector url (in the 0700 dir) and drops the rest, so nothing grows while VSCodium runs
+fifo="$RUN/vscodium.fifo"; out="$RUN/vscodium.url"; rm -f "$fifo" "$out"
+mkfifo -m 600 "$fifo" || plain "cannot make $fifo" "$@"
+{ grep -m 1 -oE 'ws://127\.0\.0\.1:[0-9]+/[0-9a-f-]+' > "$out"; cat > /dev/null; } < "$fifo" &
+"$FP" run $RUNARGS --filesystem="$LIB:ro" --env=AGL_CSS="$css" \
+    "$ID" --verbose --inspect=127.0.0.1:0 --inspect-publish-uid=stderr "$@" >"$fifo" 2>&1 &
+pid=$!
+i=0; url=''
+while [ $i -lt 150 ] && kill -0 $pid 2>/dev/null; do
+    url=$(head -n 1 "$out" 2>/dev/null)
+    [ -n "$url" ] && break
+    sleep 0.2; i=$((i + 1))
+done
+rm -f "$fifo"
+if [ -n "$url" ]; then
+    say "inspector url after $((i / 5)).$((i % 5 * 2))s"
+    # the hook answers "ok true" once it is installed in the Electron main process
+    r=$(python3 -I "$LIB/agl-inject.py" "$url" "$LIB/agl-hook.js" 2>&1) || r="failed: $r"
+    case $r in *'ok true'*) say "glass hook installed" ;;
+        *) say "injection failed, running without glass: $(printf '%s' "$r" | tail -n 1 | cut -c1-200)" ;; esac
+elif kill -0 $pid 2>/dev/null; then
+    say "no inspector url after 30s, running without glass"
+else
+    say "VSCodium exited before its inspector url, running without glass"
+fi
+rm -f "$out"   # drop the session UUID either way
+wait $pid

@@ -18,8 +18,9 @@
 //                          Gaps that sit on ~1000 ms during an animation mean the compositor is only sending
 //                          throttled frame callbacks (it treats the window as not visible).
 //
-//   [APPGLASS_SCRUB="VAR VAR"] children started with exec*/posix_spawn*/pidfd_spawn* lose the shim, APPGLASS_* and VAR
-//   (VAR gets the value of APPGLASS_ORIG_VAR back when that is set).
+//   [APPGLASS_SCRUB="VAR VAR"] children started with exec*/fexecve/posix_spawn*/pidfd_spawn*/system/popen lose
+//                          the shim, APPGLASS_* and VAR (VAR gets the value of APPGLASS_ORIG_VAR back when
+//                          that is set).
 //
 // The EGL surface must have an alpha channel (check the wl_buffer format: AR24
 // works, XR24 does not). Hooks are reached through the PLT, through dlsym()
@@ -398,9 +399,17 @@ static int is_self(const char *f) {
     struct stat a, b; if (!f || !strchr(f, '/')) return 0;
     return !stat(f, &a) && !stat("/proc/self/exe", &b) && a.st_dev == b.st_dev && a.st_ino == b.st_ino;
 }
+/* APPGLASS_KEEP="/abs/path ...": the app binary a wrapper script execs (flatpak /app/bin/subl ->
+ * /app/extra/sublime_text/sublime_text). That exec keeps the shim; it is the app, not a child. */
+static int is_kept(const char *f) {
+    const char *l = getenv("APPGLASS_KEEP"); if (!f || f[0] != '/' || !l) return 0;
+    size_t n = strlen(f); const char *p = l;
+    while (*p) { while (*p == ' ') p++; size_t m = strcspn(p, " "); if (m == n && !strncmp(p, f, n)) return 1; p += m; }
+    return 0;
+}
 static size_t envc(char *const *e) { size_t n = 0; while (e && e[n]) n++; return n + 1; }
-#define SCRUBBED(envp, name) if (dbg()) { static const char m[] = "[appglass-ck] exec/spawn: "; write(2, m, sizeof m - 1); write(2, f, strlen(f)); { const char *w = is_self(f) ? " (self)" : " (other)"; write(2, w, strlen(w)); } for (size_t q = 0; envp && envp[q]; q++) if (!strncmp(envp[q], "LD_PRELOAD=", 11) || !strncmp(envp[q], "WGPU_", 5) || !strncmp(envp[q], "APPGLASS_SCRUB", 14)) { write(2, " ", 1); write(2, envp[q], strcspn(envp[q], "=")); } write(2, "\n", 1); } size_t name##_n = envc(envp); char *name##_v[name##_n]; char name##_ld[4096]; \
-    char *const *name = !scrub_on() || is_self(f) ? envp : scrub(envp, name##_v, name##_n, name##_ld, sizeof name##_ld)
+#define SCRUBBED(envp, name) if (dbg()) { static const char m[] = "[appglass-ck] exec/spawn: "; write(2, m, sizeof m - 1); write(2, f, strlen(f)); { const char *w = is_self(f) ? " (self)" : is_kept(f) ? " (kept)" : " (other)"; write(2, w, strlen(w)); } for (size_t q = 0; envp && envp[q]; q++) if (!strncmp(envp[q], "LD_PRELOAD=", 11) || !strncmp(envp[q], "WGPU_", 5) || !strncmp(envp[q], "APPGLASS_SCRUB", 14)) { write(2, " ", 1); write(2, envp[q], strcspn(envp[q], "=")); } write(2, "\n", 1); } size_t name##_n = envc(envp); char *name##_v[name##_n]; char name##_ld[4096]; \
+    char *const *name = !scrub_on() || is_self(f) || is_kept(f) ? envp : scrub(envp, name##_v, name##_n, name##_ld, sizeof name##_ld)
 typedef int (*execve_fn)(const char *, char *const[], char *const[]);
 int execve(const char *f, char *const a[], char *const e[]) {
     static execve_fn r; if (!r) r = (execve_fn)real_dlsym(RTLD_NEXT, "execve"); SCRUBBED(e, ne); return r(f, a, ne);
@@ -427,4 +436,85 @@ int pidfd_spawn(int *p, const char *f, const posix_spawn_file_actions_t *fa, con
 int pidfd_spawnp(int *p, const char *f, const posix_spawn_file_actions_t *fa, const posix_spawnattr_t *at, char *const a[], char *const e[]) {
     static pidfd_spawn_fn r; if (!r) r = (pidfd_spawn_fn)real_dlsym(RTLD_NEXT, "pidfd_spawnp"); if (!r) return ENOSYS;
     SCRUBBED(e, ne); return r(p, f, fa, at, a, ne);
+}
+
+/* glibc's execl*, fexecve, system and popen reach the kernel through its internal __execve and
+ * __posix_spawn, past the hooks above. The execl family is rebuilt on the hooked execve/execvp;
+ * with the scrub on, system/popen are reimplemented on the hooked posix_spawn of /bin/sh. */
+#include <stdarg.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#define LARGS(a0, argv, then) va_list ap; size_t n = 1; va_start(ap, a0); while (va_arg(ap, char *)) n++; va_end(ap); \
+    char *argv[n + 1]; argv[0] = (char *)a0; va_start(ap, a0); for (size_t i = 1; i <= n; i++) argv[i] = va_arg(ap, char *); then; va_end(ap)
+int execl(const char *f, const char *a0, ...) { LARGS(a0, v, (void)0); return execve(f, v, environ); }
+int execlp(const char *f, const char *a0, ...) { LARGS(a0, v, (void)0); return execvp(f, v); }
+int execle(const char *f, const char *a0, ...) {
+    char *const *e; LARGS(a0, v, e = va_arg(ap, char *const *)); return execve(f, v, e);
+}
+int fexecve(int fd, char *const a[], char *const e[]) {
+    static int (*r)(int, char *const[], char *const[]); if (!r) r = (int (*)(int, char *const[], char *const[]))real_dlsym(RTLD_NEXT, "fexecve");
+    char f[32]; snprintf(f, sizeof f, "/proc/self/fd/%d", fd); SCRUBBED(e, ne); return r(fd, a, ne);
+}
+static int wait_child(pid_t pid) {
+    int st; pid_t w; do w = waitpid(pid, &st, 0); while (w < 0 && errno == EINTR);
+    return w < 0 ? -1 : st;
+}
+int system(const char *cmd) {
+    static int (*r)(const char *); if (!r) r = (int (*)(const char *))real_dlsym(RTLD_NEXT, "system");
+    if (!cmd || !scrub_on()) return r(cmd);
+    /* as POSIX system(): the caller ignores SIGINT/SIGQUIT and blocks SIGCHLD while the shell runs */
+    struct sigaction ign = { .sa_handler = SIG_IGN }, oint, oquit; sigemptyset(&ign.sa_mask);
+    sigset_t chld, omask, def; sigemptyset(&chld); sigaddset(&chld, SIGCHLD); sigemptyset(&def);
+    sigprocmask(SIG_BLOCK, &chld, &omask);
+    sigaction(SIGINT, &ign, &oint); sigaction(SIGQUIT, &ign, &oquit);
+    if (oint.sa_handler != SIG_IGN) sigaddset(&def, SIGINT);
+    if (oquit.sa_handler != SIG_IGN) sigaddset(&def, SIGQUIT);
+    posix_spawnattr_t at; posix_spawnattr_init(&at);
+    posix_spawnattr_setsigdefault(&at, &def); posix_spawnattr_setsigmask(&at, &omask);
+    posix_spawnattr_setflags(&at, POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK);
+    char *argv[] = {"sh", "-c", (char *)cmd, NULL}; pid_t pid;
+    int st = posix_spawn(&pid, "/bin/sh", NULL, &at, argv, environ) ? 127 << 8 : wait_child(pid);
+    posix_spawnattr_destroy(&at);
+    sigaction(SIGINT, &oint, NULL); sigaction(SIGQUIT, &oquit, NULL); sigprocmask(SIG_SETMASK, &omask, NULL);
+    return st;
+}
+static struct { FILE *f; pid_t pid; } popened[256];
+static pthread_mutex_t popen_mu = PTHREAD_MUTEX_INITIALIZER;
+FILE *popen(const char *cmd, const char *mode) {
+    static FILE *(*r)(const char *, const char *); if (!r) r = (FILE *(*)(const char *, const char *))real_dlsym(RTLD_NEXT, "popen");
+    if (!scrub_on()) return r(cmd, mode);
+    int rd = 0, wr = 0, ce = 0;
+    for (const char *m = mode; m && *m; m++) { if (*m == 'r') rd = 1; else if (*m == 'w') wr = 1; else if (*m == 'e') ce = 1; }
+    if (rd == wr || !cmd) { errno = EINVAL; return NULL; }
+    pthread_mutex_lock(&popen_mu);
+    size_t slot = 0; while (slot < sizeof popened / sizeof *popened && popened[slot].f) slot++;
+    FILE *out = NULL; int fd[2];
+    if (slot == sizeof popened / sizeof *popened) { errno = EMFILE; goto done; }
+    if (pipe2(fd, O_CLOEXEC)) goto done;
+    int mine = rd ? fd[0] : fd[1], theirs = rd ? fd[1] : fd[0];
+    posix_spawn_file_actions_t fa; posix_spawn_file_actions_init(&fa);
+    /* POSIX: the child does not keep the streams of earlier popen() calls */
+    for (size_t i = 0; i < sizeof popened / sizeof *popened; i++)
+        if (popened[i].f) posix_spawn_file_actions_addclose(&fa, fileno(popened[i].f));
+    posix_spawn_file_actions_adddup2(&fa, theirs, rd ? 1 : 0);
+    char *argv[] = {"sh", "-c", (char *)cmd, NULL}; pid_t pid;
+    int e = posix_spawn(&pid, "/bin/sh", &fa, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&fa); close(theirs);
+    if (e) { close(mine); errno = e; goto done; }
+    if (!ce) fcntl(mine, F_SETFD, 0);
+    if (!(out = fdopen(mine, rd ? "r" : "w"))) { int s = errno; close(mine); wait_child(pid); errno = s; goto done; }
+    popened[slot].f = out; popened[slot].pid = pid;
+done:
+    pthread_mutex_unlock(&popen_mu); return out;
+}
+int pclose(FILE *f) {
+    static int (*r)(FILE *); if (!r) r = (int (*)(FILE *))real_dlsym(RTLD_NEXT, "pclose");
+    pid_t pid = 0;
+    pthread_mutex_lock(&popen_mu);
+    for (size_t i = 0; i < sizeof popened / sizeof *popened; i++)
+        if (popened[i].f == f) { pid = popened[i].pid; popened[i].f = NULL; break; }
+    pthread_mutex_unlock(&popen_mu);
+    if (!pid) return r(f);
+    fclose(f); return wait_child(pid);
 }

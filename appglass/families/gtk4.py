@@ -36,7 +36,19 @@ niri: the GTK4 CSS alpha applies to every native GTK4/libadwaita app, so
 every one installed must get ``opacity 1.0`` (otherwise it is faded twice).
 APPS lists them; the niri rule gets the installed ones. Epiphany is partial:
 its chrome (headerbar, tabs, sidebar) is glass, the web page stays opaque.
-Flatpak GTK4 apps do not read the host gtk-4.0 and are not listed.
+
+Flatpak GTK4 apps do not read the host gtk-4.0: their XDG_CONFIG_HOME is
+~/.var/app/<id>/config. For the FLATPAK_APPS installed (user or system),
+appglass writes the same three files there: dank-glass.css (owned), a copy
+of the host DMS dank-colors.css (owned, refreshed on every apply, so a DMS
+theme change reaches the app through the hook) and gtk.css (the same edit
+and merge as on the host). No flatpak override is needed.
+
+Generic rules for apps B5b measured (docs/apps.md): the GtkSourceView text
+area (its style scheme paints the view opaque under the window fill: GNOME
+Text Editor, Builder), column and list views nested in the window
+background (they stacked to 0.96: Mission Center, Resources), and the
+selected sidebar row (DMS paints it opaque secondary_container: half alpha).
 """
 
 import os
@@ -61,7 +73,14 @@ APPS = [
      "Epiphany and its web apps: partial, chrome is glass, the page stays opaque"),
     (r"^org\.gnome\.Adwaita1\.Demo$", ("adwaita-1-demo",), "libadwaita demo"),
 ]
-APP_IDS = [a[0] for a in APPS]
+# (niri app-id regex, flatpak app id, note): flatpaks that get the css in
+# ~/.var/app/<id>/config/gtk-4.0
+FLATPAK_APPS = [
+    (r"^org\.gnome\.TextEditor$", "org.gnome.TextEditor", "GNOME Text Editor (GtkSourceView)"),
+    (r"^io\.missioncenter\.MissionCenter$", "io.missioncenter.MissionCenter", "Mission Center"),
+    (r"^net\.nokyan\.Resources$", "net.nokyan.Resources", "Resources"),
+]
+APP_IDS = [a[0] for a in APPS] + [a[0] for a in FLATPAK_APPS]
 
 # helpers that are not on PATH (xdg-desktop-portal-gnome)
 LIBEXEC_DIRS = ("/usr/libexec", "/usr/lib/xdg-desktop-portal-gnome", "/usr/lib")
@@ -87,6 +106,17 @@ BACKDROP_RULE_FADE = (
     "/* Unfocused windows: the background fades, bar contents stay as focused */\n"
     + BACKDROP_SELECTORS + " { filter: none; }\n")
 
+SOURCEVIEW_RULE = """\
+/* GtkSourceView: the style scheme paints the text area opaque under the window fill */
+textview.view, textview.view > text, textview.view > border,
+textview.view:backdrop, textview.view:backdrop > text, textview.view:backdrop > border { background-color: transparent; }
+"""
+
+NESTED_VIEW_RULE = """\
+/* column/list views inside the window background would stack a second view fill */
+window.background columnview.view, window.background columnview > listview.view { background-color: transparent; }
+"""
+
 FG_ROLES = ("window_fg_color", "view_fg_color", "headerbar_fg_color",
             "headerbar_backdrop_fg_color", "sidebar_fg_color", "sidebar_backdrop_fg_color",
             "secondary_sidebar_fg_color", "secondary_sidebar_backdrop_fg_color",
@@ -108,8 +138,14 @@ def installed_apps(env):
     return [a for a in APPS if any(_found(env, c) for c in a[1])]
 
 
+def installed_flatpaks(env):
+    """The FLATPAK_APPS entries installed (user or system)."""
+    from .. import detect
+    return [a for a in FLATPAK_APPS if detect.flatpak_app(env, a[1]) is not None]
+
+
 def installed(env):
-    return bool(installed_apps(env))
+    return bool(installed_apps(env)) or bool(installed_flatpaks(env))
 
 
 def _a(v):
@@ -162,6 +198,13 @@ def render(ctx):
         ":root { --dim-opacity: 0.80; }",
         "",
         BACKDROP_RULE_FADE if inactive.active(ctx.settings, c) else BACKDROP_RULE,
+        SOURCEVIEW_RULE,
+        NESTED_VIEW_RULE,
+        "/* the selected sidebar row: DMS paints it opaque */",
+        ".navigation-sidebar row:selected, .navigation-sidebar child:selected,",
+        ".navigation-sidebar flowboxchild:selected { background-color: alpha(%s, 0.50); }"
+        % ctx.colors("secondary_container"),
+        "",
     ]
     lines += inactive_rule(ctx)
     return "\n".join(lines)
@@ -227,10 +270,27 @@ def undo(env, path, text):
 
 
 def apply(ctx):
-    d = ctx.config_path("gtk-4.0")
+    paths = []
+    host = ctx.config_path("gtk-4.0")
+    apps = installed_apps(ctx.env)
+    if apps:
+        paths += apply_dir(ctx, host)
+    flatpaks = installed_flatpaks(ctx.env)
+    if flatpaks:
+        dank = ctx.read_text(os.path.join(host, "dank-colors.css"))
+        for _, app_id, _ in flatpaks:
+            d = ctx.home_path(".var", "app", app_id, "config", "gtk-4.0")
+            if dank is not None:
+                paths.append(ctx.write_owned(os.path.join(d, "dank-colors.css"), dank))
+            paths += apply_dir(ctx, d, warn=False)
+    ctx.app_ids = [a[0] for a in apps] + [a[0] for a in flatpaks]
+    return paths
+
+
+def apply_dir(ctx, d, warn=True):
     glass = os.path.join(d, "dank-glass.css")
     gtk = os.path.join(d, "gtk.css")
-    if not os.path.isfile(os.path.join(d, "dank-colors.css")):
+    if warn and not os.path.isfile(os.path.join(d, "dank-colors.css")):
         ctx.warn("%s/dank-colors.css not found: GTK4 keeps the stock Adwaita colours "
                  "under the glass until DMS writes it" % ctx.env.tilde(d))
     if os.path.islink(gtk):
@@ -245,9 +305,7 @@ def apply(ctx):
                       "apps no longer import dank-glass.css and stay opaque; remove + "
                       "apply writes it again)" % ctx.env.tilde(gtk))
     elif changed and GLASS_IMPORT not in _lines(ctx.read_text(gtk) or ""):
-        ctx.warn_once("opt-out", "%s no longer imports dank-glass.css; kept (GTK4 apps stay "
+        ctx.warn_once("opt-out" if warn else "opt-out:" + gtk, "%s no longer imports dank-glass.css; kept (GTK4 apps stay "
                       "opaque; remove + apply puts the import back)" % ctx.env.tilde(gtk))
     ctx.edit_text(gtk, lambda t: merge(t, gtk, changed), undo=lambda t: undo(ctx.env, gtk, t))
-    apps = installed_apps(ctx.env)
-    ctx.app_ids = [a[0] for a in apps]
     return [glass, gtk]

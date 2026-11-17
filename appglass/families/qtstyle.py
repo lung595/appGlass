@@ -19,21 +19,43 @@ The style reads the colours from APPGLASS_COLORS at start; the level is
 written into the launcher, and the sync unit / matugen hook re-apply when it
 changes. remove deletes the style and the launcher (an adopted hand-made
 launcher comes back byte-identical).
+
+Flatpak KDE apps (Kate, Konsole; B5b: the host-built plugin loads in the KDE
+runtime when its Qt minor matches): the launcher override of the exported
+desktop file adds to ``flatpak run`` read-only access to the plugin dir and
+the DMS colours dir, and the same variables, the plugin dir in front of the
+runtime's QT_PLUGIN_PATH (/app/lib/plugins:/usr/share/runtime/lib/plugins),
+and APPGLASS_BAR at the bar-over-content level (bars equal to the content
+when the bar level is lower). Kate's launcher also puts the kate family's
+glass katerc dir in front of XDG_CONFIG_DIRS (the AppGlass editor theme for
+this start only). No flatpak override is written: an app started another way
+is plain.
+
+The style reads its variables once and takes them out of the environment
+(every APPGLASS_*, QT_STYLE_OVERRIDE=appglass, its plugin dir in
+QT_PLUGIN_PATH; an appglass dir in XDG_CONFIG_DIRS once the event loop runs): Konsole's shell, Kate's tools and what they start never
+inherit them.
 """
 
 import os
 
 from .. import inactive, shims
+from . import kate
 
 NAME = "qtstyle"
 APP_IDS = [r"^vlc$"]
 ADAPTER = "qt-style"
 LAUNCHERS = (("vlc.desktop", "vlc"),)
+FLATPAKS = (("org.kde.kate.desktop", "org.kde.kate"), ("org.kde.konsole.desktop", "org.kde.konsole"))
+RUNTIME_PLUGINS = "/app/lib/plugins:/usr/share/runtime/lib/plugins"
+RUNTIME_XDG = "/app/etc/xdg:/etc/xdg"   # flatpak's XDG_CONFIG_DIRS
 MODULES = ("Qt6Widgets",)
+MARK = "--env=QT_STYLE_OVERRIDE=appglass"
 
 
 def installed(env):
-    return any(env.which(cmd) for _, cmd in LAUNCHERS)
+    return (any(env.which(cmd) for _, cmd in LAUNCHERS)
+            or any(shims.installed_flatpak(env, app) for _, app in FLATPAKS))
 
 
 def plugin_dir(env):
@@ -69,6 +91,28 @@ def launcher(env, text, cmd, content, fade=None):
     return "".join(out)
 
 
+def flatpak_launcher(env, text, levels, app=None):
+    pd = plugin_dir(env)
+    colors = env.cache_path("dms", "dms-colors.json")
+    flags = [
+        "--filesystem=%s:ro" % pd, "--filesystem=%s:ro" % os.path.dirname(colors),
+        "--env=QT_PLUGIN_PATH=%s:%s" % (pd, RUNTIME_PLUGINS), MARK,
+        "--env=APPGLASS_COLORS=%s" % colors,
+        "--env=APPGLASS_CONTENT=%s" % shims.jq_raw(levels.content),
+        "--env=APPGLASS_BAR=%s" % shims.jq_raw(round(levels.bar_over_content, 4))]
+    if app == kate.FLATPAK:  # the glass start's katerc (kate family), never the user's
+        flags.append("--env=XDG_CONFIG_DIRS=%s:%s" % (kate.xdg_dir(env), RUNTIME_XDG))
+    flags = " ".join(flags)
+    out = []
+    for line in text.splitlines(True):
+        if line.startswith("Exec=") and MARK not in line:
+            words = line[5:].split(" ")
+            if len(words) > 1 and os.path.basename(words[0]) == "flatpak" and words[1] == "run":
+                line = "Exec=%s run %s %s" % (words[0], flags, " ".join(words[2:]))
+        out.append(line)
+    return "".join(out)
+
+
 def apply(ctx):
     env = ctx.env
     src = {n: shims.source(ADAPTER, n) for n in ("glassstyle.cpp", "appglass.json")}
@@ -82,8 +126,15 @@ def apply(ctx):
         if p:
             paths.append(p)
             ids.append(r"^%s$" % desktop_id[:-len(".desktop")])
+    for desktop_id, app in FLATPAKS:
+        if not shims.installed_flatpak(env, app):
+            continue
+        p = ctx.desktop_override(desktop_id, lambda t, a=app: flatpak_launcher(env, t, ctx.levels, a))
+        if p:
+            paths.append(p)
+            ids.append(r"^%s$" % app.replace(".", r"\."))
     if not ids:
         ctx.warn("no system launcher for %s: nothing to start the style with"
-                 % ", ".join(d for d, _ in LAUNCHERS))
+                 % ", ".join(d for d, _ in LAUNCHERS + FLATPAKS))
     ctx.app_ids = ids
     return paths

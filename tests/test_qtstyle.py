@@ -145,5 +145,57 @@ class QtStyle(unittest.TestCase):
         self.assertFalse(os.path.exists(self.w.user(SO)))
 
 
+KATE = ("[Desktop Entry]\nName=Kate\n"
+        "Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=kate --file-forwarding "
+        "org.kde.kate -b @@u %U @@\n\n[Desktop Action newSession]\n"
+        "Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=kate org.kde.kate --startanon\n")
+
+
+class QtStyleFlatpak(unittest.TestCase):
+    """Kate / Konsole from flathub: the launcher passes the style in with
+    flatpak run options (read-only plugin and colours dirs, the variables)."""
+
+    def setUp(self):
+        self.w = ShimWorld()
+        d = self.w.sb.path("flatpak", "app", "org.kde.kate", "current", "active")
+        os.makedirs(os.path.join(d, "files"))
+        with open(os.path.join(d, "metadata"), "w") as f:
+            f.write("[Application]\nname=org.kde.kate\nruntime=org.kde.Platform/x86_64/6.11\n")
+        self.w.launcher("org.kde.kate.desktop", KATE, flatpak=True)
+        self.before = self.w.sb.tree_hash()
+
+    def tearDown(self):
+        self.w.cleanup()
+
+    def test_launcher_flags_and_remove(self):
+        code, out, err = self.w.run("apply", "--only", "qtstyle")
+        self.assertEqual(code, 0, err)
+        sb = self.w.sb
+        text = sb.read(self.w.user(".local/share/applications/org.kde.kate.desktop"))
+        pd = os.path.join(sb.home, ".local/lib/appglass/qt6")
+        dms = os.path.join(sb.cache, "dms")
+        lv = json.loads(self.w.run("levels")[1])
+        flags = ("--filesystem=%s:ro --filesystem=%s:ro "
+                 "--env=QT_PLUGIN_PATH=%s:/app/lib/plugins:/usr/share/runtime/lib/plugins "
+                 "--env=QT_STYLE_OVERRIDE=appglass --env=APPGLASS_COLORS=%s "
+                 "--env=APPGLASS_CONTENT=%s --env=APPGLASS_BAR=%s "
+                 "--env=XDG_CONFIG_DIRS=%s:/app/etc/xdg:/etc/xdg"
+                 % (pd, dms, pd, os.path.join(dms, "dms-colors.json"),
+                    repr(float(lv["content"])), repr(float(lv["bar_over_content"])),
+                    os.path.join(sb.home, ".var/app/org.kde.kate/config/appglass")))
+        execs = re.findall(r"(?m)^Exec=(.*)$", text)
+        self.assertEqual(execs, [
+            "/usr/bin/flatpak run %s --branch=stable --arch=x86_64 --command=kate "
+            "--file-forwarding org.kde.kate -b @@u %%U @@" % flags,
+            "/usr/bin/flatpak run %s --branch=stable --arch=x86_64 --command=kate "
+            "org.kde.kate --startanon" % flags])
+        self.assertTrue(sb.readb(self.w.user(SO)).startswith(b"FAKE-BUILD"))
+        code, out, err = self.w.run("apply", "--only", "qtstyle")
+        self.assertIn("qtstyle: up to date", out)
+        code, out, err = self.w.run("remove", "--only", "qtstyle")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sb.tree_hash(), self.before)
+
+
 if __name__ == "__main__":
     unittest.main()

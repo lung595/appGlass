@@ -52,7 +52,8 @@ PKG = textwrap.dedent("""\
 # the host tools the fake tools and the wrappers need, linked next to them
 # so PATH can leave out /usr/bin (and the real apps in it)
 HOST = ("sh", "cat", "dirname", "jq", "sed", "env", "flock", "sort", "ls", "tail", "sleep",
-        "readlink", "grep", "touch", "mkdir", "stat", "id", "tr", "cut", "mv", "rm", "head")
+        "readlink", "grep", "touch", "mkdir", "stat", "id", "tr", "cut", "mv", "rm", "head",
+        "mkfifo")
 
 
 class Toolchain:

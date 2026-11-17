@@ -164,6 +164,8 @@ Contrast ratios: to re-measure. The composites made so far treated the premultip
   - Not identified: what makes niri redraw the window once a second on the real session (the bar clock alone does not in the nested test). The fix does not depend on it.
   - To check on the real session: `APPGLASS_TRACE=/tmp/artcraft-trace.txt appglass-artcraft`, leave the launcher idle with the pointer away for 20 s, then close it. The file gets one line per swap (monotonic ms, gap ms, shader pass ms). Lines about 500 ms apart mean a focused text field is blinking; no lines at all mean the launcher was not repainting.
 - `APPGLASS_SCRUB` keeps the shim, its keys and the renderer overrides out of the apps the launcher starts (exec, posix_spawn and pidfd_spawn).
+- `APPGLASS_KEEP="/abs/path ..."` names the app binary that a wrapper script execs (flatpak `/app/bin/subl` -> `/app/extra/sublime_text/sublime_text`): that one exec keeps the shim, every other child is scrubbed.
+- Keys for an app without a key table come from one opaque capture: `python3 -m appglass.keylearn shot.png` (engine 1.6: a 4 px grid, at most 3 keys of large connected areas, the text colour and far brighter surfaces rejected, edge bands as bar keys). Learned keys are stored as waiting under `~/.cache/appglass/keys/` until a verify PASS. Saber and Sublime Text: see [apps.md](apps.md).
 - Note: the launcher ignores `--help` and starts normally, including its update check.
 
 ## Zed (documented only, unverified)

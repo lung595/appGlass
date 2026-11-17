@@ -1,7 +1,7 @@
 # Electron / Chromium
 
 Obsidian gets real glass with three levels (content 0.60, bars 0.65, menus 1.0) from a vault CSS snippet and one niri rule. Text stays opaque, and the snippet needs the `--text-faint` fix below.
-Every other Electron/Chromium/CEF app here (Discord, Feishin, Chrome, Steam, VS Code, Element, Signal, Slack, Spotify) keeps the global niri `opacity 0.60` fallback, because the app's own code never clears its window background. Vesktop/Vencord might work, but that is documented only.
+VSCodium (flatpak) gets glass through the electron hook (opt-in `vscodium` family, wrapper `appglass-vscodium`, see [apps.md](apps.md)). Every other Electron/Chromium/CEF app here (Discord, Feishin, Chrome, Steam, VS Code, Element, Signal, Slack, Spotify) keeps the global niri `opacity 0.60` fallback, because the app's own code never clears its window background. Vesktop/Vencord might work, but that is documented only.
 
 ## Apps
 
@@ -14,7 +14,8 @@ Every other Electron/Chromium/CEF app here (Discord, Feishin, Chrome, Steam, VS 
 | Feishin (flatpak `org.jeffvli.feishin`) | Documented (source read, not run) | no | None for glass. `custom.css` can recolour, but the window is opaque | None (fallback) |
 | Steam (flatpak, CEF) | Documented (not launched) | no | None. Skins restyle web content only | None (fallback) |
 | Vesktop / Vencord desktop / Equibop | Documented (source read, not installed) | partial, unverified | "Transparent window" setting plus alpha in a theme CSS | `opacity 1.0` for `^vesktop$` (unverified app-id) |
-| VS Code / VSCodium | Documented (not installed) | no | None. Only `window.titleBarStyle` and colour customisations | None (fallback) |
+| VSCodium 1.143 (flatpak `com.vscodium.codium`) | Tested headless on an isolated install ([apps.md](apps.md)) | yes (opt-in) | electron hook: the wrapper `appglass-vscodium` starts it with a local Node inspector, `agl-inject.py` loads `agl-hook.js`, which clears the window background and injects `vscode-glass.css`; a marked block in settings.json for the canvas colours | `opacity 1.0` for `^com\.vscodium\.codium$` |
+| VS Code (Microsoft build) | Documented (not installed) | no | None out of the box; the same CSS fits, but the hook is only wired for VSCodium | None (fallback) |
 | Element / Signal / Slack / Spotify | Documented (not installed) | no | None. No transparency option and no supported user CSS | None (fallback) |
 
 Do **not** add `opacity 1.0` for a fallback app. It would make the window fully opaque, because the app paints alpha 255 itself.
@@ -167,7 +168,7 @@ output_path = '<vault>/.obsidian/snippets/appglass.css'
 
 ### Fallback apps
 
-Discord, Feishin, Chrome, Steam, VS Code, Element, Signal, Slack and Spotify: add nothing. They stay under the global "Glass blur" rule (`opacity 0.60`), so their text fades with the window.
+Discord, Feishin, Chrome, Steam, VS Code (Microsoft build), Element, Signal, Slack and Spotify: add nothing. They stay under the global "Glass blur" rule (`opacity 0.60`), so their text fades with the window.
 
 ## Measured results (tested in a nested niri session)
 
@@ -266,6 +267,6 @@ None of these were run. The Electron rule above is what decides each one.
 - **Discord (stock rpm).** `core.asar` creates the main window with `transparent:false` and `backgroundColor:getBackgroundColor()` (default `#2f3136`). It has no user-CSS mechanism. BetterDiscord, or Vencord on stock Discord, means patching or injecting, which is out of scope. Fallback.
 - **Feishin.** Settings > "Enable custom CSS" loads `custom.css`. The file is watched live and sanitised (no `content:`, no `url()`). Its `BrowserWindow` sets neither `backgroundColor` nor `transparent`, so the window stays opaque. It can be recoloured but not made glass. Fallback.
 - **Steam (CEF).** Not launched. Skins only change web content, and the window stays opaque. Fallback.
-- **VS Code / VSCodium.** Only `window.titleBarStyle` and `workbench.colorCustomizations`, and any alpha there would sit on an opaque window. Extensions like GlassIt rely on Windows/X11 calls or injection. Fallback.
+- **VS Code / VSCodium.** The settings alone (`window.titleBarStyle`, `workbench.colorCustomizations`) cannot do it: any alpha there sits on an opaque window. VSCodium is glassed by injection instead: the opt-in `vscodium` family (electron hook, wrapper `appglass-vscodium`) clears the window background from the main process and injects a workbench stylesheet. The inspector port stays open while it runs, which is why it is opt-in. VS Code (Microsoft build) is not wired. Fallback.
 - **Element / Signal / Slack / Spotify.** No transparency option and no supported user CSS. Element custom themes are colour JSON only, and Spicetify for Spotify is injection. Fallback.
 - **Other Chromium browsers.** Same as Chrome: no transparent toplevel. Web content is handled separately by browserGlass.

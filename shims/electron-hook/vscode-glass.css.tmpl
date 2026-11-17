@@ -1,0 +1,38 @@
+/* appGlass for VS Code / VSCodium, injected as a user stylesheet by agl-hook.js (window background cleared by the hook).
+   Generated at launch by appglass-vscodium from the DMS colours and `appglass levels`.
+   The workbench is painted once at the content level; every full-size part is transparent (the parts are
+   siblings: bars get their own tint over the content only when the bar level is above it); menus, the quick
+   input, widgets, hovers, notifications and dialogs are not touched (their theme colours are opaque).
+   The breadcrumb widget and xterm set their theme colour inline: cleared here by the user-origin !important.
+   Text untouched. */
+.monaco-workbench {
+  background-color: rgba({{surface}}, {{content}}) !important;
+  --vscode-editor-background: transparent; --vscode-editorGutter-background: transparent;
+  --vscode-editorPane-background: transparent; --vscode-sideBar-background: transparent;
+  --vscode-sideBarSectionHeader-background: transparent; --vscode-sideBarStickyScroll-background: transparent;
+  --vscode-panel-background: transparent; --vscode-panelSectionHeader-background: transparent;
+  --vscode-terminal-background: transparent; --vscode-activityBar-background: transparent;
+  --vscode-titleBar-activeBackground: transparent; --vscode-titleBar-inactiveBackground: transparent;
+  --vscode-statusBar-background: transparent; --vscode-statusBar-noFolderBackground: transparent;
+  --vscode-editorGroupHeader-tabsBackground: transparent; --vscode-editorGroupHeader-noTabsBackground: transparent;
+  --vscode-tab-inactiveBackground: transparent; --vscode-tab-unfocusedInactiveBackground: transparent;
+  --vscode-breadcrumb-background: transparent; --vscode-editorStickyScroll-background: transparent;
+  --vscode-minimap-background: transparent; --vscode-editorOverviewRuler-background: transparent;
+  --vscode-welcomePage-background: transparent;
+}
+.monaco-workbench .part, .monaco-workbench .part > .content, .monaco-workbench .monaco-grid-view,
+.monaco-workbench .split-view-view, .monaco-workbench .editor-group-container, .monaco-workbench .editor-container,
+.monaco-workbench .monaco-editor, .monaco-workbench .monaco-editor .margin, .monaco-workbench .monaco-editor-background,
+.monaco-workbench .monaco-editor .minimap, .monaco-workbench .monaco-editor .minimap-decorations-layer,
+.monaco-workbench .editor-group-container > .title, .monaco-workbench .tabs-and-actions-container,
+.monaco-workbench .tab:not(.active), .monaco-workbench .breadcrumbs-control, .monaco-workbench .pane-header,
+.monaco-workbench .pane-body, .monaco-workbench .composite.title, .monaco-workbench .welcomePage,
+.monaco-workbench .xterm-viewport, .monaco-workbench .terminal-wrapper, .monaco-workbench .sticky-widget,
+.monaco-workbench .monaco-breadcrumbs, .monaco-workbench .xterm, .monaco-workbench .xterm-scrollable-element
+{ background-color: transparent !important; }
+.monaco-workbench .part.activitybar, .monaco-workbench .part.titlebar, .monaco-workbench .part.statusbar
+{ background-color: rgba({{surface_container}}, {{bar_over}}) !important; }
+/* the active tab: a light tint over the glass, not the theme's opaque tab colour */
+.monaco-workbench .tab.active { background-color: rgba(255, 255, 255, 0.06) !important; }
+/* the banner (Restricted Mode etc.) keeps its own colour: its text is white */
+.monaco-workbench .part.banner { background-color: var(--vscode-banner-background) !important; }

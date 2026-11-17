@@ -3,14 +3,18 @@
 //   - loader:        require('/path/agl-hook.js') from a resources/app/ shim, then require the app's real main
 //   - NODE_OPTIONS:  NODE_OPTIONS="--require /path/agl-hook.js" (only if the fuse allows it AND exe is named "electron")
 //   - inspector:     Runtime.evaluate `require('/path/agl-hook.js')` over --inspect
-// Env: AGL_CSS=<css file> (re-read on every page load, so a DMS/matugen rewrite applies on reload)
+// Env: AGL_CSS=<css file> (the file is re-read on every page load, so a DMS/matugen rewrite applies on reload)
 //      AGL_MATCH=<regex on page URL> (default: all), AGL_LOG=1
 //      the page root gets the class agl-inactive while the window is not focused (unfocused fade CSS)
 'use strict';
 const fs = require('fs');
 let electron;
 try { electron = require('electron'); } catch (e) { }
-function log(...a) { if (process.env.AGL_LOG) console.error('[appglass]', ...a); if (process.env.AGL_MARK) try { fs.appendFileSync(process.env.AGL_MARK, process.pid + ' ' + a.join(' ') + '\n'); } catch (e) {} }
+// read our settings once, then take them out of the env: children (VS Code terminal, extension host,
+// helpers, apps opened from a link) never inherit AGL_*
+const AGL = {};
+for (const k of Object.keys(process.env)) if (k.startsWith('AGL_')) { AGL[k.slice(4)] = process.env[k]; delete process.env[k]; }
+function log(...a) { if (AGL.LOG) console.error('[appglass]', ...a); if (AGL.MARK) try { fs.appendFileSync(AGL.MARK, process.pid + ' ' + a.join(' ') + '\n'); } catch (e) {} }
 log('loaded', process.type, process.argv0);
 // NODE_OPTIONS route: drop our own --require so children (VS Code terminal, extension host, helpers) do not inherit it
 if (process.env.NODE_OPTIONS && /agl-hook\.js/.test(process.env.NODE_OPTIONS)) {
@@ -22,9 +26,8 @@ function install() {
   if (global.__aglInstalled) return; global.__aglInstalled = true;
   const { app, BrowserWindow, webContents } = electron;
   const CLEAR = '#00000000';
-  const match = process.env.AGL_MATCH ? new RegExp(process.env.AGL_MATCH) : null;
-  const cssFile = process.env.AGL_CSS || '';
-  const readCss = () => { try { return fs.readFileSync(process.env.AGL_CSS || '', 'utf8'); } catch (e) { return ''; } };
+  const match = AGL.MATCH ? new RegExp(AGL.MATCH) : null;
+  const readCss = () => { try { return fs.readFileSync(AGL.CSS || '', 'utf8'); } catch (e) { return ''; } };
   // 1) every later setBackgroundColor on a glass window stays clear (Discord, VS Code re-set it on theme change)
   const proto = Object.getPrototypeOf(BrowserWindow.prototype).setBackgroundColor ? Object.getPrototypeOf(BrowserWindow.prototype) : BrowserWindow.prototype;
   const orig = proto.setBackgroundColor;
@@ -57,11 +60,11 @@ function install() {
     wc.on('dom-ready', () => { try { focus(w.isFocused()); } catch (e) {} });
     // AGL_NOMENU=1: drop the native (GTK, always opaque) menubar of this window; app keyboard shortcuts in the
     // renderer keep working, menu-only accelerators are lost. autoHideMenuBar alone did NOT hide it (Signal).
-    if (process.env.AGL_NOMENU) { const nm = () => { try { w.removeMenu(); } catch (e) {} }; nm(); w.once('show', nm); wc.once('did-finish-load', nm); }
+    if (AGL.NOMENU) { const nm = () => { try { w.removeMenu(); } catch (e) {} }; nm(); w.once('show', nm); wc.once('did-finish-load', nm); }
     setTimeout(() => { try { log('bg after 5s', w.id, w.getBackgroundColor(), 'menu', w.isMenuBarVisible && w.isMenuBarVisible()); } catch (e) {} }, 5000);
     log('glass window', w.id, w.getTitle());
   }
-  if (process.env.AGL_NOMENU && electron.Menu) {  // apps re-set the application menu later (Linux applies it per window)
+  if (AGL.NOMENU && electron.Menu) {  // apps re-set the application menu later (Linux applies it per window)
     const sam = electron.Menu.setApplicationMenu.bind(electron.Menu);
     electron.Menu.setApplicationMenu = (m) => { sam(m); BrowserWindow.getAllWindows().forEach(w => { if (w.__agl) try { w.removeMenu(); } catch (e) {} }); };
   }

@@ -52,6 +52,8 @@ The category docs use separate example file names for the rules (`appglass-gtk4.
 
 ## Apps
 
+The full matrix per family, with the measured verify numbers, is in [apps.md](apps.md) (generated from `apps.json`).
+
 Tested: run in a nested niri session, with the window alpha measured from window screenshots. Documented: from docs and sources only, not run. Window screenshots are premultiplied RGBA: the alpha values are reliable, but contrast ratios from the early composites (which treated them as straight alpha) are too pessimistic, light themes most of all. The docs quote a contrast ratio only where a premultiplied-correct composite was used, and say "to re-measure" otherwise.
 
 TODO(adapters): this table is from the first per-app tests. Several rows are out of date (Discord, Feishin, Lian Li, VLC, Jellyfin, LocalSend now have routes, see [routes.md](routes.md)); it will be rebuilt with the generic routes.
@@ -87,7 +89,8 @@ TODO(adapters): this table is from the first per-app tests. Several rows are out
 | Feishin (flatpak) | electron | yes | no | no | fallback (`custom.css` recolours only) | [electron.md](electron.md) |
 | Steam (flatpak, CEF) | electron | yes | no | no | fallback | [electron.md](electron.md) |
 | Vesktop / Vencord / Equibop | electron | no | no | partial (unverified) | "Transparent window" + alpha variant of DMS `dank-discord.css` | [electron.md](electron.md) |
-| VS Code / VSCodium | electron | no | no | no | fallback | [electron.md](electron.md) |
+| VSCodium 1.143 (flatpak) | electron | yes | yes | yes (opt-in) | `vscodium` family: electron hook via the wrapper `appglass-vscodium` + workbench CSS ([apps.md](apps.md)) | [electron.md](electron.md) |
+| VS Code (Microsoft build) | electron | no | no | no | fallback | [electron.md](electron.md) |
 | Element / Signal / Slack / Spotify | electron | no | no | no | fallback | [electron.md](electron.md) |
 | Lian Li Linux (`lianli-gui`, Tauri 2) | webkit | yes | yes | no | fallback (transparency compiled in, `gtk.css` has no effect) | [webkit.md](webkit.md) |
 | Tauri/wry app built with `transparent: true` (demo) | webkit | no | yes | partial | the app paints alpha: RGBA visual, WebView bg rgba 0, rgba CSS per level; needs a rebuild | [webkit.md](webkit.md) |
@@ -118,7 +121,7 @@ TODO(adapters): this table is from the first per-app tests. Several rows are out
 
 These get the fallback rule (opaque by default, see Method step 4), not the glass rule:
 
-- **Chrome, Discord, Feishin, Steam, VS Code, Element, Signal, Slack, Spotify**: an Electron/Chromium window is see-through only if the app's own code sets a transparent background colour.
+- **Chrome, Discord, Feishin, Steam, VS Code (Microsoft build), Element, Signal, Slack, Spotify**: an Electron/Chromium window is see-through only if the app's own code sets a transparent background colour.
 - **Lian Li Linux** and other WebKitGTK/Tauri apps: transparency is compiled in (Tauri `transparent: true`, `webkit_web_view_set_background_color`). Lian Li has a light UI, so a higher per-app value (0.80-0.85) is suggested, untested.
 - **VLC, Jellyfin, KDE apps, KeePassXC, Krita, OBS, qBittorrent**: Qt Widgets palette alpha lands on an opaque buffer; real glass needs a style plugin (Kvantum, not installed).
 - **LocalSend** and other Flutter apps: the `FlView` is opaque unless the app's runner clears it.

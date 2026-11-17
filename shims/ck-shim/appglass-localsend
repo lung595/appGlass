@@ -3,6 +3,7 @@
 # appglass-ck.so (LD_PRELOAD, one-off read-only --filesystem, no flatpak override) colour-keys LocalSend's
 # own background colours to the DMS glass levels. Keys are for LocalSend's default palette (ls_color
 # "localsend"); the theme is LocalSend's own setting (ls_theme), else the system colour scheme, else DMS mode.
+# APPGLASS_SCRUB (empty: nothing beyond the shim and its keys) keeps them out of what LocalSend starts.
 # Undo: rm ~/.local/bin/appglass-localsend ~/.local/share/applications/org.localsend.localsend_app.desktop
 #       rm -r ~/.local/lib/appglass/localsend
 set -u
@@ -27,5 +28,5 @@ pal=$(jq -r '."flutter.ls_color" // "localsend"' "$PREFS" 2>/dev/null) || pal=lo
 [ "$pal" = localsend ] || echo "appglass-localsend: colour '$pal' is not the default palette, keys may not match" >&2
 if [ "$mode" = light ]; then keys="f4fbf8:$c,e9efed:$b"; else keys="0e1513:$c,1a2120:$b"; fi
 exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=localsend --file-forwarding \
-    --filesystem="$LIB:ro" --env=LD_PRELOAD="$LIB/appglass-ck.so" --env=APPGLASS_KEYS="$keys" \
+    --filesystem="$LIB:ro" --env=LD_PRELOAD="$LIB/appglass-ck.so" --env=APPGLASS_KEYS="$keys" --env=APPGLASS_SCRUB= \
     "$ID" @@u "$@" @@
