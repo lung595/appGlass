@@ -115,6 +115,14 @@ class Render(unittest.TestCase):
             with self.assertRaises(ValueError):
                 appstable.render([dict(ROW, measured={"result": "PASS"}, **{k: v})])
 
+    def test_family_must_exist(self):
+        """A family is a module in appglass/families or '-' (needs adapter):
+        keys passed by hand to the ck-shim are not a family."""
+        with self.assertRaises(ValueError):
+            appstable.render([dict(ROW, family="ck-shim (learned keys)", tested="no")])
+        md = appstable.render([dict(ROW, family="-", tested="no")])
+        self.assertIn("needs adapter", md)
+
     def test_collect_fills_measurements(self):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "foot.json"), "w") as f:

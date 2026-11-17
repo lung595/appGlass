@@ -26,6 +26,7 @@ import os
 import sys
 
 DOCS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
+FAMILIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "families")
 TESTED = ("here", "earlier", "probe", "no")
 RESULTS = ("glass", "partial", "opaque")
 SHOWN = RESULTS + ("untested", "needs adapter")
@@ -113,6 +114,9 @@ def _check(r):
         raise ValueError("%s: result must be one of %s" % (name, RESULTS))
     if r["result"] != "glass" and not r.get("reason"):
         raise ValueError("%s: a %s row needs a reason" % (name, r["result"]))
+    fam = r.get("family") or "-"
+    if fam != "-" and not os.path.isfile(os.path.join(FAMILIES, fam + ".py")):
+        raise ValueError("%s: family %r is not in appglass/families (use '-')" % (name, fam))
     if r["tested"] == "here" and not r.get("measured"):
         raise ValueError("%s: tested here but nothing measured (--collect)" % name)
 

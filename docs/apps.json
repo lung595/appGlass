@@ -55,7 +55,7 @@
    "app": "mpv 0.42.0 (flatpak)",
    "toolkit": "own (libmpv gpu-next)",
    "family": "mpv",
-   "route": "`background-color` with alpha, `alpha=yes`; video, OSD and console opaque",
+   "route": "`background=color`, `background-color=#99rrggbb`, `border-background=color`, `script-opts-append=console-background_alpha=00`; video, OSD and console opaque",
    "tested": "here",
    "result": "glass",
    "evidence": "shots/adapters/mpv.json",
@@ -139,11 +139,11 @@
   {
    "app": "Saber 1.37.1 (flatpak)",
    "toolkit": "Flutter",
-   "family": "ck-shim (learned keys)",
-   "route": "ck-shim with keys from appglass.keylearn: 232323:0.60, SNAP 0.2",
+   "family": "-",
+   "route": "no family; measured with the ck-shim and keys from appglass.keylearn passed by hand: 232323:0.60, SNAP 0.2",
    "tested": "here",
    "result": "partial",
-   "reason": "keys learned from one opaque capture match the hand keys (232323); no Saber family yet, so the keys are passed by hand; B5b: hovered rows inside its popups are keyed (5-11% of the popup)",
+   "reason": "keys learned from one opaque capture match the hand keys (232323); no Saber family and no niri rule for com.adilhanney.saber yet; B5b: hovered rows inside its popups are keyed (5-11% of the popup)",
    "evidence": "shots/adapters/saber-ck.json",
    "measured": {
     "bg": 153,
@@ -156,11 +156,11 @@
   {
    "app": "Sublime Text 4215 (flatpak)",
    "toolkit": "custom GL on GTK3",
-   "family": "ck-shim (learned keys)",
-   "route": "ck-shim with keys from appglass.keylearn: 303841,72787e at 0.60, SNAP 0.3, APPGLASS_KEEP for the real binary, hardware_acceleration opengl",
+   "family": "-",
+   "route": "no family; measured with the ck-shim and keys from appglass.keylearn passed by hand: 303841,72787e at 0.60, SNAP 0.3, APPGLASS_KEEP for the real binary, hardware_acceleration opengl",
    "tested": "here",
    "result": "partial",
-   "reason": "the GTK menubar stays opaque (gtk3 theme not combined); no Sublime family yet; keys follow the colour scheme, so they are relearned when it changes",
+   "reason": "no Sublime family and no niri rule for subl yet; the GTK menubar stays opaque (gtk3 theme not combined); keys follow the colour scheme, so they are relearned when it changes",
    "evidence": "shots/adapters/sublime-ck.json",
    "measured": {
     "bg": 153,
