@@ -394,9 +394,17 @@ static int is_self(const char *f) {
     struct stat a, b; if (!f || !strchr(f, '/')) return 0;
     return !stat(f, &a) && !stat("/proc/self/exe", &b) && a.st_dev == b.st_dev && a.st_ino == b.st_ino;
 }
+/* APPGLASS_KEEP="/abs/path ...": the app binary a wrapper script execs (flatpak /app/bin/subl ->
+ * /app/extra/sublime_text/sublime_text). That exec keeps the shim; it is the app, not a child. */
+static int is_kept(const char *f) {
+    const char *l = getenv("APPGLASS_KEEP"); if (!f || f[0] != '/' || !l) return 0;
+    size_t n = strlen(f); const char *p = l;
+    while (*p) { while (*p == ' ') p++; size_t m = strcspn(p, " "); if (m == n && !strncmp(p, f, n)) return 1; p += m; }
+    return 0;
+}
 static size_t envc(char *const *e) { size_t n = 0; while (e && e[n]) n++; return n + 1; }
-#define SCRUBBED(envp, name) if (dbg()) { static const char m[] = "[appglass-ck] exec/spawn: "; write(2, m, sizeof m - 1); write(2, f, strlen(f)); { const char *w = is_self(f) ? " (self)" : " (other)"; write(2, w, strlen(w)); } for (size_t q = 0; envp && envp[q]; q++) if (!strncmp(envp[q], "LD_PRELOAD=", 11) || !strncmp(envp[q], "WGPU_", 5) || !strncmp(envp[q], "APPGLASS_SCRUB", 14)) { write(2, " ", 1); write(2, envp[q], strcspn(envp[q], "=")); } write(2, "\n", 1); } size_t name##_n = envc(envp); char *name##_v[name##_n]; char name##_ld[4096]; \
-    char *const *name = !scrub_on() || is_self(f) ? envp : scrub(envp, name##_v, name##_n, name##_ld, sizeof name##_ld)
+#define SCRUBBED(envp, name) if (dbg()) { static const char m[] = "[appglass-ck] exec/spawn: "; write(2, m, sizeof m - 1); write(2, f, strlen(f)); { const char *w = is_self(f) ? " (self)" : is_kept(f) ? " (kept)" : " (other)"; write(2, w, strlen(w)); } for (size_t q = 0; envp && envp[q]; q++) if (!strncmp(envp[q], "LD_PRELOAD=", 11) || !strncmp(envp[q], "WGPU_", 5) || !strncmp(envp[q], "APPGLASS_SCRUB", 14)) { write(2, " ", 1); write(2, envp[q], strcspn(envp[q], "=")); } write(2, "\n", 1); } size_t name##_n = envc(envp); char *name##_v[name##_n]; char name##_ld[4096]; \
+    char *const *name = !scrub_on() || is_self(f) || is_kept(f) ? envp : scrub(envp, name##_v, name##_n, name##_ld, sizeof name##_ld)
 typedef int (*execve_fn)(const char *, char *const[], char *const[]);
 int execve(const char *f, char *const a[], char *const e[]) {
     static execve_fn r; if (!r) r = (execve_fn)real_dlsym(RTLD_NEXT, "execve"); SCRUBBED(e, ne); return r(f, a, ne);

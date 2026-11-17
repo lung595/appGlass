@@ -198,6 +198,38 @@ class CkShim(Tmp):
             self.assertEqual(leaks(e), [])
             self.assertEqual(e.get("KEEP"), "1")
 
+    def test_wrapper_script_hands_the_shim_to_the_app(self):
+        """A flatpak command is often a script that execs the real binary
+        (/app/bin/subl -> /app/extra/sublime_text/sublime_text). That one exec,
+        named in APPGLASS_KEEP, keeps the shim; everything else is scrubbed."""
+        src = os.path.join(self.dir, "wrap.c")
+        with open(src, "w") as f:
+            f.write(textwrap.dedent(r"""
+                #include <spawn.h>
+                #include <stdio.h>
+                #include <sys/wait.h>
+                #include <unistd.h>
+                extern char **environ;
+                int main(int argc, char **argv) {
+                    pid_t p; char *s[] = {"/usr/bin/env", NULL}, *x[] = {"/usr/bin/printenv", NULL};
+                    if (posix_spawn(&p, s[0], NULL, NULL, s, environ)) return 3;
+                    int st; waitpid(p, &st, 0);
+                    printf(" ---\n"); fflush(stdout);
+                    execve(x[0], x, environ);
+                    return 4;
+                }
+            """))
+        wrap = os.path.join(self.dir, "wrap")
+        subprocess.run([GCC, "-O1", "-o", wrap, src], check=True, capture_output=True, timeout=120)
+        env = self.base_env(LD_PRELOAD=self.so, APPGLASS_KEYS="303841:0.6", APPGLASS_SCRUB="",
+                            APPGLASS_KEEP="/usr/bin/printenv")
+        r = subprocess.run([wrap], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        other, app = (parse_env(o) for o in r.stdout.split(" ---\n"))
+        self.assertEqual(leaks(other), [])
+        self.assertEqual((app.get("LD_PRELOAD"), app.get("APPGLASS_KEYS")),
+                         (self.so, "303841:0.6"))
+
     def test_every_ck_wrapper_turns_the_scrub_on(self):
         for w in glob.glob(shim("ck-shim", "appglass-*")):
             if w.endswith(".c"):
