@@ -18,7 +18,8 @@
 //                          Gaps that sit on ~1000 ms during an animation mean the compositor is only sending
 //                          throttled frame callbacks (it treats the window as not visible).
 //
-//   [APPGLASS_SCRUB="VAR VAR"] children started with exec*/posix_spawn*/pidfd_spawn* lose the shim, APPGLASS_* and VAR.
+//   [APPGLASS_SCRUB="VAR VAR"] children started with exec*/posix_spawn*/pidfd_spawn* lose the shim, APPGLASS_* and VAR
+//   (VAR gets the value of APPGLASS_ORIG_VAR back when that is set).
 //
 // The EGL surface must have an alpha channel (check the wl_buffer format: AR24
 // works, XR24 does not). Hooks are reached through the PLT, through dlsym()
@@ -358,7 +359,9 @@ static void *wrap_wl(const char *n, void *real) {
  * A launcher (ArtCraft) starts other apps; they must not inherit the shim, its keys or the
  * renderer overrides the wrapper set for the launcher alone. With APPGLASS_SCRUB="VAR VAR ..."
  * set, every exec/posix_spawn of another binary gets an envp without: our .so in LD_PRELOAD, APPGLASS_* and the
- * listed vars. No malloc (a forked child may call exec), only stack buffers. */
+ * listed vars. A listed var the wrapper changed from the user's own value comes back as the user had
+ * it when the wrapper saved that as APPGLASS_ORIG_<var>=<value>. No malloc (a forked child may call
+ * exec), only stack buffers. */
 #include <spawn.h>
 #include <unistd.h>
 extern char **environ;
@@ -376,6 +379,7 @@ static char *const *scrub(char *const *envp, char **out, size_t cap, char *ld, s
     size_t k = 0;
     for (size_t i = 0; envp[i] && k + 1 < cap; i++) {
         const char *e = envp[i];
+        if (!strncmp(e, "APPGLASS_ORIG_", 14)) { if (listed(e + 14, list)) out[k++] = (char *)e + 14; continue; }
         if (!strncmp(e, "APPGLASS_", 9) || listed(e, list)) continue;
         if (!strncmp(e, "LD_PRELOAD=", 11)) {
             size_t o = snprintf(ld, ldcap, "LD_PRELOAD="); const char *p = e + 11; int any = 0;
