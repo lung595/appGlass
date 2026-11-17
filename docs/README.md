@@ -52,6 +52,8 @@ The category docs use separate example file names for the rules (`appglass-gtk4.
 
 ## Apps
 
+The full matrix per family, with the measured verify numbers, is in [apps.md](apps.md) (generated from `apps.json`).
+
 Tested: run in a nested niri session, with the window alpha measured from window screenshots. Documented: from docs and sources only, not run. Window screenshots are premultiplied RGBA: the alpha values are reliable, but contrast ratios from the early composites (which treated them as straight alpha) are too pessimistic, light themes most of all. The docs quote a contrast ratio only where a premultiplied-correct composite was used, and say "to re-measure" otherwise.
 
 | App | Category | Installed | Tested | Works | Method | Doc |

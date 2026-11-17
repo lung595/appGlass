@@ -1,0 +1,571 @@
+{
+ "version": 1,
+ "note": "Rows of docs/apps.md. tested: here|earlier|probe|no; result: glass|partial|opaque.",
+ "apps": [
+  {
+   "app": "foot 1.20.2 (flatpak)",
+   "toolkit": "own (pixman)",
+   "family": "foot",
+   "route": "`[colors-dark] alpha` + DMS palette, flatpak config dir",
+   "tested": "here",
+   "result": "glass",
+   "evidence": "shots/adapters/foot.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.998,
+    "text": 111,
+    "popup": null,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "Konsole 26.08.3 (flatpak)",
+   "toolkit": "Qt6 / KDE",
+   "family": "konsole",
+   "route": "glass colour scheme + profile; qt-style launcher for tabs and menus",
+   "tested": "here",
+   "result": "glass",
+   "evidence": "shots/adapters/konsole.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.94,
+    "text": 10058,
+    "popup": 0.721,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "Kate 26.08.3 (flatpak)",
+   "toolkit": "Qt6 / KTextEditor",
+   "family": "kate",
+   "route": "KSyntaxHighlighting theme with a clear editor background + qt-style (WA_OpaquePaintEvent cleared)",
+   "tested": "here",
+   "result": "glass",
+   "evidence": "shots/adapters/kate.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.789,
+    "text": 2924,
+    "popup": 1.0,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "mpv 0.42.0 (flatpak)",
+   "toolkit": "own (libmpv gpu-next)",
+   "family": "mpv",
+   "route": "`background-color` with alpha, `alpha=yes`; video, OSD and console opaque",
+   "tested": "here",
+   "result": "glass",
+   "evidence": "shots/adapters/mpv.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.974,
+    "text": 7680,
+    "popup": 0.738,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "GNOME Text Editor 51.0 (flatpak)",
+   "toolkit": "GTK4 / libadwaita + GtkSourceView 5",
+   "family": "gtk4",
+   "route": "gtk.css with the GtkSourceView rule, delivered to the flatpak",
+   "tested": "here",
+   "result": "glass",
+   "evidence": "shots/adapters/texteditor.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.879,
+    "text": 7608,
+    "popup": 0.966,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "Mission Center 1.2.0 (flatpak)",
+   "toolkit": "GTK4 / libadwaita",
+   "family": "gtk4",
+   "route": "gtk.css (columnview/listview rule), delivered to the flatpak",
+   "tested": "here",
+   "result": "glass",
+   "reason": "popup share counts the live graphs that changed under the menu too",
+   "evidence": "shots/adapters/missioncenter.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.69,
+    "text": 4914,
+    "popup": 0.544,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "VSCodium 1.143 (flatpak)",
+   "toolkit": "Electron",
+   "family": "vscodium",
+   "route": "electron-hook (the Feishin hook) with workbench CSS; opt-in",
+   "tested": "here",
+   "result": "glass",
+   "reason": "breadcrumb strip about 185 (stacked bar)",
+   "evidence": "shots/adapters/vscodium.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.669,
+    "text": 8665,
+    "popup": 0.83,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "Zed 1.28.1 (flatpak)",
+   "toolkit": "GPUI (wgpu)",
+   "family": "zed",
+   "route": "`window_background_appearance` + theme_overrides alpha in settings.json",
+   "tested": "here",
+   "result": "partial",
+   "reason": "Zed 1.28.1 lays a black floor of alpha 0.40 under the window: bg 194 at content 0.60 (224 at 0.80), also with every theme background cleared (zed-clear*.json); the older Zed in B5b measured 204 exactly. Text and the command palette 255",
+   "evidence": "shots/adapters/zed.json",
+   "measured": {
+    "bg": 194,
+    "share": 0.0,
+    "text": 5832,
+    "popup": 0.993,
+    "result": "FAIL",
+    "why": "bg 194, not 153"
+   }
+  },
+  {
+   "app": "Saber 1.37.1 (flatpak)",
+   "toolkit": "Flutter",
+   "family": "ck-shim (learned keys)",
+   "route": "ck-shim with keys from appglass.keylearn: 232323:0.60, SNAP 0.2",
+   "tested": "here",
+   "result": "partial",
+   "reason": "keys learned from one opaque capture match the hand keys (232323); no Saber family yet, so the keys are passed by hand; B5b: hovered rows inside its popups are keyed (5-11% of the popup)",
+   "evidence": "shots/adapters/saber-ck.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.959,
+    "text": 23817,
+    "popup": null,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "Sublime Text 4215 (flatpak)",
+   "toolkit": "custom GL on GTK3",
+   "family": "ck-shim (learned keys)",
+   "route": "ck-shim with keys from appglass.keylearn: 303841,72787e at 0.60, SNAP 0.3, APPGLASS_KEEP for the real binary, hardware_acceleration opengl",
+   "tested": "here",
+   "result": "partial",
+   "reason": "the GTK menubar stays opaque (gtk3 theme not combined); no Sublime family yet; keys follow the colour scheme, so they are relearned when it changes",
+   "evidence": "shots/adapters/sublime-ck.json",
+   "measured": {
+    "bg": 153,
+    "share": 0.865,
+    "text": 90561,
+    "popup": 0.984,
+    "result": "PASS"
+   }
+  },
+  {
+   "app": "Alacritty 0.17.0",
+   "toolkit": "own (OpenGL)",
+   "family": "alacritty",
+   "route": "`window.opacity`, opaque glyphs, DMS palette",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "docs/terminal.md"
+  },
+  {
+   "app": "Nautilus 51.1 and libadwaita apps",
+   "toolkit": "GTK4 / libadwaita",
+   "family": "gtk4",
+   "route": "gtk.css alpha on the libadwaita background roles",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "docs/gtk4.md"
+  },
+  {
+   "app": "Solaar, nvidia-settings",
+   "toolkit": "GTK3",
+   "family": "gtk3",
+   "route": "AppGlass theme by launcher override (mode B)",
+   "tested": "earlier",
+   "result": "partial",
+   "reason": "GtkDialog bodies not covered; nvidia-settings column headers faint",
+   "evidence": "docs/gtk3.md"
+  },
+  {
+   "app": "VLC 3.0.24",
+   "toolkit": "Qt6 Widgets",
+   "family": "qtstyle",
+   "route": "appglass Qt style plugin",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "commit 31c3d64"
+  },
+  {
+   "app": "Obsidian 1.15.1 (flatpak)",
+   "toolkit": "Electron",
+   "family": "obsidian",
+   "route": "vault CSS snippet appglass.css",
+   "tested": "earlier",
+   "result": "partial",
+   "reason": "depends on the vault theme; every layer cleared, painted once",
+   "evidence": "docs/electron.md"
+  },
+  {
+   "app": "Dux Files / Dux Calendar",
+   "toolkit": "Qt Quick",
+   "family": "dux",
+   "route": "the apps' own ui-settings.json glass keys",
+   "tested": "earlier",
+   "result": "partial",
+   "reason": "the apps' levels are inverted (bars clearer than content)",
+   "evidence": "docs/qtquick.md"
+  },
+  {
+   "app": "Herdr 0.1.16",
+   "toolkit": "GPUI",
+   "family": "herdr",
+   "route": "alpha theme + glass copy of the main layout",
+   "tested": "earlier",
+   "result": "partial",
+   "reason": "ANSI colours taken from DMS roles; some panes keep their own fills",
+   "evidence": "docs/gpu.md"
+  },
+  {
+   "app": "ArtCraft Launcher 0.19.2",
+   "toolkit": "egui / wgpu",
+   "family": "artcraft",
+   "route": "ck-shim: Mesa EGL + wgpu GL + colour keys, 60 fps cap; opt-in",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "docs/gpu.md"
+  },
+  {
+   "app": "Feishin (flatpak)",
+   "toolkit": "Electron",
+   "family": "feishin",
+   "route": "electron-hook main-process hook; opt-in",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "commit 1571a2a"
+  },
+  {
+   "app": "Jellyfin Desktop 2.0.0 (flatpak)",
+   "toolkit": "Qt Quick + WebEngine",
+   "family": "jellyfin",
+   "route": "qtquick-shim libjfglass.so; opt-in",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "commit de7eee8"
+  },
+  {
+   "app": "LocalSend 1.18.2 (flatpak)",
+   "toolkit": "Flutter",
+   "family": "localsend",
+   "route": "ck-shim colour keys; opt-in",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "commit ec1db1a"
+  },
+  {
+   "app": "Lian Li Linux (lianli-gui)",
+   "toolkit": "Tauri / WebKitGTK",
+   "family": "lianli",
+   "route": "webkit-shim appglass-wk.so; opt-in",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "commit 7b90b43"
+  },
+  {
+   "app": "Discord + Vencord",
+   "toolkit": "Electron (client mod)",
+   "family": "vencord",
+   "route": "Vencord transparent window + DMS theme with alpha; opt-in",
+   "tested": "earlier",
+   "result": "partial",
+   "reason": "needs the Vencord client mod; the official client alone has no route",
+   "evidence": "commit fc31872"
+  },
+  {
+   "app": "kitty",
+   "toolkit": "own (OpenGL)",
+   "family": "kitty",
+   "route": "`background_opacity` + DMS theme include",
+   "tested": "no",
+   "result": "glass",
+   "reason": "expected; not on flathub, not installed: the writer is unit-tested only"
+  },
+  {
+   "app": "Ghostty",
+   "toolkit": "own (OpenGL/GTK4)",
+   "family": "ghostty",
+   "route": "`background-opacity` (+ cells) + DMS theme",
+   "tested": "no",
+   "result": "glass",
+   "reason": "expected; not on flathub, not installed: the writer is unit-tested only"
+  },
+  {
+   "app": "WezTerm",
+   "toolkit": "own (OpenGL/WebGPU)",
+   "family": "wezterm",
+   "route": "lua config: window_background_opacity, text_background_opacity 1.0, tab bar at the bar level",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "flathub build is on the end-of-life fdo 23.08 runtime and was not installed here; B5b: 204 with tab bar fills at their own level; writer unit-tested",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "GIMP 3.2.8 (flatpak)",
+   "toolkit": "GTK3",
+   "family": "gimp",
+   "route": "user gimp.css block over GIMP's own theme",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "not installed here (size); B5b measured 204 on menubar and docks, canvas opaque; writer unit-tested",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Ptyxis",
+   "toolkit": "GTK4 / libadwaita + VTE",
+   "family": "-",
+   "route": "gsettings profile opacity + gtk4 css",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "popups follow the titlebar and profile alpha (not opaque); needs a Ptyxis profile writer",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Element",
+   "toolkit": "Electron",
+   "family": "-",
+   "route": "electron-hook (Feishin hook)",
+   "tested": "probe",
+   "result": "opaque",
+   "reason": "fuses deny the inspector and NODE_OPTIONS, so the hook cannot load; needs an electron-fuse adapter (user copy of the binary with the fuse flipped)",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Signal",
+   "toolkit": "Electron",
+   "family": "-",
+   "route": "electron-hook (Feishin hook)",
+   "tested": "probe",
+   "result": "opaque",
+   "reason": "fuses deny the inspector and NODE_OPTIONS; B5b reached 204 only with an app.asar loader shim (electron-loader route, not built)",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Slack",
+   "toolkit": "Electron",
+   "family": "-",
+   "route": "electron-hook",
+   "tested": "probe",
+   "result": "opaque",
+   "reason": "same fuses as Signal; needs the electron-loader route",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Spotify",
+   "toolkit": "CEF",
+   "family": "-",
+   "route": "CSS route",
+   "tested": "probe",
+   "result": "opaque",
+   "reason": "CEF ignores page alpha; needs a CEF interposer",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Telegram Desktop",
+   "toolkit": "Qt6 (static, custom widgets)",
+   "family": "-",
+   "route": "ck-shim + forced Mesa EGL",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "modals share the window colour and get keyed; per-theme key tables",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Cinny",
+   "toolkit": "Tauri / WebKitGTK",
+   "family": "-",
+   "route": "webkit-shim in a flatpak",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "needs a flatpak variant of the Tauri family",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Dolphin",
+   "toolkit": "Qt6 / KDE",
+   "family": "-",
+   "route": "qt-style + kdeglobals View colours",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "needs a kde family (flatpak plumbing, QT_QPA_PLATFORMTHEME=kde)",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Strawberry",
+   "toolkit": "Qt6 Widgets",
+   "family": "-",
+   "route": "qt-style",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "only the frame: playlist and collection views paint opaque",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "KeePassXC",
+   "toolkit": "Qt6 Widgets",
+   "family": "-",
+   "route": "qt-style + classic theme",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "the dark theme paints opaque; glass with the classic theme only",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Krita",
+   "toolkit": "Qt5 Widgets",
+   "family": "-",
+   "route": "qt-style (Qt5 build)",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "needs a Qt5 build of the style",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "OBS Studio",
+   "toolkit": "Qt6 Widgets",
+   "family": "-",
+   "route": "qt-style",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "previews stay opaque",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Celluloid",
+   "toolkit": "GTK4 / libadwaita + libmpv",
+   "family": "-",
+   "route": "gtk4 css",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "video area stays 255",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Resources",
+   "toolkit": "GTK4 / libadwaita",
+   "family": "gtk4",
+   "route": "gtk.css delivered to the flatpak (FLATPAK_APPS)",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "not re-verified here",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Bottles",
+   "toolkit": "GTK4 / libadwaita",
+   "family": "-",
+   "route": "gtk4 css",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "a modal AdwWindow is 204 with the generic css",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Rhythmbox",
+   "toolkit": "GTK3",
+   "family": "-",
+   "route": "gtk3 theme",
+   "tested": "probe",
+   "result": "glass",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "LibreOffice",
+   "toolkit": "VCL gtk3",
+   "family": "-",
+   "route": "gtk3 theme",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "VCL-painted surfaces (Start Center, toolbars, document) stay 255",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Inkscape",
+   "toolkit": "GTK3",
+   "family": "-",
+   "route": "gtk3 theme + ui/style.css",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "canvas and rulers opaque by design",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Thunderbird",
+   "toolkit": "Gecko",
+   "family": "-",
+   "route": "userChrome.css",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "needs a Gecko family",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Joplin",
+   "toolkit": "Electron",
+   "family": "-",
+   "route": "user CSS",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "needs an app CSS writer",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Logseq",
+   "toolkit": "Electron",
+   "family": "-",
+   "route": "custom.css",
+   "tested": "probe",
+   "result": "glass",
+   "reason": "needs an app CSS writer",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "Blender 5.3",
+   "toolkit": "own (GHOST, Vulkan/GL)",
+   "family": "-",
+   "route": "theme alpha",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "widgets inside popups 204-223",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "JDownloader 2",
+   "toolkit": "Java Swing",
+   "family": "-",
+   "route": "javaagent",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "needs a java-swing adapter (no EGL, ck-shim cannot apply)",
+   "evidence": "b5b/results.json"
+  },
+  {
+   "app": "DBeaver CE",
+   "toolkit": "Java SWT on GTK3",
+   "family": "-",
+   "route": "gtk3 css",
+   "tested": "probe",
+   "result": "partial",
+   "reason": "SWT paints its own backgrounds; needs an swt family",
+   "evidence": "b5b/results.json"
+  }
+ ]
+}
