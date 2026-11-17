@@ -388,9 +388,16 @@ function _saved(saved, key) {
     return a && typeof a === "object" ? a : {};
 }
 
+// No route and no family: its switch is saved but applies nothing, the app
+// stays on the fallback whatever the switch says
+function _routeless(a) {
+    return !(Array.isArray(a.routes) && a.routes.length) && !a.family && a.effective !== "glass";
+}
+
 // glass | fallback | delegated | opaque | paused | conflict
 //   paused: glass is off for every app, or the app's own switch is off
 //   conflict: a hand-made file appglass does not own is in the way
+//   a routeless app is always fallback (one state, one label)
 function appStatus(app, saved, glassOn) {
     var a = app || {};
     var eff = a.effective;
@@ -398,6 +405,8 @@ function appStatus(app, saved, glassOn) {
         return "delegated";
     if (typeof a.enabled !== "boolean")
         return eff === "glass" ? "glass" : "opaque";
+    if (_routeless(a) && !(Array.isArray(a.conflicts) && a.conflicts.length))
+        return "fallback";
     if (glassOn === false)
         return "paused";
     if (Array.isArray(a.conflicts) && a.conflicts.length)
@@ -438,7 +447,7 @@ function appRows(status, saved, glassOn) {
         var on = typeof own.enabled === "boolean" ? own.enabled : a.enabled === true;
         var reason = String(a.reason || "");
         // on, but nothing to apply: the switch saved, the app stays as it was
-        if (on && typeof a.enabled === "boolean" && !names.length && !a.family && a.effective !== "glass")
+        if (on && typeof a.enabled === "boolean" && _routeless(a))
             reason = "No route yet: stays on the fallback" + (reason ? " (" + reason + ")" : "");
         rows.push({
             "key": a.key,
@@ -499,12 +508,20 @@ function glassCount(status, glassOn) {
 }
 
 // The bar pill's text: the count, "off", or nothing before a status
-function pillText(status, glassOn) {
+function pillText(status, glassOn, uninstalled) {
+    if (uninstalled === true)
+        return "uninstalled";
     if (glassOn === false)
         return "off";
     if (!status)
         return "";
     return String(glassCount(status, glassOn));
+}
+
+// An error line as the page shows it: a capital first letter
+function capitalise(text) {
+    var s = String(text || "");
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
 }
 
 // A plain-text report of the last status (Settings > Advanced > Copy report)

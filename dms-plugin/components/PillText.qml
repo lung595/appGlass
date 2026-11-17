@@ -5,5 +5,6 @@ import "logic.js" as Logic
 QtObject {
     property var status: null
     property bool glassOn: true
-    readonly property string text: Logic.pillText(status, glassOn)
+    property bool uninstalled: false
+    readonly property string text: Logic.pillText(status, glassOn, uninstalled)
 }

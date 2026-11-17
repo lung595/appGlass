@@ -214,7 +214,7 @@ PluginSettings {
                 objectName: "errorInfo"
                 width: parent.width
                 visible: root.lastError !== ""
-                text: root.lastError
+                text: Logic.capitalise(root.lastError)
                 color: Theme.error
                 font.pixelSize: Theme.fontSizeSmall
             }

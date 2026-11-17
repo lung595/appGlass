@@ -174,6 +174,13 @@ Item {
         }, true).filter(r => r.key === "md.example.Electron")[0];
         t.check("no route: on says it stays on the fallback", [routeless.on, routeless.reason], [true, "No route yet: stays on the fallback (family feishin does not list this app)"]);
         t.check("no route, off: the plain reason", byKey["md.example.Electron"].reason, "family feishin does not list this app");
+        // its switch changes nothing on disk: one state, one label, on or off
+        const routelessOff = Logic.appRows(status, {
+            "md.example.Electron": {
+                "enabled": false
+            }
+        }, true).filter(r => r.key === "md.example.Electron")[0];
+        t.check("no route: the same label switched on, off or never", [routeless.statusLabel, routelessOff.statusLabel, byKey["md.example.Electron"].statusLabel], ["Fallback", "Fallback", "Fallback"]);
         // the saved choices win until the next status has them
         const saved = {
             "Alacritty": {

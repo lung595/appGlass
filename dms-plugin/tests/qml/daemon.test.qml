@@ -471,6 +471,13 @@ Item {
                     t.check("the pause syncs", Proc.pendingIds(), [Logic.SYNC_ID]);
                     Proc.flush();
                     Proc.flush();
+                    // a new try: the old stop is not shown beside "Uninstalling..."
+                    t.check("uninstall again", root.d.runAction("uninstall"), true);
+                    t.check("a retry clears the old remove error", root.vars().uninstallError, "");
+                    Proc.flush();
+                    t.ok("its own stop is said again", (root.vars().uninstallError || "").indexOf("boom") >= 0);
+                    Proc.flush();
+                    Proc.flush();
                 }
             },
             {

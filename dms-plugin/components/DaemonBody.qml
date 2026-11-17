@@ -274,6 +274,8 @@ PluginComponent {
             return false;
         root.publish(actionVar, name);
         if (name === "uninstall") {
+            // a new try: the last one's stop is old news
+            root.publish(uninstallErrorVar, "");
             root.sweeping = true;
             // a sync waiting for its debounce: kept for a failed remove
             if (debounce.running)

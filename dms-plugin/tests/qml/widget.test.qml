@@ -89,6 +89,25 @@ Item {
             {
                 "run": () => {
                     t.check("before a status: the icon only", [root.find(root.pill, "pillText").visible, root.find(root.pill, "pillIcon").name], [false, "blur_on"]);
+                    // uninstalled, but the plugin link stayed: the pill stays in
+                    // the bar and must not look on, nor save anything
+                    root.fresh({
+                        "status": root.status,
+                        "uninstallState": "linkStays"
+                    }, {
+                        "glassEnabled": true,
+                        "uninstallState": "linkStays"
+                    });
+                }
+            },
+            {
+                "run": () => {
+                    t.check("uninstalled pill", [root.find(root.pill, "pillText").text, root.find(root.pill, "pillIcon").name, root.find(root.vpill, "pillText").text], ["uninstalled", "blur_off", "uninstalled"]);
+                    root.w.pillRightClickAction();
+                    t.check("right click is inert", SettingsData.getPluginSetting("appGlass", "glassEnabled", undefined), true);
+                    t.check("still uninstalled", root.find(root.pill, "pillText").text, "uninstalled");
+                    root.w.triggerPopout();
+                    t.check("a click still opens the settings (to set up again)", PopoutService.opened, ["plugin:appGlass"]);
                 }
             }
         ]);

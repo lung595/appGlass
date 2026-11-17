@@ -8,7 +8,9 @@ import qs.Modules.Plugins
 // The bar pill: the glass icon (crossed out while paused) and how many apps
 // are on glass, from the daemon's shared status. A click opens the plugin's
 // settings, a right click pauses or resumes the glass. It only saves
-// glassEnabled; the daemon turns that into `appglass sync`.
+// glassEnabled; the daemon turns that into `appglass sync`. After an
+// uninstall whose plugin link stayed (uninstallState), the pill says
+// "uninstalled" and a right click does nothing (the daemon syncs nothing).
 //
 // It imports nothing of the plugin's own: after an update, `dms ipc call
 // plugins reload appGlass` loads this file again (?revision=N) but would
@@ -21,6 +23,8 @@ PluginComponent {
     readonly property string id_: root.pluginId || "appGlass"
     readonly property var service: root.pluginService || PluginService
     readonly property bool glassOn: root.pluginData.glassEnabled !== false
+    readonly property bool gone: uninstallVar.value === "removed" || uninstallVar.value === "linkStays"
+    readonly property bool lit: root.glassOn && !root.gone
     readonly property var pillText: {
         const comp = Qt.createComponent(root.freshUrl("components/PillText.qml"), Component.PreferSynchronous);
         if (comp.status !== Component.Ready) {
@@ -29,7 +33,8 @@ PluginComponent {
         }
         return comp.createObject(root, {
             "status": Qt.binding(() => statusVar.value),
-            "glassOn": Qt.binding(() => root.glassOn)
+            "glassOn": Qt.binding(() => root.glassOn),
+            "uninstalled": Qt.binding(() => root.gone)
         });
     }
     readonly property string countText: root.pillText ? root.pillText.text : ""
@@ -67,7 +72,15 @@ PluginComponent {
         defaultValue: null
     }
 
+    PluginGlobalVar {
+        id: uninstallVar
+        varName: "uninstallState"
+        defaultValue: ""
+    }
+
     function togglePause() {
+        if (root.gone)
+            return;
         root.service.savePluginData(root.id_, "glassEnabled", !root.glassOn);
     }
 
@@ -81,16 +94,16 @@ PluginComponent {
             DIcon {
                 objectName: "pillIcon"
                 anchors.verticalCenter: parent.verticalCenter
-                name: root.glassOn ? "blur_on" : "blur_off"
+                name: root.lit ? "blur_on" : "blur_off"
                 size: root.iconSize
-                color: root.glassOn ? Theme.primary : Theme.surfaceVariantText
+                color: root.lit ? Theme.primary : Theme.surfaceVariantText
             }
             StyledText {
                 objectName: "pillText"
                 anchors.verticalCenter: parent.verticalCenter
                 visible: text !== ""
                 text: root.countText
-                color: root.glassOn ? Theme.surfaceText : Theme.surfaceVariantText
+                color: root.lit ? Theme.surfaceText : Theme.surfaceVariantText
                 font.pixelSize: root.textSize
                 wrapMode: Text.NoWrap
             }
@@ -104,16 +117,16 @@ PluginComponent {
             DIcon {
                 objectName: "pillIcon"
                 anchors.horizontalCenter: parent.horizontalCenter
-                name: root.glassOn ? "blur_on" : "blur_off"
+                name: root.lit ? "blur_on" : "blur_off"
                 size: root.iconSize
-                color: root.glassOn ? Theme.primary : Theme.surfaceVariantText
+                color: root.lit ? Theme.primary : Theme.surfaceVariantText
             }
             StyledText {
                 objectName: "pillText"
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: text !== ""
                 text: root.countText
-                color: root.glassOn ? Theme.surfaceText : Theme.surfaceVariantText
+                color: root.lit ? Theme.surfaceText : Theme.surfaceVariantText
                 font.pixelSize: Theme.fontSizeSmall
                 wrapMode: Text.NoWrap
             }
