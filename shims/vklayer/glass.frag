@@ -11,12 +11,17 @@ layout(location = 0) out vec4 O;
 // key[i] = 0xRRGGBBAA (AA = the key's alpha * 255); prm = (number of keys, tol, snap, unused)
 layout(push_constant) uniform P { uvec4 key[2]; vec4 prm; } pc;
 
+// One difference from appglass-ck.c: wgpu dithers what it draws (egui fills with a translucent
+// colour land on the key +-1 level, at random). Against a dark key one level is a large colour-to-
+// alpha step (1/6 for 060607), so the glass would come out speckled. A channel within one 8-bit
+// level of the key counts as the key.
+const float SLACK = 1.5 / 255.0;
 float c2a(vec3 p, vec3 k) {
     vec3 d = vec3(0.0);
     for (int i = 0; i < 3; i++) {
         float pi = p[i], ki = k[i];
-        if (pi > ki) d[i] = (pi - ki) / max(1.0 - ki, 1e-4);
-        else if (pi < ki) d[i] = (ki - pi) / max(ki, 1e-4);
+        if (pi > ki + SLACK) d[i] = (pi - ki - SLACK) / max(1.0 - ki - SLACK, 1e-4);
+        else if (pi < ki - SLACK) d[i] = (ki - SLACK - pi) / max(ki - SLACK, 1e-4);
     }
     return max(d.r, max(d.g, d.b));
 }

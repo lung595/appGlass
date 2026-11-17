@@ -163,6 +163,8 @@ int main(int argc, char **argv) {
         if (y < 8) c = 0x060607;                       /* bar key */
         if (x >= 40 && x < 48 && y >= 16 && y < 24) c = 0xffffff;  /* "text" */
         if (x == 10 && y == 20) c = 0x898a8b;          /* a half-covered glyph edge: half way to white */
+        if (x == 20 && y == 4) c = 0x050506;           /* the bar key one level down (wgpu dithers fills) */
+        if (x == 20 && y == 24) c = 0x131417;          /* the content key one level up */
         put(px + (y * W + x) * 4, bgr, c);
     }
     VkSemaphoreCreateInfo si = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO }; VkSemaphore acq, done; CK(vkCreateSemaphore(dev, &si, 0, &acq)); CK(vkCreateSemaphore(dev, &si, 0, &done));
@@ -190,8 +192,8 @@ int main(int argc, char **argv) {
     VkCommandBuffer r = begin(); barrier(r, im[idx], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vkCmdCopyImageToBuffer(r, im[idx], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buf, 1, &reg); CK(vkEndCommandBuffer(r));
     VkSubmitInfo rs = { VK_STRUCTURE_TYPE_SUBMIT_INFO, 0, 0, 0, 0, 1, &r, 0, 0 }; CK(vkQueueSubmit(q, 1, &rs, 0)); CK(vkQueueWaitIdle(q));
-    int at[][2] = { { 30, 20 }, { 30, 2 }, { 44, 20 }, { 10, 20 } };   /* content, bar, text, edge */
-    for (int i = 0; i < 4; i++) {
+    int at[][2] = { { 30, 20 }, { 30, 2 }, { 44, 20 }, { 10, 20 }, { 20, 4 }, { 20, 24 } };   /* content, bar, text, edge, dithered bar, dithered content */
+    for (int i = 0; i < 6; i++) {
         uint8_t *p = px + (at[i][1] * W + at[i][0]) * 4;
         printf("%d %d %d %d\n", bgr ? p[2] : p[0], p[1], bgr ? p[0] : p[2], p[3]);
     }
@@ -244,7 +246,7 @@ class Layer(unittest.TestCase):
         return px, r.stderr
 
     def check_keyed(self, fmt):
-        (content, bar, text, edge), log = self.run_client(fmt)
+        (content, bar, text, edge, dbar, dcontent), log = self.run_client(fmt)
         self.assertIn("[appglass-vk]", log)
         self.assertIn("PRE_MULTIPLIED", log)
         self.assertAlmostEqual(content[3], 153, delta=1)          # 0.60
@@ -255,6 +257,9 @@ class Layer(unittest.TestCase):
         # a glyph edge (half way between the key and white) stays more opaque than the glass
         self.assertGreater(edge[3], 153)
         self.assertLess(edge[3], 255)
+        # wgpu dithers its fills: one 8-bit level off a key is still that key, not a darker speck
+        self.assertAlmostEqual(dbar[3], 166, delta=1)
+        self.assertAlmostEqual(dcontent[3], 153, delta=1)
 
     @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
     def test_keyed_rgba(self):
