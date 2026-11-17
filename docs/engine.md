@@ -53,11 +53,18 @@ colour key) goes live only after `appglass verify` has passed for the app's curr
 Until then the app is "waiting for a check" and runs plain. After an app update the old pass no longer counts,
 so the app is "stale" and runs plain until the next check.
 
-`appglass-verify.service` runs the queued checks idle (nice 19, idle IO, at most half a CPU, 512 MB). Each
+`appglass-verify.service` runs the queued checks idle (nice 19, idle IO, at most half a CPU, 2 GB). Each
 check starts the app in a hidden headless session: gamescope `--backend headless`, a nested niri, a private
-`XDG_RUNTIME_DIR`, `env -i`, a private D-Bus and a throwaway HOME holding a copy of the app's glass files. The
+`XDG_RUNTIME_DIR` and `TMPDIR`, `env -i`, a private D-Bus and a throwaway HOME holding a copy of the app's glass files. The
 window shot must show the background at the content level and opaque text. Nothing is run while a game window
-is open, nor on a battery under 20 %. `appglass verify <key>` runs one check by hand.
+is open or a wine, wineserver, proton, umu-run, Steam reaper or pressure-vessel process runs, while niri does not
+answer, nor on a battery under 20 %. `appglass verify <key>` runs one check by hand.
+
+What the hidden session does not isolate: the network, abstract Unix sockets, the system D-Bus and USB devices
+(there is no `unshare -n` without user namespaces). An app checked there runs for real for up to 50 s:
+LocalSend announces itself on the LAN and listens on its port (a file sent to it lands in the throwaway HOME,
+deleted after), and Lian Li's GUI talks to its daemon as it does at every start. An app the kernel kills for
+memory under the 2 GB shows no window, so it counts as unverifiable.
 
 Every glass wrapper also starts `appglass launch-check`. If the app dies with no window twice on the same
 version, it runs plain until its next update, with one desktop notification. `appglass fail <key>` records a

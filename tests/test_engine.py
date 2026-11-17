@@ -90,6 +90,18 @@ class Classes(unittest.TestCase):
         self.assertIn("sudo", recs["a"]["classes"]["root"])
         self.assertIn("su", recs["b"]["classes"]["root"])
 
+    def test_elevator_flags_that_take_no_value(self):
+        # sudo -E/-H/-P take no value; systemd-run -E (--setenv) and -H (--host) do
+        rt = detect.root_target
+        self.assertEqual(rt(["sudo", "-E", "gparted"]), ("sudo", "gparted"))
+        self.assertEqual(rt(["sudo", "-H", "gparted"]), ("sudo", "gparted"))
+        self.assertEqual(rt(["sudo", "-P", "gparted"]), ("sudo", "gparted"))
+        self.assertEqual(rt(["sudo", "-u", "bob", "gparted"]), ("sudo", "gparted"))
+        self.assertEqual(rt(["systemd-run", "-E", "A=1", "--uid=0", "gparted"]),
+                         ("systemd-run", "gparted"))
+        self.assertEqual(rt(["systemd-run", "--uid=0", "-H", "box", "-P", "gparted"]),
+                         ("systemd-run", "gparted"))
+
     def test_umu_run_and_wine_are_games(self):
         self.w.app("g1.desktop", "G1", "umu-run /home/u/Games/x/game.exe")
         self.w.app("g2.desktop", "G2", "env WINEPREFIX=/p wine C:\\\\x.exe")
@@ -253,6 +265,25 @@ class Cache(unittest.TestCase):
         fp3 = {r["key"]: r["fp"] for r in recs3}
         self.assertNotEqual(fp["org.example.App007"], fp3["org.example.App007"])
         self.assertEqual(fp["org.example.App008"], fp3["org.example.App008"])
+
+    def test_a_binary_that_comes_after_its_launcher_is_probed(self):
+        # an rpm can write the .desktop file before the binary
+        self.w.launcher("org.example.Late.desktop", desktop("Late", "latebin %U"))
+        opt = self.w.sb.path("opt", "late")
+        self.w.launcher("org.example.LateAbs.desktop", desktop("LateAbs", opt + "/lateabs"))
+        recs, _ = engine.scan(self.env, write=True)
+        by = {r["key"]: r for r in recs}
+        self.assertFalse(by["org.example.Late"]["installed"])
+        self.assertFalse(by["org.example.LateAbs"]["installed"])
+        bin_elf(self.w, "latebin", GTK3)
+        _w(os.path.join(opt, "lateabs"), elf(GTK3), 0o755)
+        recs, changed = engine.scan(self.env, write=True)
+        by = {r["key"]: r for r in recs}
+        self.assertEqual(sorted(changed), ["org.example.Late.desktop",
+                                           "org.example.LateAbs.desktop"])
+        self.assertTrue(by["org.example.Late"]["installed"])
+        self.assertEqual(by["org.example.Late"]["toolkit"], "gtk3")
+        self.assertTrue(by["org.example.LateAbs"]["installed"])
 
     def test_fingerprint_pass_under_10ms(self):
         recs, _ = engine.scan(self.env, write=True)
@@ -542,6 +573,11 @@ class Units(unittest.TestCase):
         v = self.read("appglass-verify.service")
         self.assertIn("IOSchedulingClass=idle", v)
         self.assertIn("--verify", v)
+        # an Electron or WebKit app alone takes more than 512M: an OOM kill
+        # there would end verify itself, the queue never done
+        m = re.search(r"(?m)^MemoryMax=(\d+)([MG])$", v)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)) * (1024 if m.group(2) == "G" else 1), 2048)
 
     def test_sync_waits_for_a_quiet_rpmdb(self):
         sb = Sandbox()
@@ -670,7 +706,11 @@ class Heal(unittest.TestCase):
         open(self.nlog, "w").close()
         self.sb.env.update(APPGLASS_VERIFY_HARNESS=self.sb.path("stub-harness"),
                            APPGLASS_NOTIFY=self.sb.path("stub-notify"),
-                           APPGLASS_POWER_SUPPLY=self.sb.path("no-power"))
+                           APPGLASS_POWER_SUPPLY=self.sb.path("no-power"),
+                           APPGLASS_NIRI_WINDOWS=self.sb.write("no-windows.json", "[]",
+                                                               base=self.sb.root),
+                           APPGLASS_PROC=self.sb.path("empty-proc"))
+        os.makedirs(self.sb.path("empty-proc"), exist_ok=True)
         self.result("pass", "background 204 (want 204)")
 
     def tearDown(self):
@@ -832,6 +872,27 @@ class Heal(unittest.TestCase):
         self.assertIn("game window", out + err)
         self.assertEqual(self.harness_calls(), [])
         self.assertIn(LS, self.store()["queue"])
+
+    def test_verify_waits_for_a_wine_process(self):
+        # a game with no window yet (or one niri does not name) still runs
+        self.run_ok("apply")
+        _w(self.sb.path("proc-game", "50", "comm"), "bash\n")
+        for pid, comm in ((51, "wineserver"), (52, "pressure-vessel")):
+            _w(self.sb.path("proc-game", str(pid), "comm"), comm + "\n")
+            code, out, err = self.w.run("verify", "--queue",
+                                        env={"APPGLASS_PROC": self.sb.path("proc-game")})
+            self.assertEqual(code, verify.EX_TEMPFAIL, comm)
+            self.assertIn(comm, out + err)
+            shutil.rmtree(self.sb.path("proc-game", str(pid)))
+        self.assertEqual(self.harness_calls(), [])
+
+    def test_verify_waits_when_niri_cannot_be_asked(self):
+        self.run_ok("apply")
+        env = {"APPGLASS_NIRI_WINDOWS": self.sb.path("no-such-windows.json")}
+        code, out, err = self.w.run("verify", "--queue", env=env)
+        self.assertEqual(code, verify.EX_TEMPFAIL)
+        self.assertIn("niri", out + err)
+        self.assertEqual(self.harness_calls(), [])
 
     def test_verify_waits_on_low_battery(self):
         self.run_ok("apply")
@@ -1036,6 +1097,7 @@ class Harness(unittest.TestCase):
             self.assertEqual(e["XDG_SESSION_TYPE"], "wayland")
             self.assertEqual(e["XDG_CURRENT_DESKTOP"], "niri")
             self.assertEqual(e["XDG_RUNTIME_DIR"], sb.path("run", "rt"))
+            self.assertEqual(e["TMPDIR"], sb.path("run", "tmp"))      # not the real /tmp
             self.assertEqual(e["HOME"], sb.path("h"))
             for k in ("WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "SECRET", "DISPLAY"):
                 self.assertNotIn(k, e)

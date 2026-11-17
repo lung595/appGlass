@@ -32,7 +32,9 @@ import time
 
 from . import detect, inputs
 
-CACHE_VERSION = 2       # 2: the spawner class, more elevators, Categories=Game
+CACHE_VERSION = 3       # 2: the spawner class, more elevators, Categories=Game
+                        # 3: IDEs, app and game launchers, game-category, a
+                        #    binary not found yet ("missing", re-probed)
 STORE_VERSION = 1
 ROUTE_VERSION = 1
 
@@ -127,6 +129,8 @@ def fingerprint(env, rec, paths, owned=()):
     if rec:
         for p in rec.get("seen") or ():
             h.update(("S %s %s\n" % (p, _sig(p))).encode())
+        for p in rec.get("missing") or ():
+            h.update(("M %s %s\n" % (p, _sig(p))).encode())
         for x in extras(env, rec):
             h.update(("X %s\n" % x).encode())
     return h.hexdigest()[:16]
@@ -201,12 +205,50 @@ class Store:
     def __init__(self, env):
         self.env = env
         self.path = os.path.join(env.state_dir, "engine.json")
+        try:
+            with open(self.path, "rb") as f:
+                raw = f.read()
+        except OSError:
+            raw = None
         d = _load(self.path)
-        if d.get("version") != STORE_VERSION:
-            d = {}
+        self._bad = None
+        if raw is not None and d.get("version") != STORE_VERSION:
+            d = self._reset(d, raw)
         self.data = {"version": STORE_VERSION, "apps": d.get("apps") or {},
                      "games": d.get("games") or {}, "queue": d.get("queue") or []}
-        self._saved = json.dumps(self.data, sort_keys=True)
+        self._saved = None if self._bad is not None else json.dumps(self.data, sort_keys=True)
+
+    def _reset(self, d, raw):
+        """engine.json unreadable or of another version: its bytes go to
+        engine.json.bad at the next save; the games and the paused apps
+        stay (from the old file when it reads, else from the plain/ markers):
+        a reset never takes an app back to glass."""
+        self._bad = raw
+        apps, games = {}, {}
+        old = d.get("apps") if isinstance(d.get("apps"), dict) else {}
+        for k, a in old.items():
+            if isinstance(a, dict) and isinstance(a.get("plain"), dict) and \
+                    isinstance(a["plain"].get("reason"), str):
+                apps[k] = {"plain": a["plain"]}
+        if isinstance(d.get("games"), dict):
+            games = {k: v for k, v in d["games"].items() if isinstance(v, str)}
+        mdir = os.path.join(self.env.state_dir, "plain")
+        try:
+            names = sorted(os.listdir(mdir))
+        except OSError:
+            names = []
+        for k in names:
+            if k in apps or k.startswith("."):
+                continue
+            try:
+                with open(os.path.join(mdir, k)) as f:
+                    why = f.read().strip()
+            except (OSError, UnicodeDecodeError):
+                why = ""
+            # plain until this app's next fingerprint (refresh sets it)
+            apps[k] = {"plain": {"fp": None, "why": "kept",
+                                 "reason": why or "paused before engine.json was reset"}}
+        return {"apps": apps, "games": games}
 
     def app(self, key):
         return self.data["apps"].setdefault(key, {})
@@ -246,6 +288,11 @@ class Store:
                      any(self.data["apps"].values()))
         if empty and not os.path.exists(self.path):
             return False
+        if self._bad is not None:
+            from .core import _atomic_write
+            env.guard(self.path + ".bad")
+            _atomic_write(self.path + ".bad", self._bad)
+            self._bad = None
         _write(env, self.path, self.data)
         self._saved = json.dumps(self.data, sort_keys=True)
         self.sync_markers()
@@ -336,7 +383,7 @@ def gate(st, rec, injected, explicit):
     key, fp = rec.get("key"), rec.get("fp")
     a = st.get(key)
     p = a.get("plain")
-    if p and p.get("fp") == fp and p.get("why") != "stale":
+    if p and (p.get("fp") == fp and p.get("why") != "stale" or p.get("why") == "kept"):
         return "opaque", p["reason"]
     v = a.get("verify")
     if v:
@@ -427,8 +474,14 @@ def refresh(app, dry=False, families=None):
     for r in recs:
         if not r.get("installed") or r.get("nodisplay"):
             continue
-        route = adapters.resolve(r, app.families, app.settings, gate=g)
         key, fp = r["key"], r.get("fp")
+        kept = st.get(key).get("plain")
+        if kept and kept.get("why") == "kept" and not dry:
+            # a marker kept over an engine.json reset: plain for this
+            # fingerprint, glass again at the next one (S7)
+            kept["fp"] = fp
+            kept.pop("why")
+        route = adapters.resolve(r, app.families, app.settings, gate=g)
         if families is not None and route.get("family") not in families:
             continue
         a = st.get(key)

@@ -67,10 +67,42 @@ class Busy(Exception):
 
 # ---------------------------------------------------------------- guards
 
+# a game with no window yet, or one niri names by no game id (comm is 15
+# characters at most: pressure-vessel-wrap reads pressure-vessel-); a
+# Windows program under wine names itself after its .exe
+GAME_PROCS = re.compile(r"^(wine|wine64|wineserver|wine-preloader|wine64-preload\w*|proton"
+                        r"|umu-run|reaper|pressure-vessel\S*|\S+\.exe)$", re.I)
+
+
+def game_process(env):
+    """The name of a running wine, proton, umu or Steam runtime process, or None."""
+    from . import learn
+    root = learn.proc_root(env)
+    try:
+        pids = [n for n in os.listdir(root) if n.isdigit()]
+    except OSError:
+        return None
+    for pid in pids:
+        try:
+            with open(os.path.join(root, pid, "comm")) as f:
+                comm = f.read().strip()
+        except OSError:
+            continue
+        if GAME_PROCS.match(comm):
+            return comm
+    return None
+
+
 def game_running(app):
-    """The app-id of an open game window, or None."""
+    """What says a game runs (a window's app-id, a process name), or None.
+    No answer from niri counts as a game: a check never starts blind."""
     from . import learn, niri
-    ws = learn.windows(app.env) or []
+    p = game_process(app.env)
+    if p:
+        return "a game process runs (%s)" % p
+    ws = learn.windows(app.env)
+    if ws is None:
+        return "niri did not answer, so a game may be open"
     games = list(niri.GAME_IDS)
     st = engine.store(app)
     for r in engine.records(app):
@@ -78,7 +110,7 @@ def game_running(app):
             games += r.get("app_ids") or []
     for w in ws:
         if any(re.search(rx, w["app_id"]) for rx in games):
-            return w["app_id"]
+            return "a game window is open (%s)" % w["app_id"]
     return None
 
 
@@ -275,6 +307,10 @@ def session_env(env, home, run, fp=None):
          "PATH": env.environ.get("PATH", "/usr/bin:/bin"),
          "USER": env.environ.get("USER", ""), "LANG": env.environ.get("LANG", "C.UTF-8"),
          "TERM": "dumb", "XDG_RUNTIME_DIR": os.path.join(run, "rt"),
+         # the app's temp files and its path sockets stay in the private dir
+         # (abstract sockets and the network are shared: no unshare -n
+         # without user namespaces, docs/engine.md)
+         "TMPDIR": os.path.join(run, "tmp"),
          "XDG_DATA_DIRS": env.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
          "XDG_CONFIG_DIRS": "/etc/xdg", "GTK_USE_PORTAL": "0",
          # the hidden session is a niri Wayland session
@@ -395,7 +431,8 @@ def run_harness(app, rec, level):
         if os.path.realpath(rt) == os.path.realpath(real or "/nonexistent"):
             raise Busy("refusing: the private runtime dir is the real one")
         clean = session_env(env, home, run, fp=rec.get("fp"))
-        for k in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+        for k in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
+                  "TMPDIR"):
             os.makedirs(clean[k], exist_ok=True)
         shot = os.path.join(run, "window.png")
         p = subprocess.Popen(["dbus-run-session", "--", harness_script(), run, rec["app_ids"][0]
@@ -568,7 +605,7 @@ def cmd_verify(app, key=None, queue=False):
         raise ValueError("verify has no dry run")
     g = game_running(app)
     if g:
-        app.info("verify: a game window is open (%s): waiting, nothing checked" % g)
+        app.info("verify: %s: waiting, nothing checked" % g)
         return EX_TEMPFAIL
     if on_low_battery(app.env):
         app.info("verify: on battery under 20 %: waiting, nothing checked")

@@ -318,6 +318,9 @@ def resolve(rec, families, settings=None, gate=None):
             return out(a.NAME if a else "niri-fallback", OPAQUE,
                        "%s: no theme by environment, it starts other apps" % spawn,
                        state="opaque")
+        if "game-category" in classes and getattr(families[fam], "ENV_ROUTE", False):
+            return out(a.NAME if a else "niri-fallback", OPAQUE,
+                       "a game (Categories=Game): no theme by environment", state="opaque")
         own = settings.get("apps", {}).get(fam) or {}
         mine = settings.get("apps", {}).get(key) or {}
         if injected:

@@ -66,7 +66,11 @@ class Stubbed(unittest.TestCase):
         open(self.nlog, "w").close()
         self.sb.env.update(APPGLASS_VERIFY_HARNESS=self.sb.path("stub-harness"),
                            APPGLASS_NOTIFY=self.sb.path("stub-notify"),
-                           APPGLASS_POWER_SUPPLY=self.sb.path("no-power"))
+                           APPGLASS_POWER_SUPPLY=self.sb.path("no-power"),
+                           APPGLASS_NIRI_WINDOWS=self.sb.write("no-windows.json", "[]",
+                                                               base=self.sb.root),
+                           APPGLASS_PROC=self.sb.path("empty-proc"))
+        os.makedirs(self.sb.path("empty-proc"), exist_ok=True)
         self.result("pass", "background 204 (want 204)")
 
     def tearDown(self):
@@ -156,6 +160,25 @@ class NativePlain(Stubbed):
         # the launcher still runs the app
         ex = execs(self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
         self.assertEqual(ex, [self.g + " %U", "ignored-Gtk Thing"])
+
+    def test_a_broken_engine_json_keeps_the_plain_apps_and_games(self):
+        self.glass_then_fail()
+        eng = os.path.join(self.sb.state, "appglass", "engine.json")
+        for broken in ("{not json", "old"):
+            if broken == "old":
+                doc = self.sb.json(eng)
+                doc["version"] = 0
+                doc["games"] = {"some.game": "wine"}
+                broken = json.dumps(doc)
+            with open(eng, "w") as f:
+                f.write(broken)
+            self.run_ok("apply", "--from-hook")
+            self.assertEqual(self.sb.read(eng + ".bad"), broken)
+            for k in ("org.example.GtkThing", "org.example.QtThing", "solaar"):
+                self.assertTrue(os.path.exists(self.marker(k)), (k, broken[:9]))
+            self.assert_plain()
+            self.assertEqual(routes(self.sb)["org.example.GtkThing"]["state"], "opaque")
+        self.assertIn("some.game", self.store()["games"])
 
     def test_two_failed_launches_take_the_launcher_plain(self):
         self.run_ok("apply")
@@ -321,6 +344,25 @@ class Spawners(unittest.TestCase):
             r = self.route(k)
             self.assertIn("game-launcher", self.recs()[k]["classes"], k)
             self.assertNotEqual(r["effective"], "glass", k)
+
+    def test_ides_and_more_game_launchers_get_no_env_route(self):
+        self.w.exe("steamtinkerlaunch", "#!/usr/bin/python3\nimport gi\n"
+                   "gi.require_version('Gtk', '3.0')\n")
+        self.w.app("steamtinkerlaunch.desktop", "STL", "steamtinkerlaunch", Categories="Utility;")
+        self.w.exe("gamescope-session", elf(GTK3))
+        self.w.app("gamescope-session.desktop", "GS", "gamescope-session", Categories="System;")
+        self.w.exe("ide", elf(QT6))
+        self.w.app("org.example.Ide.desktop", "IDE", "ide", Categories="Qt;Development;IDE;")
+        self.w.exe("cardgame", elf(GTK3))
+        self.w.app("org.example.Cards.desktop", "Cards", "cardgame", Categories="GTK;Game;CardGame;")
+        for k in ("steamtinkerlaunch", "gamescope-session", "org.example.Ide",
+                  "org.example.Cards"):
+            r = self.route(k)
+            self.assertNotEqual(r["effective"], "glass", k)
+            self.assertEqual(r["state"], "opaque", k)
+        self.assertIn("game-launcher", self.recs()["steamtinkerlaunch"]["classes"])
+        self.assertIn("starts other apps", self.route("org.example.Ide")["reason"])
+        self.assertIn("game", self.route("org.example.Cards")["reason"])
 
     def test_game_category_with_sdl_or_gl_is_a_game(self):
         self.w.exe("sdlgtk", elf(["libSDL2-2.0.so.0"] + GTK3))
@@ -513,6 +555,24 @@ class LostState(Stubbed):
         super().setUp()
         bin_elf(self.w, "gtkthing", GTK3)
         self.w.launcher("org.example.GtkThing.desktop", desktop("Gtk Thing", self.w.bin + "/gtkthing"))
+
+    def test_every_command_lists_the_same_orphans(self):
+        # the hook run's scan names the launcher appglass wrote too
+        self.run_ok("apply")
+        launcher = os.path.join(self.sb.home, ".local", "share", "applications",
+                                "org.example.GtkThing.desktop")
+        self.assertTrue(os.path.exists(launcher))
+        os.remove(os.path.join(self.sb.state, "appglass", "state.json"))
+        texts = {}
+        for argv in (("apply", "--from-hook"), ("fail", "org.example.GtkThing"),
+                     ("verify", "--queue"), ("apply",)):
+            code, out, err = self.w.run(*argv)
+            self.assertNotEqual(code, 0, argv)
+            self.assertIn("appglass files are on disk: ", out + err, argv)
+            found = (out + err).split("appglass files are on disk: ", 1)[1]
+            texts[argv] = found.split(". Nothing written")[0].split("; and ")[0]
+        self.assertEqual(len(set(texts.values())), 1, texts)
+        self.assertIn("org.example.GtkThing.desktop", texts[("apply",)])
 
     def test_verify_fail_keys_refuse(self):
         self.run_ok("apply")

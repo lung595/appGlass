@@ -66,7 +66,8 @@ TERMINALS = ("alacritty", "kitty", "foot", "footclient", "ghostty", "wezterm",
              "wezterm-gui", "konsole", "gnome-terminal-server", "ptyxis")
 # apps whose children are other apps: an environment variable set for them
 # reaches every app they start (S3, S8). Categories first, then names.
-SPAWNER_CATEGORIES = (("TerminalEmulator", "terminal"), ("FileManager", "file manager"))
+SPAWNER_CATEGORIES = (("TerminalEmulator", "terminal"), ("FileManager", "file manager"),
+                      ("IDE", "IDE"))
 SPAWNER_NAMES = (
     (r"(?i)^(xfce4-terminal|qterminal|tilix|terminator|lxterminal|mate-terminal|sakura"
      r"|terminology|xterm|uxterm|urxvt|rxvt|guake|tilda|yakuake|cool-retro-term|kgx"
@@ -74,6 +75,8 @@ SPAWNER_NAMES = (
      "terminal"),
     (r"(?i)^(thunar|pcmanfm|pcmanfm-qt|nemo|caja|dolphin|nautilus|spacefm|doublecmd"
      r"|krusader)$", "file manager"),
+    (r"(?i)^(ulauncher|albert|rofi|wofi|fuzzel|tofi|anyrun|walker|krunner|kupfer|synapse"
+     r"|cerebro)$", "app launcher"),
 )
 
 # next to the binary (or one level up)
@@ -113,11 +116,13 @@ MAX_SCAN = 512 << 20
 # classes (engine spec 1.3): root, game (sticky), sensitive, game-launcher
 ROOT_CMDS = ("pkexec", "sudo", "run0", "doas", "kdesu", "kdesudo", "lxqt-sudo", "lxsudo",
              "gksu", "gksudo", "beesu", "su-to-root")
-# options of the elevators that take a value (the value is not the app)
+# options of the elevators that take a value (the value is not the app);
+# sudo -E, -H and -P are flags, systemd-run -E (--setenv) and -H (--host) are not
 _ROOT_VALUED = {"-u", "--user", "-g", "--group", "-p", "--property", "--uid", "--gid",
-                "-m", "--message", "-D", "--description", "--unit", "-E", "--setenv",
-                "--slice", "-M", "--machine", "-H", "--host", "--working-directory",
-                "-C", "--chdir", "--prompt", "-P"}
+                "-m", "--message", "-D", "--description", "--unit", "--setenv",
+                "--slice", "-M", "--machine", "--host", "--working-directory",
+                "-C", "--chdir", "--prompt"}
+_SYSTEMD_RUN_VALUED = _ROOT_VALUED | {"-E", "-H"}
 _ROOT_SCRIPT = re.compile(r"(?m)(?:^|[\s;&|(`'\"])(?:exec\s+)?(?:/\S*/)?(%s)\s+\S"
                           r"|(?:^|[\s;&|(`])(?:/\S*/)?su\s+(?:-c|-|-l|--login)(?:\s|$)"
                           % "|".join(re.escape(c) for c in sorted(ROOT_CMDS, key=len, reverse=True)))
@@ -129,7 +134,8 @@ SENSITIVE = (r"(?i)keepassxc", r"(?i)bitwarden", r"(?i)1password", r"(?i)proton[
              r"(?i)seahorse", r"(?i)(^|\.)authenticator$", r"(?i)org\.gnome\.World\.Secrets",
              r"(?i)^secrets$")
 GAME_LAUNCHERS = (r"(?i)^(steam|lutris|heroic|bottles|umu-run|prismlauncher|polymc|multimc"
-                  r"|atlauncher|itch|minigalaxy|gamehub|playonlinux|legendary-gl)$",
+                  r"|atlauncher|itch|minigalaxy|gamehub|playonlinux|legendary-gl"
+                  r"|steamtinkerlaunch|gamescope|gamescope-session\S*)$",
                   r"net\.lutris\.Lutris", r"com\.heroicgameslauncher\.",
                   r"com\.usebottles\.bottles", r"com\.valvesoftware\.Steam",
                   r"org\.prismlauncher\.", r"org\.polymc\.", r"org\.multimc\.",
@@ -165,7 +171,7 @@ def root_target(argv):
             return b0, (words[0] if words else None)
         if not a.startswith("-"):
             break
-        i += 2 if a in _ROOT_VALUED else 1
+        i += 2 if a in (_SYSTEMD_RUN_VALUED if b0 == "systemd-run" else _ROOT_VALUED) else 1
     return b0, (argv[i] if i < len(argv) else None)
 
 
@@ -403,6 +409,14 @@ def _which(name, env):
         if d and os.path.isfile(p) and os.access(p, os.X_OK):
             return p
     return None
+
+
+def _candidates(name, env):
+    """Where a binary not found yet would appear (the fingerprint stats
+    them: a package may write the launcher before the binary)."""
+    if os.path.isabs(name):
+        return [name]
+    return [os.path.join(d, name) for d in env.environ.get("PATH", "/usr/bin").split(":") if d]
 
 
 # ---------------------------------------------------------------- .desktop
@@ -829,10 +843,12 @@ def detect_desktop(env, desktop_id, paths):
             pr.binary(p)
         else:
             rec["installed"] = False
+            rec["missing"] = _candidates(exe, env)
     # TryExec (desktop entry spec): the entry is not usable when it is missing
     tx = entry.get("TryExec")
     if tx and not (os.path.exists(tx) if os.path.isabs(tx) else _which(tx, env)):
         rec["installed"] = False
+        rec["missing"] = sorted(set(rec.get("missing", []) + _candidates(tx, env)))
     rec.setdefault("installed", True)
     rec["names"] = names
     rec["app_ids"] = [_rx(n) for n in names[:1]]
@@ -855,6 +871,9 @@ def detect_desktop(env, desktop_id, paths):
     cats = [c for c in entry.get("Categories", "").split(";") if c]
     if "Game" in cats and pr.gfx and not {"game", "game-launcher"} & set(classes):
         classes["game"] = "Categories=Game and links %s" % pr.gfx
+    elif "Game" in cats and not {"game", "game-launcher"} & set(classes):
+        # a game drawn by a toolkit: themed by its own files only (S3)
+        classes["game-category"] = "Categories=Game"
     spawn = next((why for c, why in SPAWNER_CATEGORIES if c in cats), None) or next(
         (why for rx, why in SPAWNER_NAMES for n in allnames + [
             os.path.basename(pr.exec or ""), os.path.basename(argv[0]) if argv else ""]

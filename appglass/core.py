@@ -2537,6 +2537,11 @@ def _engine_ops(app):
     env = app.env
     paths = {}
     warn, dry, app.warn, app.dry_run = app.warn, app.dry_run, (lambda m: None), True
+    # every command scans the same paths: a hook run's families skip the
+    # launchers no record names (the user's), and with state.json lost
+    # that is every launcher appglass wrote
+    hooked, recs = getattr(app, "from_hook", False), getattr(app, "_engine_records", None)
+    app.from_hook = False
     try:
         for name, fam in sorted(app.families.items()):
             if not app.installed(fam):
@@ -2556,7 +2561,9 @@ def _engine_ops(app):
                     data = None     # a build: its bytes are not known here
                 paths[p] = (name, op.kind, undo, getattr(ctx, "fns", {}).get(p), data, op.keys)
     finally:
-        app.warn, app.dry_run = warn, dry
+        app.warn, app.dry_run, app.from_hook = warn, dry, hooked
+        if recs is None:
+            app._engine_records = None  # memoised without the hook's cache write
     cfg = niri.config_path(env)
     paths[cfg] = ("niri", "edit", niri.strip_include, niri.add_include, b"", None)
     paths[os.path.join(os.path.dirname(cfg), niri.FILE)] = ("niri", "owned", None, None,
