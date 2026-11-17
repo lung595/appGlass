@@ -34,34 +34,33 @@ Measured from window screenshots composited over black and white, in nested niri
 
   | Toolkit | Route |
   |---|---|
-  | terminals (Alacritty) | the terminal's own opacity key |
-  | GTK4 / libadwaita | a glass CSS imported next to `dank-colors.css` |
+  | terminals (Alacritty, kitty, foot, Ghostty, WezTerm, Konsole) | the terminal's own opacity key |
+  | GTK4 / libadwaita | a glass CSS imported next to `dank-colors.css` (flatpaks: a copy in the app's config folder, or read-only access for one launch) |
   | GTK3 | a per-app `GTK_THEME` in a launcher override |
-  | Qt Widgets | a small Qt style plugin chosen per launch |
-  | gpui (Herdr) | the app's theme with alpha |
-  | Electron | the app's own CSS hook (Obsidian), or a hook through the Node inspector (Feishin, opt-in) |
-  | Tauri/WebKitGTK, Flutter/egui, QtQuick | a preload shim scoped to one launch (opt-in) |
-  | Discord | Vencord's theme support, if the user installed Vencord (opt-in) |
+  | Qt Widgets | a small Qt style plugin chosen per launch (host apps, and the Kate and Konsole flatpaks) |
+  | gpui (Herdr, Zed) | the app's theme with alpha |
+  | mpv, GIMP, Kate | the app's own config: a background colour with alpha, a user CSS, an editor theme |
+  | Electron | the app's own CSS hook (Obsidian), or a hook through the Node inspector (Feishin, VSCodium; checked first) |
+  | Tauri/WebKitGTK, Flutter/egui, QtQuick | a preload shim scoped to one launch (checked first) |
+  | Discord | Vencord's theme support, if the user installed Vencord (checked first) |
   | Firefox family | left to browserGlass |
   | anything else | opaque |
 
-  TODO(adapters): kitty, foot, Ghostty and WezTerm through their opacity keys; Zed through `background.appearance`; a generic `NODE_OPTIONS=--require` route for Electron apps whose fuses allow it.
+  A GTK3, GTK4 or Qt app no route lists by hand gets its toolkit's route on its own.
+
+  TODO(adapters): a generic `NODE_OPTIONS=--require` route for Electron apps whose fuses allow it.
 
 - **Kept in step with DMS.** A matugen user template with a `post_hook` re-applies on every theme change, and a systemd path unit on `dms/windowrules.kdl` and `dms-colors.json` re-applies when the level changes. Nothing of ours runs while idle except a small reader that fades unfocused Alacritty windows.
-
-  TODO(engine): path units on the application folders, the rpm database and the flatpak `.changed` files, plus a daily timer, so new and updated apps are routed on their own. One short job fingerprints the launchers with `stat` and re-routes only the apps that changed (measured on the prototype: about 25 ms per event, 1.7 s for a cold scan, once).
-
-- **Opt-in for anything loaded into an app.** Shims, the inspector hook and the Vencord route stay off until the user turns them on for that app, and the plugin asks first.
-
-  TODO(engine): such a route goes live only after a hidden headless check (gamescope headless, nested niri, a private D-Bus and a throwaway HOME) shows the background at the level and the text at 255. After an app update, that app is shown opaque until it passes again; a failure leaves it opaque and sends one notification.
+- **New and updated apps on their own.** The same path unit watches the application folders, the rpm database and the flatpak `.changed` files, and a daily timer catches apps that update themselves. One short job fingerprints the launchers with `stat` and re-routes only the apps that changed (measured on the prototype: about 25 ms per event, 1.7 s for a cold scan, once); a run with nothing to do exits in about 20 ms.
+- **A check before anything loaded into an app.** Shims, the inspector hook and the Vencord route go live only after a hidden headless check (gamescope headless, nested niri, a private D-Bus and a throwaway HOME) shows the background at the level and opaque text. After an app update, that app runs plain until it passes again; a failed check, or two launches with no window, leave it plain until its next update, with one notification. The user can switch any of them off, and turning one back on asks first.
 
 - **Safe by default:**
   - no system files, no sudo; app binaries, asars and flatpak deploys are not modified (the opt-in Vencord route re-runs the user's Vencord installer after a Discord update);
   - every file it writes is recorded and restored byte for byte on uninstall, with a backup ring of the last 5 applies;
   - games are never touched: no file, env or preload, `opacity 1.0` and blur off;
+  - root GUIs stay opaque, password managers get native routes only, and game launchers never get a preload;
+  - the preload and style variables are taken out of the environment of the app's child processes;
   - turning the plugin off, reloading or restarting it removes nothing.
-
-  TODO(engine): root GUIs and password managers classed and kept away from injected routes; preloads checked to be removed from child processes, and game launchers never given one.
 
 ## What we would ask from DMS
 
@@ -77,10 +76,8 @@ Measured from window screenshots composited over black and white, in nested niri
 - **Steam:** the client window stays opaque. Both official routes were measured and give no window alpha: Valve's CEF underlay flags (the page turns transparent, the window stays at alpha 255), and Steam's GL composer option (the main window and menus always use the system composer, which reports "transparent background not supported"; alpha 255). Nothing is injected into Steam, and games are never touched.
 - **Chrome and Chromium browsers:** web content has no window alpha, so they stay opaque.
 - **Games, Wine/Proton, SDL:** excluded on purpose (opaque, blur off). Nothing runs inside a game process, so there is nothing for an anti-cheat to see.
-- **Feishin's inspector hook** keeps a Node inspector port open on 127.0.0.1 (random port, session id private to the wrapper) while Feishin runs. It is opt-in for that reason.
-
-  TODO(adapters): close the inspector right after the injection when Electron allows it.
-- **Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime, Electron apps with no hook:** opaque.
+- **The inspector hook** (Feishin, VSCodium) opens a Node inspector port on 127.0.0.1 (random port, session id private to the wrapper) for the injection, then closes it. An Electron that cannot close it keeps it on loopback only, with the random port and the private session id.
+- **Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime (Kate and Konsole excepted), Electron apps with no hook:** opaque.
 - GTK apps and Dux Calendar need a restart after a theme change. Alacritty, Herdr and Dux Files reload live. Obsidian needs a restart on the first enable (or the snippet toggled off and on), and reloads live after that.
 - Apps started outside their launcher (shell, D-Bus activation) do not get launcher-based routes. They stay opaque and sharp.
 - Tested on Fedora + niri + NVIDIA, dark scheme first. Light mode has been measured less.

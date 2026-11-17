@@ -28,7 +28,7 @@ Requirements:
 git clone <repo> ~/.local/share/appglass
 cd ~/.local/share/appglass
 bin/appglass plugin install         # links the DMS plugin into the DMS plugins folder
-bin/appglass hook install           # matugen hook + user units: re-apply on every DMS theme or level change
+bin/appglass hook install           # matugen hook + user units: re-apply on every DMS theme or level change, route new apps
 bin/appglass apply --all --dry-run  # preview: which files it would write, changes nothing
 bin/appglass apply --all            # write the glass files for every app it supports
 ```
@@ -44,21 +44,16 @@ TODO(engine): `appglass setup` will do the four steps above in one command, and 
 - `apply` writes the glass files for the apps it finds, and one niri rule file, `~/.config/niri/appglass.kdl`, included right after `dms/windowrules.kdl`. That rule sets `opacity 1.0` for every app that paints its own glass, and blur stays on.
 - Every other window also gets `opacity 1.0` by default: opaque and sharp, never faded. You can change this in Settings > Fallback.
 - Apps on a native route are glass the next time they start. Alacritty, Herdr and Dux Files reload live. GTK apps and Dux Calendar need a restart. Obsidian needs a restart on the first enable (or the snippet toggled off and on in Obsidian), and reloads live after that.
-- Apps on a Forced or Mod route (a shim, a hook or a client mod) stay off until you turn them on. See [Per-app switch](#per-app-switch).
-- Games are never touched. They get opaque windows with no blur behind them.
-
-TODO(engine): apps found on install will be routed automatically, and a route that loads code into an app will go live only after a hidden headless check passes. Today the Forced and Mod routes are opt-in, one app at a time.
+- Apps on a Forced or Mod route (a shim, a hook or a client mod) are on, but they wait for a hidden check first: Settings > Apps shows "Waiting for check", and the app runs plain until the check passes in a headless session, off your screen ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)). To keep one off, switch it off (see [Per-app switch](#per-app-switch)).
+- Games and root GUIs are never touched, and password managers never get an injected route. Games get opaque windows with no blur behind them.
 
 ## Everyday
 
 - **The level.** Change the opacity of the DMS "Glass blur" window rule. The sync unit sees the change and re-applies: content follows the rule, bars stay at `max(content, 0.65)`, popups stay opaque.
 - **The theme.** A DMS wallpaper or scheme change re-renders the colours through the matugen hook. GTK apps pick the new colours up on their next start.
-- **A new app.** Today, run `appglass apply --all`, or press Re-apply in Settings > Glass.
-
-  TODO(engine): systemd path units on the application folders, the rpm database and the flatpak `.changed` files will pick new and updated apps up within seconds, with no command.
-- **Unfocused windows** fade a little more (Settings > Fade). Only the background fades; text stays opaque.
-
-  TODO(fade): the fade settings (amount, duration, easing, which apps can fade) are being reworked; this section will follow them.
+- **A new app.** No command is needed: the sync unit watches the application folders, the rpm database and the flatpak `.changed` files, and a daily timer catches apps that update themselves. A new or updated app is routed within seconds. Re-apply in Settings > Glass, or `appglass apply --all`, does it at once.
+- **An app update.** A theme route stays. An injected route goes back to "Stale" and runs plain until its check passes again for the new version. An app that fails its check, or opens no window twice, runs plain until its next update, with one notification.
+- **Unfocused windows** fade a little more (Settings > Fade: the amount, 10 % by default; the duration, 180 ms; the easing). Only the background fades; text stays opaque. Apps with no fade of their own (see [plugin.md](plugin.md#fade)) stay as they are, unless "Dim apps that cannot fade" is on.
 
 ## Pause
 
@@ -76,9 +71,9 @@ TODO(engine): `appglass pause` and `appglass resume` as CLI commands.
 
 ## Per-app switch
 
-In Settings > Apps, each app has its own switch, and a route choice when it has more than one. A Forced or Mod route asks before it turns on.
+In Settings > Apps, each app has its own switch, and a route choice when it has more than one. Forced and Mod routes are on by default; switched off, one asks before it turns on again.
 
-Off takes the app's files out only for a Forced or Mod app (Feishin, Lian Li, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. To take them out, switch its whole family off with its family name (in [routes.md](routes.md)): `gtk3` covers both Solaar and nvidia-settings.
+Off takes the app's files out only for a Forced or Mod app (Feishin, VSCodium, Lian Li, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. To take them out, switch its whole family off with its family name (in [routes.md](routes.md)): `gtk3` covers both Solaar and nvidia-settings.
 
 - With the plugin: `dms ipc call appGlass app gtk3 off` (the settings page has no family switch yet). `dms ipc call appGlass app gtk3 on` brings it back.
 - Without the plugin: `appglass set apps.gtk3.enabled false --apply`. `appglass set` works only without the plugin: while the plugin is installed it refuses ("settings are managed by the DMS plugin").
@@ -86,7 +81,9 @@ Off takes the app's files out only for a Forced or Mod app (Feishin, Lian Li, Lo
 
 `appglass status` and Copy report show such a Native app as fallback with the reason "off in settings", even though it keeps its glass until its family is off.
 
-TODO(engine): a per-app off for Native apps (take out that app's files, launcher override and niri rule only).
+An app that no family lists, which the engine routed by its toolkit (a GTK3 or Qt app), shows "off" when you switch it off. Its launcher override and niri rule stay through the syncs, and go with the next typed `appglass apply --all`.
+
+TODO(engine): a per-app off for Native apps that takes that app's files, launcher override and niri rule out at once, from the plugin.
 
 From a key binding: `dms ipc call appGlass app <key> on` or `dms ipc call appGlass app <key> off`.
 
@@ -95,7 +92,7 @@ Without the plugin:
 ```sh
 appglass status                                # every app: status, route, reason
 appglass set apps.<key>.enabled false --apply  # off (files out for a family name or a Forced/Mod app)
-appglass set apps.<key>.enabled true --apply   # on again (also how a Forced route is turned on)
+appglass set apps.<key>.enabled true --apply   # on again (a Forced route you turn on is glass before its check)
 appglass set apps.<key>.route <name>           # pick a route, when the app lists several
 ```
 
@@ -153,9 +150,13 @@ appglass set <key> <value> [--apply]
 appglass hook install|remove [--dry-run]
 appglass plugin install|remove [--dry-run]
 appglass doctor [--fix]                 # check appglass's own files (units, niri rule, owned files, plugin link)
+appglass verify [key] [--queue]         # run the hidden check now (one app, or the queue)
+appglass fail <key> [reason]            # record a failed launch by hand
 ```
 
-TODO(engine): `appglass verify <key>` (run the hidden check now) and `appglass report <key>` (a scrubbed record for bug reports).
+The wrappers also run `appglass launch-check` and `appglass keys` on their own; you do not need them.
+
+TODO(engine): `appglass report <key>` (a scrubbed record for bug reports).
 
 ## IPC
 

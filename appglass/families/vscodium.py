@@ -1,7 +1,7 @@
 """electron-hook: VSCodium (flatpak com.vscodium.codium, Electron, VS Code OSS).
 
-A forced adapter (off until apps.vscodium or apps.com.vscodium.codium is
-enabled), the Feishin route with a VS Code stylesheet: the wrapper starts
+A forced adapter (on unless apps.vscodium or apps.com.vscodium.codium is
+switched off, and live only once its hidden check passes), the Feishin route with a VS Code stylesheet: the wrapper starts
 VSCodium through its normal flatpak command with --verbose (the codium CLI
 otherwise detaches the main process and its stderr) and a Node inspector on
 127.0.0.1 (random port, --inspect-publish-uid=stderr, the session UUID read
@@ -9,8 +9,8 @@ only by the wrapper from a 0700 dir); agl-inject.py then requires agl-hook.js
 in the main process, which clears the window background and injects
 vscode-glass.css (the workbench painted once at the content level, every
 full-size part transparent, menus, the quick input, widgets and
-notifications left opaque). The inspector port stays open while VSCodium
-runs: the reason this adapter is opt-in.
+notifications left opaque). agl-inject.py then closes the inspector, so
+the port is open only for the injection.
 
 A few surfaces are painted on canvases from the theme colours, out of CSS
 reach (B5b): the minimap, the overview ruler, the current line and the

@@ -7,29 +7,34 @@ A route is the way one kind of app is made to paint its own background with alph
 - popups at 1.0;
 - text at 255.
 
-Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by switching its family off, with the family name from the table below: `dms ipc call appGlass app <family> off` while the plugin is installed (for example `dms ipc call appGlass app gtk3 off`), or `appglass set apps.<family>.enabled false --apply` without it. `appglass remove --only <family>` takes the files out too, but only until the next sync or `appglass apply --all` while the family is still on in settings. The switch in Settings > Apps takes the files out only for a Forced or Mod app; for a Native app it shows Paused and the files stay (see [guide.md](guide.md#per-app-switch)).
+Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by switching its family off, with the family name from the table below: `dms ipc call appGlass app <family> off` while the plugin is installed (for example `dms ipc call appGlass app gtk3 off`), or `appglass set apps.<family>.enabled false --apply` without it. `appglass remove --only <family>` takes the files out too, but only until the next sync or `appglass apply --all` while the family is still on in settings. The switch in Settings > Apps takes the files out only for a Forced or Mod app; for a Native app it shows Paused and the files stay (see [guide.md](guide.md#per-app-switch)). A Forced or Mod route is on by default, but goes live only once its hidden check passes ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)).
 
 The "Measured" lines come from window screenshots taken in a nested niri session (or, where noted, on the real desktop), with the alpha read per pixel. "0.80" means the measurement was taken at a DMS level of 0.80, where the content target is alpha 204. The per-toolkit pages have the full results.
 
-TODO(adapters): the app list of each route below is the list in this version. Routes are being made generic (any GTK3 app, any Qt Widgets app, any terminal, Electron apps through `NODE_OPTIONS`); this page and the README app table will follow.
+The app lists below name the apps each family lists by hand. The GTK3, GTK4 and Qt routes also take any app of their toolkit that the engine finds ([engine.md](engine.md#routes-by-toolkit)). The full matrix, with the measured result per app, is in [apps.md](apps.md).
+
+TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron apps no family lists.
 
 | Route | Badge | Family | Apps | Default |
 |---|---|---|---|---|
-| [Terminal opacity key](#terminal-alacritty) | Native | `alacritty` | Alacritty | on |
-| [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only) | on |
-| [GTK3 theme](#gtk3) | Native | `gtk3` | Solaar, nvidia-settings | on |
-| [Qt style plugin](#qt-widgets-vlc) | Native | `qtstyle` | VLC | on |
+| [Terminal opacity key](#terminals) | Native | `alacritty`, `kitty`, `foot`, `ghostty`, `wezterm`, `konsole` | Alacritty, kitty, foot, Ghostty, WezTerm, Konsole | on |
+| [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only); flatpaks: GNOME Text Editor, Mission Center, Resources; any other GTK4 app | on |
+| [GTK3 theme](#gtk3) | Native | `gtk3` | Solaar, nvidia-settings, any other host GTK3 app | on |
+| [Qt style plugin](#qt-widgets-vlc-kate-konsole) | Native | `qtstyle` | VLC, Kate and Konsole (flatpak), any other host Qt 6 Widgets app | on |
+| [App config](#kate-mpv-gimp-zed) | Native | `kate`, `mpv`, `gimp`, `zed` | Kate (editor theme), mpv, GIMP 3, Zed | on |
 | [Obsidian snippet](#obsidian) | Native | `obsidian` | Obsidian | on |
 | [Herdr theme](#herdr) | Native | `herdr` | Herdr | on |
 | [Dux keys](#dux-files-and-dux-calendar) | Native | `dux` | Dux Files, Dux Calendar | on |
-| [Vencord theme](#discord-vencord) | Mod | `vencord` | Discord with Vencord | off |
-| [Electron inspector hook](#feishin-electron-inspector-hook) | Forced | `feishin` | Feishin | off |
-| [WebKit shim](#lian-li-webkitgtk-shim) | Forced | `lianli` | Lian Li Linux | off |
-| [Qt Quick shim](#jellyfin-qt-quick-shim) | Forced | `jellyfin` | Jellyfin Desktop | off |
-| [Colour-key shim](#localsend-and-artcraft-colour-key-shim) | Forced | `localsend`, `artcraft` | LocalSend, ArtCraft Launcher | off |
+| [Vencord theme](#discord-vencord) | Mod | `vencord` | Discord with Vencord | on, after its check |
+| [Electron inspector hook](#feishin-and-vscodium-electron-inspector-hook) | Forced | `feishin`, `vscodium` | Feishin, VSCodium | on, after its check |
+| [WebKit shim](#lian-li-webkitgtk-shim) | Forced | `lianli` | Lian Li Linux | on, after its check |
+| [Qt Quick shim](#jellyfin-qt-quick-shim) | Forced | `jellyfin` | Jellyfin Desktop | on, after its check |
+| [Colour-key shim](#localsend-and-artcraft-colour-key-shim) | Forced | `localsend`, `artcraft` | LocalSend, ArtCraft Launcher | on, after its check |
 | [Opaque](#opaque) | | | Steam, Chrome, games, everything else | |
 
-## Terminal (Alacritty)
+## Terminals
+
+### Alacritty
 
 - **Writes:** `~/.config/alacritty/appglass.toml` (`[window] opacity` = content, plus palette fixes), imported right after `dank-theme.toml` in your `alacritty.toml`. The main file's own `opacity` line is commented out, because the main file wins over every import.
 - **Text:** the palette entries that are too faint on glass (DMS black, magenta, bright black, dim colours) are moved toward white on a dark scheme, toward black on a light one, until text reaches 2.25:1 over any backdrop.
@@ -37,7 +42,11 @@ TODO(adapters): the app list of each route below is the list in this version. Ro
 - **Reload:** live.
 - **Undo:** `appglass remove --only alacritty` restores `alacritty.toml` byte for byte.
 
-TODO(adapters): kitty, foot, Ghostty and WezTerm through their own opacity keys.
+### kitty, foot, Ghostty, WezTerm, Konsole
+
+- **Writes:** an owned file at the content level with the DMS palette made readable on glass, included by the main config (edited, backed up): kitty `appglass.conf` (`background_opacity`), foot `appglass.ini` (`alpha`), Ghostty `appglass` (`background-opacity`), WezTerm `appglass.lua` (`window_background_opacity`, the tab bar at the bar level), Konsole an `AppGlass` colour scheme and profile (`Opacity`). The flatpak builds of foot, WezTerm and Konsole get the same in their `~/.var/app/<id>` folder. Konsole's tabs and menus take the Qt style (below).
+- **Measured:** foot (flatpak) background 153, text 255; Konsole (flatpak) background 153, text 255, popups 255. kitty, Ghostty and WezTerm are not measured here: the writers are unit-tested only. Source: [apps.md](apps.md).
+- **Undo:** `appglass remove --only kitty` (or `foot`, `ghostty`, `wezterm`, `konsole`) takes the include out.
 
 ## GTK4 / libadwaita
 
@@ -46,24 +55,36 @@ TODO(adapters): kitty, foot, Ghostty and WezTerm through their own opacity keys.
 - **Measured:** Nautilus content 153, sidebar 166, popovers and dialogs 255, text 255. Source: [gtk4.md](gtk4.md).
 - **Reload:** GTK4 reads the CSS at start: restart the app.
 - **Undo:** `appglass remove --only gtk4` takes the import out and deletes `gtk.css` when nothing of yours is left in it. Taking the import out by hand, or deleting `gtk.css`, is an opt-out that appglass keeps.
-- **Limit:** flatpak GTK4 apps do not read the host `gtk-4.0` folder, so they are not listed.
+- **Flatpaks:** flatpak GTK4 apps do not read the host `gtk-4.0` folder. GNOME Text Editor, Mission Center and Resources get the same files in their own `~/.var/app/<id>/config/gtk-4.0`. Any other GTK4 flatpak the engine finds gets a launcher override that gives that launch read-only access to the host `gtk-4.0` folder; no `flatpak override` is written. Measured: GNOME Text Editor 153, Mission Center 153, Resources 153, text and popups 255 ([apps.md](apps.md)).
 
 ## GTK3
 
 - **Writes:** a per-app theme, `~/.local/share/themes/AppGlass/gtk-3.0/gtk.css` (Adwaita, then `dank-colors.css`, then the glass rules), launcher overrides in `~/.local/share/applications/` that start the app with `GTK_THEME=AppGlass`, and `~/.config/autostart/solaar.desktop` with the same change, because Solaar is started at login from the system autostart file (an autostart file you already had is edited, backed up). There is no global `gtk-3.0/gtk.css`, so other GTK3 apps are not affected.
-- **Apps:** Solaar, nvidia-settings.
+- **Apps:** Solaar, nvidia-settings, and every other host GTK3 app the engine finds (an app that starts other apps, a root GUI or a password manager excepted, see [engine.md](engine.md#classes-what-is-never-touched)).
 - **Measured:** Solaar content 153 (0.600), header bar and bars 166 (0.651), menus 255, glyph cores 255. Source: [gtk3.md](gtk3.md).
 - **Reload:** restart the app (Solaar is a tray process: quit it first).
 - **Undo:** `appglass remove --only gtk3`. A launcher override you already had is edited, backed up and restored byte for byte.
 - **Limit:** started from a shell, the app does not get `GTK_THEME` and keeps the fallback look.
 
-## Qt Widgets (VLC)
+## Qt Widgets (VLC, Kate, Konsole)
 
-- **Writes:** a Qt 6 style plugin built from source with the host Qt, `~/.local/lib/appglass/qt6/styles/libappglass.so`, and a launcher override `~/.local/share/applications/vlc.desktop` that starts VLC with `QT_STYLE_OVERRIDE=appglass`. Nothing is preloaded: Qt loads the style itself.
+- **Writes:** a Qt 6 style plugin built from source with the host Qt, `~/.local/lib/appglass/qt6/styles/libappglass.so`, and a launcher override `~/.local/share/applications/vlc.desktop` that starts VLC with `QT_STYLE_OVERRIDE=appglass`, the same for every other host Qt 6 Widgets app the engine finds. Nothing is preloaded: Qt loads the style itself, and takes its variables out of the environment of the processes the app starts.
+- **Kate and Konsole (flatpak):** their launcher override gives that `flatpak run` read-only access to the style and the DMS colours. The host-built style loads in the KDE runtime when its Qt minor version matches.
+- **Fade:** an unfocused window eases its background to the unfocused level, in the flatpaks and in the apps the engine finds too.
 - **Measured:** content 153, bars 166, text 255. Source: [qt.md](qt.md).
 - **Needs:** `g++` and the Qt 6 headers. A Qt update rebuilds the plugin.
 - **Undo:** `appglass remove --only qtstyle`.
-- **Limit:** Qt 5 apps and flatpak apps on the KDE runtime cannot load a host Qt 6 plugin: they keep the fallback look.
+- **Limit:** Qt 5 apps cannot load a Qt 6 plugin, and other flatpak apps on the KDE runtime are not routed (the Qt minor version must match): they keep the fallback look.
+
+## Kate, mpv, GIMP, Zed
+
+Native routes through each app's own config files, for the native and the flatpak build.
+
+- **Kate:** a KSyntaxHighlighting theme "AppGlass" with a clear editor background, under the Qt style glass. Measured (flatpak): 153, text 255, popups 255; the minimap stays a tint.
+- **mpv:** `background-color` with the content alpha in `appglass.conf`; the video, the OSD and the console stay opaque. Measured (flatpak): 153, text 255, popups 255.
+- **GIMP 3:** a marked block at the end of the user `gimp.css`. The canvas stays opaque by design. Measured (flatpak): 153, text 255, popups 255.
+- **Zed:** `theme_overrides` for the active theme in `settings.json`. Partial: Zed 1.28.1 lays a black floor of alpha 0.40 under the window, so the background measures 194, not 153.
+- **Undo:** `appglass remove --only kate` (or `mpv`, `gimp`, `zed`). Source: [apps.md](apps.md).
 
 ## Obsidian
 
@@ -94,20 +115,18 @@ A Mod route: client mods are against Discord's terms. appglass never installs Ve
 - **Writes:** `~/.config/Vencord/themes/appglass-discord.css` (rendered from the DMS colours and levels), and merges `transparent` and the enabled themes into Vencord's `settings.json`.
 - **After a Discord update:** the `appglass-discord.path` unit re-runs the Vencord installer, so the glass comes back. That installer patches Discord's own `app-*/resources` folder. The niri rule is written only while Vencord is in the newest Discord folder; otherwise Discord keeps the fallback look.
 - **Measured:** not measured in a nested session for this version.
-- **Turn on:** Settings > Apps (asks first), or `appglass set apps.vencord.enabled true --apply`.
+- **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps, or `appglass set apps.vencord.enabled false --apply` without the plugin.
 - **Undo:** `appglass remove --only vencord` puts Vencord's settings back. It does not uninstall Vencord.
 
-## Feishin (Electron inspector hook)
+## Feishin and VSCodium (Electron inspector hook)
 
-Feishin has no CSS hook of its own. This version uses the Node inspector, which Feishin's Electron fuses allow. The wrapper starts Feishin through its normal flatpak command with the inspector on, injects a small hook into the main process, and the hook clears the window background and adds the glass CSS.
+Feishin and VSCodium have no CSS hook of their own. This version uses the Node inspector, which their Electron fuses allow. The wrapper starts the app through its normal flatpak command with the inspector on, injects a small hook into the main process, and the hook clears the window background and adds the glass CSS (for VSCodium a workbench stylesheet, plus a marked block in its `settings.json` for the canvas colours).
 
-- **Writes:** `~/.local/lib/appglass/feishin/` (the hook, the injector, the CSS), the wrapper `~/.local/bin/appglass-feishin`, and a launcher override `org.jeffvli.feishin.desktop` that starts the wrapper.
-- **The port:** the inspector listens on 127.0.0.1 only, on a random port. The port is not listed over HTTP: the session id is read only by the wrapper, from a private (0700) folder, and deleted after the injection. In this version the port stays open while Feishin runs. This is why the route is Forced and off by default.
-- **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)).
-- **Turn on:** Settings > Apps (asks first), or `appglass set apps.feishin.enabled true --apply`.
-- **Undo:** `appglass remove --only feishin`. The next launch is the plain Feishin.
-
-TODO(adapters): close the inspector right after the injection when Electron allows it, and keep 127.0.0.1 with a random port only when it does not. Not measured yet.
+- **Writes:** `~/.local/lib/appglass/feishin/` (the hook, the injector, the CSS), the wrapper `~/.local/bin/appglass-feishin`, and a launcher override `org.jeffvli.feishin.desktop` that starts the wrapper. VSCodium: the same under `vscodium/`, `appglass-vscodium` and `com.vscodium.codium.desktop`.
+- **The port:** the inspector listens on 127.0.0.1 only, on a random port. The port is not listed over HTTP: the session id is read only by the wrapper, from a private (0700) folder, and deleted after the injection. Right after the injection the injector closes the inspector, and checks that the port refuses connections ([engine.md](engine.md#feishin-and-vscodium-the-inspector-port-is-closed-after-the-injection)).
+- **Measured:** Feishin on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)); the port gone about 4 s before the screenshot on Feishin 1.17.0. VSCodium (flatpak): 153, text 255 ([apps.md](apps.md)).
+- **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
+- **Undo:** `appglass remove --only feishin` (or `vscodium`). The next launch is the plain app.
 TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first where the fuse allows it (Feishin's does); port routes get a "port" badge, and one setting in Settings > Advanced turns them all off.
 
 ## Lian Li (WebKitGTK shim)
@@ -115,7 +134,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 - **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/lianli/`, the page CSS, the wrapper `~/.local/bin/appglass-lianli` and a launcher override. The shim is preloaded for that one launch: it clears the WebView background, gives the window an alpha visual and adds the CSS.
 - **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)).
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
-- **Turn on:** `appglass set apps.lianli.enabled true --apply` or Settings > Apps.
+- **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only lianli`.
 
 ## Jellyfin (Qt Quick shim)
@@ -123,7 +142,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 - **Writes:** `libjfglass.so` built with the host Qt 6 in `~/.local/lib/appglass/jellyfin/`, the CSS, the wrapper and a launcher override. The shim is preloaded into the main process only. It gives the window an alpha channel, clears the web view background and shows the video layer only while a video plays.
 - **Measured:** in an isolated session at 0.80, the home page background 204 and text 255; a playing, paused or OSD video stays 255, popups 255.
 - **Needs:** `g++` and host Qt 6.11 or newer (the shim is built with the host Qt and loaded into the flatpak). A runtime update rebuilds the shim.
-- **Turn on:** `appglass set apps.jellyfin.enabled true --apply` or Settings > Apps.
+- **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only jellyfin`.
 
 ## LocalSend and ArtCraft (colour-key shim)
@@ -133,10 +152,11 @@ Flutter and egui apps draw everything themselves into one surface. The shim repl
 - **Writes:** `appglass-ck.so` built with `gcc`, the wrapper (`appglass-localsend`, `appglass-artcraft`) and a launcher override. For LocalSend (flatpak) the lib folder is passed read-only for that run only, with no `flatpak override`. ArtCraft is moved to Mesa EGL with wgpu's GL backend, which renders on the CPU (software rendering, llvmpipe), and its swaps are capped at 60 fps.
 - **Measured:** LocalSend on the real desktop at 0.80: background 204, text 255. ArtCraft at 0.80: background 204, text 255. See [flutter.md](flutter.md), [gpu.md](gpu.md) and the [issue draft](issue-dms.md#screenshots).
 - **Limit:** the colour keys are per app and per light/dark theme. A colour that is not a key stays opaque: a miss fails safe, it never fades text.
-- **Turn on:** `appglass set apps.localsend.enabled true --apply` or `appglass set apps.artcraft.enabled true --apply`, or Settings > Apps.
+- **Keys:** the keys are data, one file per app version and dark or light mode (`~/.cache/appglass/keys/`), read by the wrapper through `appglass keys`, so an update or a theme flip needs no wrapper edit.
+- **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only localsend,artcraft`.
 
-TODO(engine): colour keys learned from a hidden capture, for apps with no hand-made keys.
+TODO(adapters): colour keys learned from a hidden capture, for apps with no hand-made keys. The learner exists (`python3 -m appglass.keylearn`, measured by hand on Saber and Sublime Text in [apps.md](apps.md)), but no family uses learned keys yet.
 
 ## Opaque
 
@@ -148,11 +168,10 @@ With the default fallback ("Opaque", Settings > Fallback), these windows get `op
 
   Steam games are never touched either way.
 
-  TODO(adapters): `appglass status` still lists Steam with an old Forced route, `steam-cdp` ("forced adapter, off until enabled"), and Settings > Apps gives it a switch. That switch does nothing: turned on, the reason reads "adapter steam-cdp not implemented yet" and Steam stays opaque. The route is to be dropped from the catalogue.
+  TODO(adapters): `appglass status` still lists Steam with an old Forced route, `steam-cdp`, and Settings > Apps gives it a switch. That switch does nothing: on or off, the reason reads "Steam client (CEF): no injection, it stays opaque" and Steam stays opaque. The route is to be dropped from the catalogue.
 - **Chrome and Chromium browsers.** Web content has no window alpha: measured alpha 255 everywhere. See [electron.md](electron.md).
 - **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process.
-- **Electron apps without a CSS hook**, Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime: no route in this version.
+- **Root GUIs** (Timeshift through pkexec): opaque, with the reason "runs as root". Nothing is written for them.
+- **Electron apps without a CSS hook**, Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime (Kate and Konsole excepted): no route in this version.
 
 Settings > Fallback can make these windows translucent instead ("Translucent (text too)", at the Fallback opacity, 0.70 by default) or leave them at the DMS opacity ("DMS opacity"). Both fade the text with the background.
-
-TODO(engine): root GUIs (Timeshift through pkexec) shown opaque with the reason "runs as root".

@@ -225,14 +225,21 @@ class DocsSayWhatTheCodeDoes(unittest.TestCase):
         r = adapters.resolve({"key": "steam", "names": ["steam"], "toolkit": "cef"}, discover())
         if r["adapter"] != "steam-cdp":
             self.skipTest("the steam-cdp route is gone: drop the TODO in routes.md")
-        self.assertEqual((r["tier"], r["effective"]), ("forced", "fallback"))
+        self.assertEqual((r["tier"], r["effective"], r["state"]), ("forced", "fallback", "off"))
         on = adapters.resolve({"key": "steam", "names": ["steam"], "toolkit": "cef"},
                               discover(), {"apps": {"steam": {"enabled": True}}})
-        self.assertEqual(on["reason"], "adapter steam-cdp not implemented yet")
+        # switched on, Steam is still opaque: the switch does nothing
+        self.assertEqual((on["effective"], on["state"]), ("fallback", "opaque"))
+        self.assertEqual(on["reason"], adapters.NO_ROUTE["cef"])
+        self.assertEqual(r["reason"], adapters.NO_ROUTE["cef"])
         for name in ("routes.md", "engine.md"):
-            lines = [l for l in doc(name).splitlines() if "steam-cdp" in l]
+            text = doc(name)
+            self.assertNotIn("adapter steam-cdp not implemented yet", text, name)
+            lines = [l for l in text.splitlines() if "steam-cdp" in l]
             self.assertTrue(lines, name)
             self.assertTrue(any("TODO(adapters)" in l for l in lines), name)
+            self.assertTrue(any("does nothing" in l for l in lines), name)
+            self.assertIn("no injection, it stays opaque", text, name)
 
     def test_the_issue_demo_names_the_level_of_each_shot(self):
         t = doc("issue-dms.md")
@@ -472,7 +479,15 @@ class DocsRound2(unittest.TestCase):
         self.assertNotIn("A1 probe", doc("README.md"))
         s = section(doc("engine.md"), "Safety")
         self.assertNotIn("background alpha 153 everywhere", s)
-        self.assertRegex(s, r"text check has not been shown")
+        # verify's text check: at least 12 opaque pixels (verify.judge)
+        self.assertNotIn("text check has not been shown", doc("engine.md"))
+        self.assertRegex(s, r"12 opaque pixels")
+        from appglass import verify
+        hist = {153: 1000, 255: 11}
+        self.assertEqual(verify.judge(None, None, 0.60, hist)["reason"],
+                         "no opaque text on screen")
+        hist[255] = 12
+        self.assertEqual(verify.judge(None, None, 0.60, hist)["result"], "pass")
 
 
 def uninstall_block():
