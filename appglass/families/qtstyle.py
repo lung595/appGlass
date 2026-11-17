@@ -91,7 +91,9 @@ def launcher(env, text, cmd, content, fade=None):
     return "".join(out)
 
 
-def flatpak_launcher(env, text, levels, app=None):
+def flatpak_launcher(env, text, levels, app=None, fade=None):
+    """``fade``: inactive.fields(), as for ``launcher``; none: no fade."""
+    fade = fade or {"inactive": levels.content, "fade_ms": 0, "fade_easing": "linear"}
     pd = plugin_dir(env)
     colors = env.cache_path("dms", "dms-colors.json")
     flags = [
@@ -99,7 +101,10 @@ def flatpak_launcher(env, text, levels, app=None):
         "--env=QT_PLUGIN_PATH=%s:%s" % (pd, RUNTIME_PLUGINS), MARK,
         "--env=APPGLASS_COLORS=%s" % colors,
         "--env=APPGLASS_CONTENT=%s" % shims.jq_raw(levels.content),
-        "--env=APPGLASS_BAR=%s" % shims.jq_raw(round(levels.bar_over_content, 4))]
+        "--env=APPGLASS_BAR=%s" % shims.jq_raw(round(levels.bar_over_content, 4)),
+        "--env=APPGLASS_INACTIVE=%s" % shims.jq_raw(fade["inactive"]),
+        "--env=APPGLASS_FADE_MS=%d" % int(fade["fade_ms"]),
+        "--env=APPGLASS_FADE_EASING=%s" % fade["fade_easing"]]
     if app == kate.FLATPAK:  # the glass start's katerc (kate family), never the user's
         flags.append("--env=XDG_CONFIG_DIRS=%s:%s" % (kate.xdg_dir(env), RUNTIME_XDG))
     flags = " ".join(flags)
@@ -129,7 +134,7 @@ def apply(ctx):
     for desktop_id, app in FLATPAKS:
         if not shims.installed_flatpak(env, app):
             continue
-        p = ctx.desktop_override(desktop_id, lambda t, a=app: flatpak_launcher(env, t, ctx.levels, a))
+        p = ctx.desktop_override(desktop_id, lambda t, a=app: flatpak_launcher(env, t, ctx.levels, a, fade))
         if p:
             paths.append(p)
             ids.append(r"^%s$" % app.replace(".", r"\."))

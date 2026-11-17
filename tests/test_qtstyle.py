@@ -179,9 +179,11 @@ class QtStyleFlatpak(unittest.TestCase):
                  "--env=QT_PLUGIN_PATH=%s:/app/lib/plugins:/usr/share/runtime/lib/plugins "
                  "--env=QT_STYLE_OVERRIDE=appglass --env=APPGLASS_COLORS=%s "
                  "--env=APPGLASS_CONTENT=%s --env=APPGLASS_BAR=%s "
+                 "--env=APPGLASS_INACTIVE=%s --env=APPGLASS_FADE_MS=%d --env=APPGLASS_FADE_EASING=%s "
                  "--env=XDG_CONFIG_DIRS=%s:/app/etc/xdg:/etc/xdg"
                  % (pd, dms, pd, os.path.join(dms, "dms-colors.json"),
                     repr(float(lv["content"])), repr(float(lv["bar_over_content"])),
+                    repr(float(lv["inactive"])), lv["fade_ms"], lv["fade_easing"],
                     os.path.join(sb.home, ".var/app/org.kde.kate/config/appglass")))
         execs = re.findall(r"(?m)^Exec=(.*)$", text)
         self.assertEqual(execs, [
@@ -195,6 +197,20 @@ class QtStyleFlatpak(unittest.TestCase):
         code, out, err = self.w.run("remove", "--only", "qtstyle")
         self.assertEqual(code, 0, err)
         self.assertEqual(sb.tree_hash(), self.before)
+
+    def test_flatpak_start_fades(self):
+        # the unfocused fade reaches the flatpak start as it does VLC's
+        # (0.80 x 0.90 over 180 ms), and turns off with the fade
+        self.w.sb.set_level(0.8)
+        code, out, err = self.w.run("apply", "--only", "qtstyle")
+        self.assertEqual(code, 0, err)
+        path = self.w.user(".local/share/applications/org.kde.kate.desktop")
+        self.assertEqual(self.w.sb.read(path).count(
+            "--env=APPGLASS_INACTIVE=0.72 --env=APPGLASS_FADE_MS=180 "
+            "--env=APPGLASS_FADE_EASING=ease-out-cubic "), 2)
+        self.w.run("set", "inactive.enabled", "false")
+        self.w.run("apply", "--only", "qtstyle")
+        self.assertIn("--env=APPGLASS_INACTIVE=0.8 --env=APPGLASS_FADE_MS=0 ", self.w.sb.read(path))
 
 
 if __name__ == "__main__":
