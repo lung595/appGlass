@@ -4,6 +4,8 @@ verify <key> | --queue
     The pixel check (spec 1.7) in a hidden headless session, fully apart
     from the real one: a short private XDG_RUNTIME_DIR (made with mktemp in
     $XDG_RUNTIME_DIR, or $APPGLASS_VERIFY_BASE), env -i with an allow-list,
+    a bwrap mount namespace without the systemd user manager (a flatpak
+    stays in the check's cgroup; none: a flatpak is unverifiable),
     dbus-run-session, a throwaway HOME holding a copy of the app's glass
     files, gamescope --backend headless --expose-wayland and a nested niri
     with animations off (shims/verify/appglass-verify-run). The app starts
@@ -62,6 +64,8 @@ STALE_RUN = 15 * 60    # an agv.* dir older than this is a killed run's
 WINDOW_WAIT = 10
 LAUNCH_WAIT = 20
 TOL = 0.05
+NO_MASK = ("no bwrap mount namespace: a flatpak would leave the check's limits "
+           "(systemd scope)")
 
 
 class Busy(Exception):
@@ -267,6 +271,9 @@ gestures {
 animations {
     off
 }
+xwayland-satellite {
+    off
+}
 layout {
     gaps 0
     background-color "#000000"
@@ -311,11 +318,13 @@ def session_env(env, home, run, fp=None):
          "USER": env.environ.get("USER", ""), "LANG": env.environ.get("LANG", "C.UTF-8"),
          "TERM": "dumb", "XDG_RUNTIME_DIR": os.path.join(run, "rt"),
          # the app's temp files and its path sockets stay in the private dir
-         # (abstract sockets and the network are shared: no unshare -n
-         # without user namespaces, docs/engine.md)
+         # (abstract sockets and the network are shared: mask_argv makes a
+         # mount namespace only, docs/engine.md)
          "TMPDIR": os.path.join(run, "tmp"),
          "XDG_DATA_DIRS": env.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
          "XDG_CONFIG_DIRS": "/etc/xdg", "GTK_USE_PORTAL": "0",
+         # no gvfsd (its wsdd and smb backends reach the LAN)
+         "GIO_USE_VFS": "local",
          # the hidden session is a niri Wayland session
          "XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "niri",
          "__GL_SHADER_DISK_CACHE_PATH": os.path.join(run, "glcache"),
@@ -327,6 +336,46 @@ def session_env(env, home, run, fp=None):
     if fp:
         e["APPGLASS_VERIFY_FP"] = fp
     return e
+
+
+_MASK = {}
+
+
+def mask_argv(env):
+    """The bwrap argv (ending in --) the hidden session runs under: its own
+    mount namespace with the systemd user manager's dir empty (flatpak run
+    reaches the manager by the hard-coded /run/user/UID/systemd/private and
+    would put the app in an app-flatpak-*.scope, out of the check's cgroup
+    and its limits; without it flatpak runs the app in its own process
+    tree) and an empty /tmp/.X11-unix (the hidden X server's socket is not
+    next to the user's). None when bwrap cannot do it here (not installed,
+    no user namespaces): proven once per bwrap with a probe."""
+    bw = env.which("bwrap")
+    if not bw:
+        return None
+    if bw not in _MASK:
+        sd = "/run/user/%d/systemd" % os.getuid()
+        argv = [bw, "--dev-bind", "/", "/", "--die-with-parent"]
+        if os.path.isdir(sd):
+            argv += ["--tmpfs", sd]
+        if os.path.isdir("/tmp/.X11-unix"):
+            argv += ["--perms", "1777", "--tmpfs", "/tmp/.X11-unix"]
+        argv.append("--")
+        try:
+            r = subprocess.run(argv + ["/bin/sh", "-c", 'test ! -e "$1/private"', "sh", sd],
+                               env={"PATH": "/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=20)
+            ok = r.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        _MASK[bw] = argv if ok else None
+    return _MASK[bw]
+
+
+def is_flatpak(rec, cmd=""):
+    words = (cmd or "").split()
+    return bool(rec.get("flatpak")) or (bool(words) and os.path.basename(words[0]) == "flatpak")
 
 
 def window_rx(rec):
@@ -436,6 +485,9 @@ def run_harness(app, rec, level):
     for tool in ("gamescope", "niri", "dbus-run-session", "ffmpeg"):
         if not env.which(tool):
             return {"result": "unverifiable", "reason": "%s not installed" % tool}
+    mask = mask_argv(env)
+    if mask is None and is_flatpak(rec):
+        return {"result": "unverifiable", "reason": NO_MASK}
     base = private_base(env)
     sweep(base)
     run = new_run(base)
@@ -446,6 +498,8 @@ def run_harness(app, rec, level):
         cmd = launcher_exec(app, rec, home)
         if not cmd:
             return {"result": "unverifiable", "reason": "no launcher to start"}
+        if mask is None and is_flatpak(rec, cmd):
+            return {"result": "unverifiable", "reason": NO_MASK}
         with open(os.path.join(run, "cmd.sh"), "w") as f:
             f.write("#!/bin/sh\nexec %s\n" % cmd)
         with open(os.path.join(run, "niri.kdl"), "w") as f:
@@ -458,8 +512,8 @@ def run_harness(app, rec, level):
                   "TMPDIR"):
             os.makedirs(clean[k], exist_ok=True)
         shot = os.path.join(run, "window.png")
-        p = subprocess.Popen(["dbus-run-session", "--", harness_script(), run, window_rx(rec),
-                              shot, str(WINDOW_WAIT)],
+        p = subprocess.Popen((mask or []) + ["dbus-run-session", "--", harness_script(), run,
+                                             window_rx(rec), shot, str(WINDOW_WAIT)],
                              env=clean, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              stdin=subprocess.DEVNULL, start_new_session=True)
         try:

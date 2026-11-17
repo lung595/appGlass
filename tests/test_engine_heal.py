@@ -846,6 +846,116 @@ finally:
         self.assertFalse(os.path.exists(run))
 
 
+class HiddenScope(unittest.TestCase):
+    """E1: the hidden session runs in a mount namespace (bwrap) where the
+    real systemd user manager is not there: flatpak run cannot register an
+    app-flatpak-*.scope (it reaches the manager by the hard-coded
+    /run/user/UID/systemd/private), so the app stays in the check's own
+    cgroup (appglass-verify.service: MemoryMax, CPUQuota, KillMode). The
+    hidden X server's socket is not in the shared /tmp/.X11-unix."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        self.bin = self.sb.path("fbin")
+        os.makedirs(self.bin)
+        for t in ("gamescope", "niri", "dbus-run-session", "ffmpeg"):
+            self.exe(t, "#!/bin/sh\nexit 0\n")
+        self.base = self.sb.path("rtbase")
+        os.makedirs(self.base, mode=0o700)
+        self.sb.env.update(APPGLASS_VERIFY_HARNESS="builtin", PATH=self.bin,
+                           APPGLASS_VERIFY_BASE=self.base)
+        self.argv = None
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def exe(self, name, text):
+        p = os.path.join(self.bin, name)
+        with open(p, "w") as f:
+            f.write(text)
+        os.chmod(p, 0o755)
+        return p
+
+    def harness(self, rec, mask):
+        """run_harness up to the session start: its argv and env."""
+        from unittest import mock
+        seen = {}
+
+        class Stop(Exception):
+            pass
+
+        real = subprocess.Popen
+
+        def popen(argv, *a, **kw):
+            if seen or argv[0] == "rm" or "fusermount" in argv[0]:   # the scrub
+                return real(argv, *a, **kw)
+            seen.update(argv=argv, env=kw.get("env"))
+            raise Stop()
+        app = core.App(self.sb.env, quiet=True)
+        with mock.patch.object(verify, "mask_argv", lambda env: mask), \
+                mock.patch.object(verify, "launcher_exec", lambda a, r, h: "true"), \
+                mock.patch.object(verify.subprocess, "Popen", popen):
+            try:
+                r = verify.run_harness(app, rec, 0.6)
+            except Stop:
+                r = None
+        return r, seen
+
+    def test_the_session_starts_inside_the_mask(self):
+        mask = ["/x/bwrap", "--dev-bind", "/", "/", "--tmpfs", "/run/user/1/systemd", "--"]
+        r, seen = self.harness({"key": "org.x.App", "fp": "1", "flatpak": "org.x.App"}, mask)
+        self.assertIsNone(r)
+        self.assertEqual(seen["argv"][:len(mask)], mask)
+        self.assertEqual(seen["argv"][len(mask)], "dbus-run-session")
+        self.assertEqual(seen["env"]["GIO_USE_VFS"], "local")   # no gvfsd on the LAN
+
+    def test_a_flatpak_without_the_mask_is_not_started(self):
+        r, seen = self.harness({"key": "org.x.App", "fp": "1", "flatpak": "org.x.App"}, None)
+        self.assertEqual(r["result"], "unverifiable")
+        self.assertIn("bwrap", r["reason"])
+        self.assertEqual(seen, {})
+        self.assertEqual(os.listdir(self.base), [])          # nothing left behind
+
+    def test_a_host_app_without_the_mask_still_runs(self):
+        r, seen = self.harness({"key": "gedit", "fp": "1"}, None)
+        self.assertIsNone(r)
+        self.assertEqual(seen["argv"][0], "dbus-run-session")
+
+    def test_the_mask_argv(self):
+        env = core.App(self.sb.env, quiet=True).env
+        self.assertIsNone(verify.mask_argv(env))                # no bwrap on PATH
+        real = shutil.which("bwrap", path="/usr/bin:/bin")
+        if not real:
+            self.skipTest("no bwrap")
+        os.symlink(real, os.path.join(self.bin, "bwrap"))
+        os.symlink(shutil.which("sh", path="/usr/bin:/bin"), os.path.join(self.bin, "sh"))
+        os.symlink(shutil.which("test", path="/usr/bin:/bin"), os.path.join(self.bin, "test"))
+        verify._MASK.clear()
+        argv = verify.mask_argv(env)
+        if argv is None:
+            self.skipTest("bwrap cannot make a mount namespace here")
+        self.assertEqual(argv[-1], "--")
+        sd = "/run/user/%d/systemd" % os.getuid()
+        if os.path.isdir(sd):
+            self.assertIn(sd, argv)
+        r = subprocess.run(argv + ["sh", "-c", 'test ! -e "$1/private" && test -z "$(ls -A '
+                                   '/tmp/.X11-unix)"', "sh", sd],
+                           env={"PATH": "/usr/bin:/bin"}, capture_output=True, timeout=20)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_kdl_has_no_xwayland_satellite(self):
+        self.assertIn("xwayland-satellite {\n    off\n}", verify.KDL)
+        niri = shutil.which("niri", path="/usr/bin:/bin:/usr/local/bin")
+        if not niri:
+            self.skipTest("no niri")
+        p = self.sb.path("v.kdl")
+        with open(p, "w") as f:
+            f.write(verify.KDL % {"run": self.sb.path("r")})
+        r = subprocess.run([niri, "validate", "-c", p], capture_output=True, text=True,
+                           env={"PATH": "/usr/bin:/bin", "HOME": self.sb.home}, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
 class RpmQuiet(unittest.TestCase):
     """A write to rpmdb.sqlite-wal keeps the sync waiting."""
 
