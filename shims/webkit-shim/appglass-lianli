@@ -7,12 +7,16 @@
 set -u
 LIB="$HOME/.local/lib/appglass/lianli"
 APP=/usr/bin/lianli-gui
+[ -n "${APPGLASS_SANDBOX:-}" ] && [ -n "${APPGLASS_LIANLI:-}" ] && APP=$APPGLASS_LIANLI  # tests only
 lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar_over_content":0.125}'
 c=$(printf '%s' "$lv" | jq -r '(.content * 1000 | round) / 10')
 b=$(printf '%s' "$lv" | jq -r '(.bar_over_content * 1000 | round) / 10')
+i=$(printf '%s' "$lv" | jq -r '((.inactive // .content) * 1000 | round) / 10')
+f=$(printf '%s' "$lv" | jq -r '.fade // "0ms linear"')
+printf '%s' "$f" | grep -qxE '[0-9]+ms (linear|cubic-bezier\([0-9., ]+\))' || f='0ms linear'   # nothing else reaches sed
 css="$LIB/lianli-glass.css"
-if [ -f "$LIB/appglass-wk.so" ] && sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" "$LIB/lianli-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css"; then
+if [ -f "$LIB/appglass-wk.so" ] && sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" -e "s/{{inactive}}/$i/g" -e "s/{{fade}}/$f/g" "$LIB/lianli-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css"; then
     exec env LD_PRELOAD="$LIB/appglass-wk.so${LD_PRELOAD:+:$LD_PRELOAD}" APPGLASS_CSS="$css" "$APP" "$@"
 fi
 echo "appglass-lianli: shim missing, starting without glass" >&2

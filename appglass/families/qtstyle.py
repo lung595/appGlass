@@ -5,12 +5,15 @@ shims/qt-style/glassstyle.cpp is built with the host Qt 6 into
 the Qt6Widgets version: a Qt update rebuilds it). The style paints the
 window and view backgrounds with the DMS surface colours at the glass
 levels, bars at the bar level, menus and popups opaque, text untouched.
+An unfocused top-level window eases its background to the inactive level
+(QVariantAnimation on WindowActivate/WindowDeactivate, idle in between).
 
 The launcher override ~/.local/share/applications/vlc.desktop (generated
 from the system one on every apply) starts VLC with
 
     env QT_PLUGIN_PATH=~/.local/lib/appglass/qt6 QT_STYLE_OVERRIDE=appglass
-        APPGLASS_COLORS=<cache>/dms/dms-colors.json APPGLASS_CONTENT=<level> vlc
+        APPGLASS_COLORS=<cache>/dms/dms-colors.json APPGLASS_CONTENT=<level>
+        APPGLASS_INACTIVE=<unfocused level> APPGLASS_FADE_MS=<ms> APPGLASS_FADE_EASING=<name> vlc
 
 The style reads the colours from APPGLASS_COLORS at start; the level is
 written into the launcher, and the sync unit / matugen hook re-apply when it
@@ -20,7 +23,7 @@ launcher comes back byte-identical).
 
 import os
 
-from .. import shims
+from .. import inactive, shims
 
 NAME = "qtstyle"
 APP_IDS = [r"^vlc$"]
@@ -49,10 +52,13 @@ def _steps(tc, d):
     return [moc, cxx]
 
 
-def launcher(env, text, cmd, content):
+def launcher(env, text, cmd, content, fade=None):
+    """``fade``: inactive.fields() (the unfocused level and the fade); none: no fade."""
+    fade = fade or {"inactive": content, "fade_ms": 0, "fade_easing": "linear"}
     pre = ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
-           "APPGLASS_CONTENT=%s " % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"),
-                                     shims.jq_raw(content)))
+           "APPGLASS_CONTENT=%s APPGLASS_INACTIVE=%s APPGLASS_FADE_MS=%d APPGLASS_FADE_EASING=%s "
+           % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"), shims.jq_raw(content),
+              shims.jq_raw(fade["inactive"]), int(fade["fade_ms"]), fade["fade_easing"]))
     out = []
     for line in text.splitlines(True):
         if line.startswith("Exec=") and not line.startswith("Exec=env QT_PLUGIN_PATH="):
@@ -69,9 +75,10 @@ def apply(ctx):
     paths = [shims.build(ctx, ADAPTER, style_path(env), src, _steps,
                          ("cxx", "moc", "pkgconfig"), qt=MODULES)]
     ids = []
+    fade = inactive.fields(ctx.settings, ctx.levels.content)
     for desktop_id, cmd in LAUNCHERS:
         p = ctx.desktop_override(desktop_id,
-                                 lambda t, c=cmd: launcher(env, t, c, ctx.levels.content))
+                                 lambda t, c=cmd: launcher(env, t, c, ctx.levels.content, fade))
         if p:
             paths.append(p)
             ids.append(r"^%s$" % desktop_id[:-len(".desktop")])

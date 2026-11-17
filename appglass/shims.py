@@ -105,7 +105,8 @@ def fill(text, pairs):
 
 def levels(ctx):
     """The values `appglass levels` prints (bar_over_content rounded)."""
-    return ctx.levels.as_dict()
+    from . import inactive
+    return dict(ctx.levels.as_dict(), **inactive.fields(ctx.settings, ctx.levels.content))
 
 
 # --- launcher

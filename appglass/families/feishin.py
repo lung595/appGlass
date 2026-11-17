@@ -39,7 +39,8 @@ def installed(env):
 def css(ctx):
     lv = shims.levels(ctx)
     pairs = [("content", shims.jq_raw(lv["content"])),
-             ("bar_over", shims.jq_raw(lv["bar_over_content"]))]
+             ("bar_over", shims.jq_raw(lv["bar_over_content"])),
+             ("inactive", shims.jq_raw(lv["inactive"])), ("fade", lv["fade"])]
     pairs += [(r, shims.rgb(ctx, r, fb)) for r, fb in ROLES]
     return shims.fill(shims.source(ADAPTER, TMPL).decode("utf-8"), pairs)
 
