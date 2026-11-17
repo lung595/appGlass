@@ -154,9 +154,20 @@ class Gtk4(unittest.TestCase):
         # the rule falls back to the Default theme's own opaque background.
         self.sb.set_level(0.8)
         self.apply()
-        bd = [(sel, d) for sel, d in css_rules(self.glass())
-              if ":backdrop" in sel and ("background-color" in d or "background" in d)]
+        # only a backdrop background that differs from its focused twin is
+        # the fade (the GtkSourceView rule clears both states alike)
+        rs = css_rules(self.glass())
+        bg = lambda d: d.get("background-color", d.get("background"))
+        focused = {}
+        for sel, d in rs:
+            if ":backdrop" not in sel and bg(d) is not None:
+                focused.setdefault(sel, set()).add(bg(d))
+        bd = [(sel, d) for sel, d in rs
+              if ":backdrop" in sel and bg(d) is not None
+              and bg(d) not in focused.get(sel.replace(":backdrop", ""), ())]
         self.assertEqual([sel for sel, _ in bd], ["window.background:backdrop"])
+        self.assertIn(("textview.view:backdrop", "transparent"),
+                      [(sel, bg(d)) for sel, d in rs if ":backdrop" in sel])
         d = bd[0][1]
         self.assertNotIn("@window_bg_color", d["background-color"])
         self.assertIn("var(--window-bg-color)", d["--agl-backdrop-bg"])

@@ -320,6 +320,40 @@ class CkShim(Tmp):
             self.assertRegex(text, r"APPGLASS_SCRUB=", os.path.basename(w))
 
 
+# ------------------------------------------------------------------ vklayer
+
+@unittest.skipUnless(GCC, "no gcc")
+class VkLayer(Tmp):
+    """appglass-artcraft-gpu: the Vulkan layer env and the shim reach the
+    launcher; appglass-ck.so (APPGLASS_SCRUB) keeps them from its children."""
+
+    def test_children_lose_the_layer(self):
+        lib = os.path.join(self.dir, ".local", "lib", "appglass", "artcraft")
+        os.makedirs(os.path.join(lib, "vk"))
+        subprocess.run([GCC, "-shared", "-fPIC", "-O2", "-o", os.path.join(lib, "appglass-ck.so"),
+                        shim("ck-shim", "appglass-ck.c"), "-ldl", "-lpthread"],
+                       check=True, capture_output=True, timeout=120)
+        for n in ("libappglass-vk.so", "appglass-vk.json"):
+            open(os.path.join(lib, "vk", n), "w").close()
+        app = os.path.join(self.dir, "app")
+        with open(app, "w") as f:
+            f.write("#!/bin/sh\n/usr/bin/env\n")
+        os.chmod(app, 0o755)
+        with open(shim("vklayer", "appglass-artcraft-gpu")) as f:
+            text = f.read()
+        w = os.path.join(self.dir, "wrapper")
+        with open(w, "w") as f:
+            f.write(text.replace("BIN=/usr/bin/artcraft-launcher", "BIN=" + app)
+                    .replace('"@APPGLASS@" levels', "false"))
+        r = subprocess.run(["sh", w], env=self.base_env(XDG_CACHE_HOME=os.path.join(self.dir, "c")),
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        e = parse_env(r.stdout)
+        self.assertEqual(leaks(e), [])
+        self.assertEqual(e.get("KEEP"), "1")
+        self.assertFalse([k for k in ("VK_INSTANCE_LAYERS", "VK_ADD_LAYER_PATH", "WGPU_BACKEND") if k in e])
+
+
 # ------------------------------------------------------------------ webkit-shim
 
 @unittest.skipUnless(GCC, "no gcc")
@@ -433,7 +467,7 @@ class Coverage(unittest.TestCase):
     """A new shim comes with its scrub test here."""
 
     COVERED = {"qt-style": QtStyle, "ck-shim": CkShim, "webkit-shim": WebkitShim,
-               "qtquick-shim": QtQuickShim, "electron-hook": ElectronHook}
+               "qtquick-shim": QtQuickShim, "electron-hook": ElectronHook, "vklayer": VkLayer}
     NO_ENV = {"electron-vencord": "a stylesheet read by Vencord, no process env",
               "sync": "systemd units of appglass itself, no app env"}
 
