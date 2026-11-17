@@ -25,10 +25,12 @@ CategoryPage {
     }
 
     SliderSetting {
+        id: inactiveLevel
         objectName: "inactiveLevel"
         visible: page.shownIf("inactiveLevel")
         settingKey: "inactiveMorePct"
-        label: page.view.label("inactiveLevel")
+        // the DMS slider shows its value only while dragged: the label has it
+        label: page.view.label("inactiveLevel") + ": " + inactiveLevel.value + inactiveLevel.unit
         description: page.view.help("inactiveLevel")
         defaultValue: Logic.DEFAULTS.inactiveMorePct
         minimum: 0
@@ -37,10 +39,12 @@ CategoryPage {
     }
 
     SliderSetting {
+        id: inactiveDuration
         objectName: "inactiveDuration"
         visible: page.shownIf("inactiveDuration")
         settingKey: "inactiveDurationMs"
-        label: page.view.label("inactiveDuration")
+        // the DMS slider shows its value only while dragged: the label has it
+        label: page.view.label("inactiveDuration") + ": " + inactiveDuration.value + inactiveDuration.unit
         description: page.view.help("inactiveDuration")
         defaultValue: Logic.DEFAULTS.inactiveDurationMs
         minimum: 0

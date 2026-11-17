@@ -177,8 +177,9 @@ Then enable App Glass in DMS Settings > Plugins, and add the App Glass pill to a
 The plugin has three parts (`plugin.json`, type `composite`):
 
 - **The daemon** (`AppGlassDaemon.qml`) runs every `appglass` call: the debounced `sync`, `status --json` (shared with the page and the pill), and the Advanced actions. Disabling, re-enabling or reloading the plugin in DMS changes no file and no unit.
+- **Reload-safe**: the three files DMS loads (`AppGlassDaemon.qml`, `AppGlassWidget.qml`, `AppGlassSettings.qml`) are thin shells that build their body (`components/DaemonBody.qml`, `components/PillText.qml`, `components/SettingsBody.qml`) from a new URL on each `dms ipc call plugins reload appGlass`, so an update of `components/logic.js` or the settings parts is live after a plain plugin reload (the QML engine caches a file by its URL).
 - **The bar pill** (`AppGlassWidget.qml`): the glass icon (crossed out while paused) and how many apps are on glass. A click opens the settings, a right click pauses or resumes the glass.
-- **The settings page** (`AppGlassSettings.qml`, with its parts in `components/settings/`): a search field on top (Ctrl+F or `/`; Enter opens the best match, Esc clears), the glass state with a global Pause, and a category rail (Glass, Apps, Fade, Fallback, Advanced, About; icons only on a narrow page, the name on hover or focus; the arrow keys move between categories).
+- **The settings page** (`AppGlassSettings.qml`, with its parts in `components/settings/`): a search field on top (Ctrl+F or `/`; Enter opens the best match, Esc clears, a second Esc leaves the field), the glass state with a global Pause, and a category rail (Glass, Apps, Fade, Fallback, Advanced, About; icons only on a narrow page, the name on hover or focus; the arrow keys move from the focused category to the next one).
   - **Glass**: the glass switch (off runs `remove` for every glass file but the hook), the glass level as information (it follows the DMS window rule opacity), Re-apply.
   - **Apps**: the app list from `appglass status --json`, with each app's tier, a switch, and a route choice when more than one adapter can take the app. Mod and Forced routes ask before they turn on.
   - **Fade**: the unfocused-window controls (on/off, how much more transparent, animation length and curve, instant fallback).
@@ -188,7 +189,7 @@ The plugin has three parts (`plugin.json`, type `composite`):
 
 Glass off then on adopts again the hand files that glass off gave back (when their bytes did not change meanwhile); while glass is off they show as `parked`, not as conflicts.
 
-IPC: `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> on|off`. `pause` and `resume` turn the glass off and on, like the pill; `sync` answers `uninstalling` or `uninstalled` once Uninstall has started.
+IPC: `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> on|off`. `pause` and `resume` turn the glass off and on, like the pill; `sync`, `toggle`, `pause`, `resume` and `app` answer `uninstalling` or `uninstalled` once Uninstall has started, and change nothing. When `appglass remove` fails, the glass and the syncs go on at once (with any change made meanwhile); when only the plugin link could not be taken out, Uninstall stays off and the page says to run `appglass plugin remove` in a terminal.
 
 `appglass plugin remove` takes the link out again (only a link to this repository's plugin); the glass files stay until `appglass remove`. Tests: `sh dms-plugin/tests/qml/run.sh [filter]` (Qt 6 `qml`, run by the unittest suite too).
 

@@ -34,10 +34,12 @@ CategoryPage {
     }
 
     SliderSetting {
+        id: fallbackValue
         objectName: "fallbackValue"
         visible: page.view.shown("fallbackValue") && (page.view.filtering || mode.value === "value")
         settingKey: "fallbackValuePct"
-        label: page.view.label("fallbackValue")
+        // the DMS slider shows its value only while dragged: the label has it
+        label: page.view.label("fallbackValue") + ": " + fallbackValue.value + fallbackValue.unit
         description: page.view.help("fallbackValue")
         defaultValue: Logic.DEFAULTS.fallbackValuePct
         minimum: 50

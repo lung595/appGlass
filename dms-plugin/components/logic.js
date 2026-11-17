@@ -344,6 +344,40 @@ function routeInfo(status, name) {
     };
 }
 
+// The route chips of a row: more than one route to pick from, or a route in
+// use (or saved) that is not among them
+function showRoutes(row) {
+    var routes = row && Array.isArray(row.routes) ? row.routes : [];
+    if (routes.length > 1)
+        return true;
+    if (routes.length === 0)
+        return false;
+    return row.routeStale === true || !routes.some(function (r) {
+        return r.name === row.route;
+    });
+}
+
+function _sentence(s) {
+    s = String(s || "").trim();
+    if (!s)
+        return "";
+    s = s.charAt(0).toUpperCase() + s.slice(1);
+    return /[.!?]$/.test(s) ? s : s + ".";
+}
+
+// The question before a mod or forced route: what it does, then its risk
+// ("Medium. May break on app updates.")
+function routeText(info) {
+    return _sentence(info && info.summary);
+}
+function riskText(info) {
+    var risk = info && info.risk ? String(info.risk) : "";
+    if (!risk)
+        return "";
+    var why = _sentence(info.why);
+    return risk.charAt(0).toUpperCase() + risk.slice(1) + "." + (why ? " " + why : "");
+}
+
 // Turning an app on with one of these routes asks first
 function needsConfirm(tier) {
     return tier === "mod" || tier === "forced";
@@ -398,6 +432,7 @@ function appRows(status, saved, glassOn) {
             };
         });
         var route = names.indexOf(own.route) >= 0 ? own.route : (names.indexOf(a.route) >= 0 ? a.route : String(a.adapter || ""));
+        var savedRoute = typeof own.route === "string" ? own.route : "";
         var tier = routeInfo(status, route).tier || a.tier;
         var st = appStatus(a, saved, glassOn);
         rows.push({
@@ -415,6 +450,8 @@ function appRows(status, saved, glassOn) {
             "on": typeof own.enabled === "boolean" ? own.enabled : a.enabled === true,
             "route": route,
             "routes": routes,
+            // a saved route the status does not list (the chips show, to pick again)
+            "routeStale": savedRoute !== "" && savedRoute !== route,
             "status": st,
             "statusLabel": STATUS_LABELS[st],
             "conflicts": Array.isArray(a.conflicts) ? a.conflicts.map(String) : []

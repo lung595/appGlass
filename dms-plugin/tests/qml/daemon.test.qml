@@ -308,6 +308,8 @@ Item {
                     t.check("uninstall toast", ToastService.ofLevel("info").map(x => x.message).slice(-1), ["appGlass: uninstalled, every file restored"]);
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 5);
                     t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
+                    t.check("the other IPC changes after it", ["toggle", "pause", "resume"].map(c => IpcRegistry.call("appGlass", c)).concat([IpcRegistry.call("appGlass", "app", "Alacritty", "off")]), ["uninstalled", "uninstalled", "uninstalled", "uninstalled"]);
+                    t.check("the page learns it is gone", root.vars().uninstallState, "removed");
                     t.check("no other action after it", root.d.runAction("learn"), false);
                 }
             },
@@ -335,6 +337,9 @@ Item {
                     // the page stays editable while it runs
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 7);
                     t.check("IPC sync while it runs", IpcRegistry.call("appGlass", "sync"), "uninstalling");
+                    const before = JSON.stringify(root.pdata());
+                    t.check("the other IPC changes while it runs", ["toggle", "pause", "resume"].map(c => IpcRegistry.call("appGlass", c)).concat([IpcRegistry.call("appGlass", "app", "Alacritty", "off")]), ["uninstalling", "uninstalling", "uninstalling", "uninstalling"]);
+                    t.check("and save nothing", JSON.stringify(root.pdata()), before);
                     t.check("no second action", root.d.runAction("learn"), false);
                 }
             },
@@ -388,6 +393,9 @@ Item {
                     Proc.flush();
                     t.check("uninstalled all the same", [root.d.uninstalled, root.vars().action], [true, ""]);
                     t.ok("the link error said", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("not a link") > 0);
+                    t.ok("with the command to finish it", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("appglass plugin remove") > 0);
+                    t.check("the page learns the link stays", root.vars().uninstallState, "linkStays");
+                    t.check("no second uninstall", root.d.runAction("uninstall"), false);
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 9);
                     t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
                 }
@@ -408,16 +416,22 @@ Item {
                     root.mark = root.syncs().length;
                     Proc.setResult(Logic.ACTION_IDS.uninstall, "appglass: remove: boom\n", 1);
                     root.d.runAction("uninstall");
-                    Proc.flush();
-                    t.check("a failed remove: not uninstalled, no unlink", [root.d.uninstalled, Proc.pendingIds()], [false, [Logic.STATUS_ID]]);
-                    Proc.flush();
+                    // a change while it runs: kept for after
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 11);
+                    t.check("not run beside the remove", Proc.pendingIds(), [Logic.ACTION_IDS.uninstall]);
+                    Proc.flush();
+                    t.check("a failed remove: not uninstalled, no unlink, a sync at once", [root.d.uninstalled, Proc.pendingIds(), root.vars().uninstallState || ""], [false, [Logic.SYNC_ID], ""]);
+                    t.ok("the remove error said", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("boom") > 0);
+                    Proc.flush();
+                    t.check("the sync carries the change made during the remove", root.lastSyncSettings().inactive.factor, 0.89);
+                    t.check("the IPC works again", IpcRegistry.call("appGlass", "pause"), "glass off");
+                    Proc.flush();
                 }
             },
             {
                 "wait": 700,
                 "run": () => {
-                    t.check("syncs again after a failed remove", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    t.check("the pause syncs", Proc.pendingIds(), [Logic.SYNC_ID]);
                     Proc.flush();
                     Proc.flush();
                 }

@@ -34,6 +34,6 @@ Item {
     }
 
     StyledText {
-        text: root.label + ": " + root.value + root.unit
+        text: root.label
     }
 }

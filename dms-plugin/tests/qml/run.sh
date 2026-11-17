@@ -62,6 +62,14 @@ for entry in "$root"/*.qml "$root"/*.js "$root"/*.json \
         cp -R "$entry" "$work"/
     fi
 done
+# A second copy for reload.test.qml, which rewrites it in place (an update)
+# and loads it again at the next revision, as DMS's plugin reload does
+mkdir "$work/reload"
+for entry in "$root"/*.qml "$root"/*.js "$root"/*.json "$root"/components; do
+    if [ -e "$entry" ]; then
+        cp -R "$entry" "$work/reload"/
+    fi
+done
 # The tests and their helpers (Harness.qml...) beside it, and the CLI
 # contract fixtures (Harness.readFile("contract/status.json"))
 cp "$here"/*.qml "$work"/
@@ -77,6 +85,8 @@ export QML_DISABLE_DISK_CACHE=1
 # Lets Harness.readFile() read the copy (plugin files, fixtures) with a
 # synchronous file:// XMLHttpRequest
 export QML_XHR_ALLOW_FILE_READ=1
+# ... and reload.test.qml rewrite its copy (reload/, in the work folder)
+export QML_XHR_ALLOW_FILE_WRITE=1
 export QT_QPA_PLATFORM=offscreen
 # Everything to the terminal (not journald), print() included, each line
 # prefixed with its level

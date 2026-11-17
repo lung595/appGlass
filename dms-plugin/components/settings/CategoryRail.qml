@@ -14,11 +14,13 @@ Column {
 
     Accessible.role: Accessible.PageTabList
 
-    // The arrow keys: the next or previous category opens and the focus
+    // The arrow keys: from the focused entry (Tab may have moved the focus
+    // off the open one) the next or previous category opens and the focus
     // follows it, so Enter or Space acts on the one shown
-    function step(by) {
-        rail.view.step(by);
-        const at = Index.CATEGORIES.findIndex(c => c.id === rail.view.current);
+    function step(from, by) {
+        const n = Index.CATEGORIES.length;
+        const at = (Math.max(0, Index.CATEGORIES.findIndex(c => c.id === from)) + by + n) % n;
+        rail.view.pick(Index.CATEGORIES[at].id);
         const item = entries.itemAt(at);
         if (item)
             item.forceActiveFocus();
@@ -30,7 +32,7 @@ Column {
 
         delegate: RailEntry {
             view: rail.view
-            onStepped: by => rail.step(by)
+            onStepped: by => rail.step(modelData.id, by)
         }
     }
 }

@@ -75,8 +75,18 @@ CategoryPage {
         iconName: "delete_forever"
         danger: true
         busy: page.host.action === "uninstall"
-        available: page.idle
+        // once the files are back, never again (the link may stay: below)
+        available: page.idle && page.host.uninstallState === ""
         onClicked: page.asking = "uninstall"
+    }
+    StyledText {
+        objectName: "uninstallLinkHint"
+        width: parent.width
+        visible: page.host.uninstallState === "linkStays"
+        text: "Every file is restored, but this plugin's link stays: run 'appglass plugin remove' in a terminal to finish."
+        color: Theme.error
+        font.pixelSize: Theme.fontSizeSmall
+        wrapMode: Text.WordWrap
     }
     ConfirmSheet {
         objectName: "confirmUninstall"

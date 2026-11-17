@@ -4,7 +4,7 @@ import qs.Widgets
 import qs.DCommon.Widgets
 
 // The search over every setting: typing filters the page, Enter opens the
-// best match's category, Esc gives the page back. The key hint sits in the
+// best match's category, Esc clears it, a second Esc gives the page back. The key hint sits in the
 // field (how to come here at rest, how to get out while typing), so typing
 // does not move the page.
 Item {
@@ -21,9 +21,23 @@ Item {
         field.forceActiveFocus();
     }
 
+    function release() {
+        if (field.setFocus)
+            field.setFocus(false);
+        search.released();
+    }
     function clear() {
         search.view.query = "";
-        search.released();
+        search.release();
+    }
+    // Esc: a typed search is cleared first, the focus kept for a new one
+    function stepBack() {
+        if (field.text !== "" || search.view.query !== "") {
+            search.view.query = "";
+            field.text = "";
+            return;
+        }
+        search.release();
     }
 
     DTextField {
@@ -58,7 +72,7 @@ Item {
         }
         onAccepted: search.view.openFirst()
         onCleared: search.clear()
-        Keys.onEscapePressed: search.clear()
+        Keys.onEscapePressed: search.stepBack()
     }
 
     Connections {

@@ -17,6 +17,9 @@ Item {
     function forceActiveFocus() {
         input.forceActiveFocus();
     }
+    function setFocus(value) {
+        input.focus = value;
+    }
 
     implicitWidth: 200
     implicitHeight: 40

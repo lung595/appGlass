@@ -143,6 +143,7 @@ Item {
                     "tier": "native",
                     "kind": "Native"
                 }],
+            "routeStale": false,
             "status": "glass",
             "statusLabel": "Glass",
             "conflicts": []
@@ -183,7 +184,15 @@ Item {
             rows2[r.key] = r;
         t.check("switched off: paused", [rows2["Alacritty"].on, rows2["Alacritty"].status, rows2["Alacritty"].statusLabel], [false, "paused", "Paused"]);
         t.check("saved route", [rows2["discord"].on, rows2["discord"].route, rows2["discord"].kind], [true, "electron-hook", "Forced"]);
-        t.check("an unknown saved route is ignored", rows2["steam"].route, "steam-cdp");
+        t.check("an unknown saved route is ignored, but marked", [rows2["steam"].route, rows2["steam"].routeStale, rows2["discord"].routeStale], ["steam-cdp", true, false]);
+        t.check("route chips: two routes, or a stale or unlisted one", [Logic.showRoutes(byKey["discord"]), Logic.showRoutes(byKey["steam"]), Logic.showRoutes(rows2["steam"]), Logic.showRoutes(byKey["Pinball"]), Logic.showRoutes({
+                "route": "gtk4",
+                "routes": [{
+                        "name": "gtk3"
+                    }]
+            })], [true, false, true, false, true]);
+        t.check("the question in sentences", [Logic.routeText(Logic.routeInfo(status, "electron-hook")), Logic.riskText(Logic.routeInfo(status, "electron-hook"))], ["A main-process hook (NODE_OPTIONS when the fuse allows it) plus CSS.", "Medium. May break on app updates."]);
+        t.check("no why, no risk", [Logic.riskText(Logic.routeInfo(status, "webkit-shim")), Logic.riskText({}), Logic.routeText({})], ["Medium.", "", ""]);
         const off = {};
         for (const r of Logic.appRows(status, {}, false))
             off[r.key] = r;

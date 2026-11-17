@@ -7,7 +7,8 @@ import qs.DCommon.Widgets
 // the categories with a match carry their count and the others fade. The
 // arrow keys open the next or previous category and take the focus there
 // (stepped: the rail moves it); narrow, the name shows beside the icon on
-// hover or focus.
+// hover or focus. A faded entry fades its background, icon and name only:
+// the name tip and the count stay opaque.
 Item {
     id: entry
 
@@ -17,6 +18,7 @@ Item {
     readonly property bool on: !entry.view.filtering && entry.view.current === entry.modelData.id
     readonly property int count: entry.view.counts[entry.modelData.id] || 0
     readonly property bool dim: entry.view.filtering && entry.count === 0
+    readonly property real dimOpacity: entry.dim ? 0.4 : 1
 
     signal clicked
     signal stepped(int by)
@@ -24,7 +26,6 @@ Item {
     objectName: "rail-" + entry.modelData.id
     width: parent ? parent.width : 0
     height: 40
-    opacity: entry.dim ? 0.4 : 1
     activeFocusOnTab: true
 
     Accessible.role: Accessible.PageTab
@@ -49,7 +50,9 @@ Item {
     }
 
     StyledRect {
+        objectName: "railBg-" + entry.modelData.id
         anchors.fill: parent
+        opacity: entry.dimOpacity
         radius: height / 2
         color: entry.on ? Theme.withAlpha(Theme.primary, 0.16) : (hover.hovered ? Theme.withAlpha(Theme.surfaceText, 0.06) : "transparent")
         border.width: entry.activeFocus ? 2 : 0
@@ -58,6 +61,8 @@ Item {
 
     DIcon {
         id: icon
+        objectName: "railIcon-" + entry.modelData.id
+        opacity: entry.dimOpacity
         x: entry.view.compact ? (entry.width - size) / 2 : Theme.spacingM
         anchors.verticalCenter: parent.verticalCenter
         name: entry.modelData.icon
@@ -66,6 +71,8 @@ Item {
     }
 
     StyledText {
+        objectName: "railName-" + entry.modelData.id
+        opacity: entry.dimOpacity
         visible: !entry.view.compact
         anchors.left: icon.right
         anchors.leftMargin: Theme.spacingS

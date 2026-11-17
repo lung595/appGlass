@@ -116,6 +116,13 @@ Item {
     function type(text) {
         root.find(root.page, "searchField").text = text;
     }
+    function focusedIn(item) {
+        let it = root.page ? root.page.Window.activeFocusItem : null;
+        for (; it; it = it.parent)
+            if (it === item)
+                return true;
+        return false;
+    }
     function saved(key) {
         return SettingsData.getPluginSetting("appGlass", key, undefined);
     }
@@ -187,7 +194,8 @@ Item {
                     const p = root.page;
                     t.check("search: the fade settings, even those the switch hides", root.shownAll(root.fadeIds), [true, true, true, true, true]);
                     t.check("search: no other category's page", root.shownAll(["page-glass", "page-about", "page-advanced", "noResults"]), [false, false, false, false]);
-                    t.check("rail counts", [root.find(p, "railCount-fade").visible, root.find(p, "rail-about").opacity < 1], [true, true]);
+                    t.check("rail counts", [root.find(p, "railCount-fade").visible, root.find(p, "railIcon-about").opacity < 1], [true, true]);
+                    t.check("a dimmed entry: its background and icon fade, the entry itself does not", [root.find(p, "rail-about").opacity, root.find(p, "railBg-about").opacity < 1, root.find(p, "railName-about").opacity < 1], [1, true, true]);
                     t.check("no rail entry is open while searching", root.find(p, "rail-about").on, false);
                     root.type("opacity");
                 }
@@ -291,6 +299,7 @@ Item {
                     t.tap(disc);
                     t.check("a mod route asks first", [root.shown("confirm-discord"), root.saved("apps").discord], [true, undefined]);
                     t.ok("the sheet says what it is", root.find(p, "confirm-discord").title.indexOf("electron-vencord (a mod)") > 0 && root.find(p, "confirm-discord").risk !== "");
+                    t.check("in sentences, the risk first", [root.find(p, "confirm-discord").text, root.find(p, "confirm-discord").risk], ["A Vencord theme with transparency (Discord).", "Medium. Client mods break Discord's terms of service."]);
                     t.press(root.find(p, "confirm-discord-no"));
                     t.check("cancel: nothing saved", [root.shown("confirm-discord"), root.saved("apps").discord, disc.checked], [false, undefined, false]);
                     // a route picked while off: saved, no question
@@ -369,6 +378,7 @@ Item {
                 "run": () => {
                     const p = root.page;
                     t.check("saved values loaded", [root.find(p, "inactiveLevel").value, root.find(p, "glassToggle").value], [20, true]);
+                    t.check("the value label follows the saved value", root.find(p, "inactiveLevel").label, "Fade amount: 20%");
                     t.check("opening the page saves nothing", PluginService.saves, []);
                     t.press(root.find(p, "reapplyButton"));
                     t.press(root.find(p, "rail-advanced"));
@@ -390,7 +400,8 @@ Item {
                     root.searchHeight = root.find(p, "search").height;
                     t.check("the category title: icon and name", [root.find(p, "pageIcon-glass").name, root.find(p, "pageTitle-glass").text], ["blur_on", "Glass"]);
                     t.check("About says it once", root.find(p, "neverInfo").text.indexOf("Never touched"), -1);
-                    t.check("the fallback opacity says what it is", root.find(p, "fallbackValue").label, "Fallback opacity");
+                    t.check("the fallback opacity says what it is, with its value", root.find(p, "fallbackValue").label, "Fallback opacity: 70%");
+                    t.check("the fade sliders show their value at rest", [root.find(p, "inactiveLevel").label, root.find(p, "inactiveDuration").label], ["Fade amount: 10%", "Fade duration: 180 ms"]);
                     root.type("fade");
                 }
             },
@@ -434,11 +445,20 @@ Item {
                     t.check("a search drops the app question too", [root.shown("app:discord"), root.shown("confirm-discord")], [true, false]);
                     root.type("");
                     t.press(root.find(p, "rail-apps"));
-                    // an app with no route to pick from: its tier still asks
+                    // an app with no route to pick from: nothing forced is
+                    // offered, the switch saves only the switch, the row says why
                     t.check("no routes listed", root.findAll(p, "route-md.example.Electron-", []).length, 0);
+                    t.check("no route list: the reason shows", root.find(p, "reason-md.example.Electron").text, "family feishin does not list this app");
+                    root.saveMark = PluginService.saves.length;
                     t.tap(root.find(p, "appToggle-md.example.Electron"));
-                    t.ok("a forced app with no route list asks first", root.shown("confirm-md.example.Electron") === true && root.find(p, "confirm-md.example.Electron").title.indexOf("(forced)") > 0);
-                    t.press(root.find(p, "confirm-md.example.Electron-no"));
+                    t.check("a forced app with no route list does not ask", root.shown("confirm-md.example.Electron"), false);
+                    t.check("and saves the switch only (no route)", root.saved("apps")["md.example.Electron"], {
+                        "enabled": true
+                    });
+                    t.tap(root.find(p, "appToggle-md.example.Electron"));
+                    t.check("off again", root.saved("apps")["md.example.Electron"], {
+                        "enabled": false
+                    });
                     // --- Pause: one write
                     root.saveMark = PluginService.saves.length;
                     t.press(root.find(p, "pauseButton"));
@@ -465,6 +485,13 @@ Item {
                     t.check("Enter keeps Fade", [root.shown("page-fade"), root.shown("page-glass")], [true, false]);
                     root.find(p, "rail-fade").Keys.upPressed(null);
                     t.check("up: Apps focused", [root.shown("page-apps"), root.find(p, "rail-apps").activeFocus], [true, true]);
+                    // Tab moves the focus without opening: the arrows step from the focused entry
+                    root.find(p, "rail-advanced").forceActiveFocus();
+                    root.find(p, "rail-advanced").Keys.downPressed(null);
+                    t.check("down from a focused entry that is not open", [root.shown("page-about"), root.find(p, "rail-about").activeFocus], [true, true]);
+                    root.find(p, "rail-glass").forceActiveFocus();
+                    root.find(p, "rail-glass").Keys.upPressed(null);
+                    t.check("up from the first wraps to the last", [root.shown("page-about"), root.find(p, "rail-about").activeFocus], [true, true]);
                     // --- the narrow rail: the badge stays a dot, the name shows on focus
                     root.page.width = 380;
                     root.type("fade");
@@ -480,6 +507,9 @@ Item {
                     t.check("no name tip at rest", root.find(p, "railTip-fade").visible, false);
                     entry.forceActiveFocus();
                     t.check("the name beside a focused icon", [root.find(p, "railTip-fade").visible, root.find(p, "railTip-fade").text], [true, "Fade"]);
+                    const about = root.find(p, "rail-about");
+                    about.forceActiveFocus();
+                    t.check("a dimmed entry's tip is not see-through", [about.dim, root.find(p, "railTip-about").visible, about.opacity, root.find(p, "railTip-about").opacity], [true, true, 1, 1]);
                     root.type("xyz");
                 }
             },
@@ -487,6 +517,69 @@ Item {
                 "run": () => {
                     const q = root.find(root.page, "noResultsQuery");
                     t.check("a long query wraps, then elides", [q.wrapMode, q.elide, q.maximumLineCount], [Text.Wrap, Text.ElideRight, 2]);
+                    // --- Esc in two stages: the first clears, the second lets go
+                    const f = root.find(root.page, "searchField");
+                    f.forceActiveFocus();
+                    t.ok("the field has the focus", root.focusedIn(f));
+                    f.Keys.escapePressed(null);
+                    t.check("first Esc: cleared, still in the field", [root.find(root.page, "searchField").text, root.focusedIn(f)], ["", true]);
+                    f.Keys.escapePressed(null);
+                    t.check("second Esc: the focus leaves the field", root.focusedIn(f), false);
+                    // --- a saved route the status no longer lists: the chips show
+                    root.fresh(true, undefined, {
+                        "apps": {
+                            "steam": {
+                                "enabled": true,
+                                "route": "no-such-route"
+                            }
+                        }
+                    });
+                }
+            },
+            {
+                "wait": 20,
+                "run": () => {
+                    const p = root.page;
+                    t.press(root.find(p, "rail-apps"));
+                    t.check("one route, saved one stale: its chip shows", [root.shown("route-steam-steam-cdp"), root.shown("route-vlc-qt-style")], [true, false]);
+                    t.press(root.find(p, "route-steam-steam-cdp"));
+                    t.check("picking it saves it over the stale one", root.saved("apps").steam.route, "steam-cdp");
+                }
+            },
+            {
+                "run": () => {
+                    t.check("then the chips go", root.shown("route-steam-steam-cdp"), false);
+                    t.check("uninstall offered, no link hint", [root.find(root.page, "uninstallButton").enabled, root.shown("uninstallLinkHint")], [true, false]);
+                    // --- the files are back but the plugin link stays
+                    root.fresh(true, {
+                        "status": root.status,
+                        "lastError": "",
+                        "syncing": false,
+                        "action": "",
+                        "uninstallState": "linkStays"
+                    });
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.press(root.find(p, "rail-advanced"));
+                    t.check("the link stays: Uninstall stays off", root.find(p, "uninstallButton").enabled, false);
+                    t.check("and says how to finish", [root.shown("uninstallLinkHint"), root.find(p, "uninstallLinkHint").text.indexOf("appglass plugin remove") >= 0], [true, true]);
+                    root.fresh(true, {
+                        "status": root.status,
+                        "lastError": "",
+                        "syncing": false,
+                        "action": "",
+                        "uninstallState": "removed"
+                    });
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.press(root.find(p, "rail-advanced"));
+                    t.check("uninstalled: Uninstall off, no hint", [root.find(p, "uninstallButton").enabled, root.shown("uninstallLinkHint")], [false, false]);
                 }
             }
         ]);

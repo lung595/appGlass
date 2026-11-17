@@ -6,9 +6,10 @@ import "../logic.js" as Logic
 
 // The apps of the last status, one row each: name, status, route and why,
 // a switch (none for delegated, excluded and game rows) and, when an app has
-// more than one route, the routes to pick from. Turning an app on with a mod
-// or forced route, or picking one while it is on, asks first (the sheet
-// under the row). The rows only call the page (host.setApp, host.setRoute,
+// more than one route (or a saved one the status no longer lists), the
+// routes to pick from. Turning an app on with a mod or forced route, or
+// picking one while it is on, asks first (the sheet under the row); an app
+// with no route list has nothing to force, so its switch never asks. The rows only call the page (host.setApp, host.setRoute,
 // host.setAppRoute), which saves; the daemon syncs.
 Column {
     id: list
@@ -86,10 +87,11 @@ Column {
         return Theme.surfaceVariantText;
     }
 
-    // From the status catalogue: a row with no route list still has its tier
+    // The tier of one of the row's routes; none when the status lists no
+    // route for the app (nothing to force: the engine keeps its fallback)
     function tierOf(row, name) {
         const r = row.routes.find(x => x.name === name);
-        return r && r.tier ? r.tier : Logic.routeInfo(list.host.status, name).tier;
+        return r ? r.tier : "";
     }
 
     // The switch: on with a mod or forced route asks first
@@ -109,8 +111,14 @@ Column {
 
     // A route chip: while the app is on, a mod or forced route asks first
     function choose(row, name) {
-        if (name === row.route)
+        // the route in use already: only a stale saved one is written over
+        if (name === row.route) {
+            if (row.routeStale) {
+                list.pending = null;
+                list.host.setRoute(row.key, name);
+            }
             return;
+        }
         const tier = list.tierOf(row, name);
         if (row.on && Logic.needsConfirm(tier)) {
             list.pending = {
@@ -235,6 +243,7 @@ Column {
                 }
 
                 StyledText {
+                    objectName: "reason-" + row.app.key
                     width: parent.width
                     visible: text !== ""
                     text: row.app.reason
@@ -253,7 +262,7 @@ Column {
 
                 Flow {
                     width: parent.width
-                    visible: row.app.routes.length > 1
+                    visible: Logic.showRoutes(row.app)
                     spacing: Theme.spacingXS
 
                     Repeater {
@@ -273,8 +282,8 @@ Column {
                     objectName: "confirm-" + row.app.key
                     open: row.asking
                     title: row.asking ? "Turn on " + row.app.name + " with " + list.pending.route + " (" + (list.pending.tier === "mod" ? "a mod" : "forced") + ")?" : ""
-                    text: row.asked ? [row.asked.summary, row.asked.why].filter(x => x).join(" ") : ""
-                    risk: row.asked ? row.asked.risk : ""
+                    text: row.asked ? Logic.routeText(row.asked) : ""
+                    risk: row.asked ? Logic.riskText(row.asked) : ""
                     confirmText: "Turn on"
                     onConfirmed: list.confirm()
                     onCancelled: list.pending = null
