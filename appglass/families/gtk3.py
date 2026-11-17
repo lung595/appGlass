@@ -119,7 +119,10 @@ notebook > header tab:backdrop, notebook > header tab:backdrop:checked { color: 
 spinbutton:not(.vertical) button:backdrop { color: mix(@theme_fg_color, @theme_bg_color, 0.105); }
 spinbutton:not(.vertical) image:backdrop, entry image:backdrop {
   color: mix(@theme_fg_color, @theme_bg_color, 0.21); }
-headerbar button:backdrop, .titlebar button:backdrop {
+/* the bar's framed buttons keep their focused edges; the window buttons
+   (.titlebutton) and flat buttons have none, so they get none (no ring) */
+headerbar button:not(.titlebutton):not(.flat):backdrop,
+.titlebar button:not(.titlebutton):not(.flat):backdrop {
   border-color: @borders; border-bottom-color: {edge}; }
 """
 # Adwaita's focused button bottom edge (a literal, no named colour)

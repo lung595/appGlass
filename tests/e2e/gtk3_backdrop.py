@@ -11,6 +11,7 @@ background colours, sets the windows to :backdrop and reads them again.
 Prints {"focused": {...}, "backdrop": {...}}.
 """
 
+import base64
 import json
 import time
 
@@ -39,6 +40,17 @@ popover = Gtk.Popover(relative_to=button)
 popover.add(Gtk.Label(label="popover"))
 menu = Gtk.Menu()
 menu.append(Gtk.MenuItem(label="item"))
+# the same CSD headerbar in an offscreen window, to read its pixels: the
+# window buttons (close, maximize, minimize) and a flat button
+ow = Gtk.OffscreenWindow()
+ohb = Gtk.HeaderBar(title="Title", show_close_button=True)
+ohb.get_style_context().add_class("titlebar")      # what set_titlebar() adds
+ow.get_style_context().add_class("csd")
+hb_flat = Gtk.Button(label="Flat")
+hb_flat.get_style_context().add_class("flat")
+ohb.pack_end(hb_flat)
+ow.add(ohb)
+ow.show_all()
 
 
 def settle(t=0.3):
@@ -60,6 +72,35 @@ def child_node(parent, gtype, name):
     return c
 
 
+def titlebuttons(widget):
+    """The headerbar's own window buttons (internal children)."""
+    out = []
+    if isinstance(widget, Gtk.Button) and widget.get_style_context().has_class("titlebutton"):
+        out.append(widget)
+    if isinstance(widget, Gtk.Container):
+        widget.forall(lambda c: out.extend(titlebuttons(c)))
+    return out
+
+
+def frame(widget):
+    """The button's pixels with its icon or label not drawn (opacity 0): its
+    background and border, what a ring around it changes. RGBA, base64."""
+    widget.get_child().set_opacity(0)
+    settle(0.1)
+    a = widget.get_allocation()
+    full = ow.get_pixbuf()
+    pb = full.new_subpixbuf(a.x, a.y, a.width, a.height)
+    widget.get_child().set_opacity(1)
+    rows = pb.get_pixels()
+    st, n = pb.get_rowstride(), pb.get_n_channels()
+    px = b"".join(rows[y * st:y * st + a.width * n] for y in range(a.height))
+    # the bar's own background, left of the title where nothing is drawn
+    y = a.y + a.height // 2
+    bar = full.get_pixels()[y * full.get_rowstride() + 2 * n:][:n]
+    return {"w": a.width, "h": a.height, "n": n, "rgba": base64.b64encode(px).decode(),
+            "bar": list(bar)}
+
+
 def colour(ctx, prop="color"):
     st = ctx.get_state()
     v = ctx.get_color(st) if prop == "color" else ctx.get_property(prop, st)
@@ -77,6 +118,15 @@ def read():
     hbc = hb_button.get_style_context()
     out["edge"] = {"headerbar button " + side: colour(hbc, "border-%s-color" % side)
                    for side in ("top", "bottom")}
+    named = {"titlebutton %d" % i: x for i, x in enumerate(titlebuttons(ohb))}
+    named["flat headerbar button"] = hb_flat
+    for i, x in enumerate(titlebuttons(hb)):        # the real window's own
+        named["window titlebutton %d" % i] = x
+    for name, x in named.items():
+        for side in ("top", "bottom"):
+            out["edge"]["%s %s" % (name, side)] = colour(x.get_style_context(),
+                                                         "border-%s-color" % side)
+    out["frame"] = {k: frame(x) for k, x in named.items() if not k.startswith("window ")}
     out["bg"] = {
         "window": colour(w.get_style_context(), "background-color"),
         "headerbar": colour(hb.get_style_context(), "background-color"),
@@ -90,6 +140,7 @@ settle()
 res = {"focused": read()}
 w.set_state_flags(Gtk.StateFlags.BACKDROP, False)
 menu.get_toplevel().set_state_flags(Gtk.StateFlags.BACKDROP, False)  # its own popup window
+ow.set_state_flags(Gtk.StateFlags.BACKDROP, False)
 settle()
 res["backdrop"] = read()
 print(json.dumps(res))

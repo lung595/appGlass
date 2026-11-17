@@ -1,5 +1,6 @@
 """GTK3 family (mode B): AppGlass theme, launcher/autostart overrides, niri ids."""
 
+import base64
 import json
 import os
 import shutil
@@ -491,6 +492,23 @@ class Gtk3(unittest.TestCase):
 
         def near(x, y):    # mix() rounds: one step either way is no visible change
             return all(abs(p - q) <= 1 for p, q in zip(rgba(x)[:3], rgba(y)[:3]))
+        # the window buttons (close, ...) and a flat headerbar button get no
+        # ring when unfocused: with the icon or label not drawn, the pixels
+        # that differ from the bar's own background are the same in both
+        # states (the bar itself fades, so the states are not byte-equal)
+        def ring(fr):
+            p, n, bar = base64.b64decode(fr["rgba"]), fr["n"], fr["bar"]
+            return {(i // n % fr["w"], i // n // fr["w"]) for i in range(0, len(p), n)
+                    if max(abs(p[i + k] - bar[k]) for k in range(n)) > 3}
+        self.assertIn("titlebutton 0", f["frame"])
+        self.assertIn("flat headerbar button", f["frame"])
+        for name in f["frame"]:
+            rf, rb = ring(f["frame"][name]), ring(b["frame"][name])
+            self.assertEqual(sorted(rb - rf)[:5], [], "%s: %d pixels off the bar background "
+                             "only when unfocused (a ring)" % (name, len(rb - rf)))
+            self.assertEqual(sorted(rf - rb)[:5], [], name)
+            if name.startswith("titlebutton"):
+                self.assertEqual(rf, set(), name)     # a flat, borderless button
         for kind in ("fg", "edge"):
             self.assertEqual({k: v for k, v in b[kind].items() if not near(v, f[kind][k])}, {},
                              "focused: %s" % f[kind])
