@@ -15,9 +15,12 @@ argv read from a file) is out of their reach. The runtime guard closes that
 part: main marks every run that is not a command the user typed as an
 event (App.event), and in an event run App._revert, App.remove_owner,
 App._drop_backup, State.destroy, cmd_remove, hook.remove and plugin.remove
-raise EventRemove whatever reached them (test_safety.EventGuard); only the
-user's own switch (App.user_action: glass off, a family switched off in the
-plugin) lifts it."""
+raise EventRemove whatever reached them (test_safety.EventGuard), and an
+event save neither drops a record nor changes what it owes (kind, how,
+backup, orig_sha256, adopted); only the user's own switch (App.user_action:
+glass off, a family switched off in the plugin) lifts it. That guard is
+itself checked here: App.event, State.event_guard and App.no_event are set
+only by main, App.user_action and the constructors (event_switches)."""
 
 import ast
 import os
@@ -43,7 +46,6 @@ QML_SINKS = re.compile(r"\b(uninstallArgv|unlinkArgv|launchRemove)\b|ACTION_IDS\
                        r"|[\"'`]\s*(?:(?:plugin|hook)\s+)?remove\s*[\"'`]"
                        r"|(?:\b(?:execDetached|startDetached|runCommand)\s*\(|\bcommand\s*[:=])"
                        r"[^;\n]*[\"'`][^\"'`\n]*\bremove\b")
-LOGIC_CALL = re.compile(r"\bLogic\.(\w+)\s*\(")
 
 
 # ---------------------------------------------------------------- QML/JS
@@ -149,7 +151,9 @@ def qml_units(text, js=False):
     for m in FUNC.finditer(text):
         end = _block_end(text, m.end() - 1)
         body = text[m.end() - 1:end]
-        funcs.setdefault(m.group(1), (m.group(2), body))
+        # two functions of one name (in two objects): both are followed
+        old = funcs.get(m.group(1))
+        funcs[m.group(1)] = (m.group(2), old[1] + "\n" + body if old else body)
         spans.append((m.start(), end))
     for m in HANDLER.finditer(text):
         body = _handler_body(text, m.end())
@@ -172,8 +176,32 @@ def qml_units(text, js=False):
     return funcs, roots
 
 
-def _called(body, names):
-    return {n for n in re.findall(r"\b(\w+)\s*\(", body) if n in names}
+def _code(text):
+    """text with its string literals emptied (a template literal keeps
+    what its ${..} runs): a word in a string is not a reference."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in "\"'`":
+            j = _skip_str(text, i)
+            out.append(c + " ".join(re.findall(r"\$\{([^}]*)\}", text[i:j]) if c == "`" else ())
+                       + c)
+            i = j
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+SUBSCRIPT = re.compile(r"""\[\s*["'`](\w+)["'`]\s*\]""")
+
+
+def _refs(body, names):
+    """The names of names that body refers to, called or not: f(), a
+    function handed over (Qt.callLater(f), sig.connect(f), a handler that
+    is a bare name), x.f through any x (an alias of Logic), x["f"]."""
+    words = set(re.findall(r"\b[A-Za-z_]\w*\b", _code(body))) | set(SUBSCRIPT.findall(body))
+    return {n for n in words if n in names}
 
 
 def qml_violations(sources):
@@ -198,17 +226,18 @@ def qml_violations(sources):
                 if hit:
                     out.append((path, label, hit.group(0)))
                     break
-                # an action runner reached from an event: Uninstall is an action
-                if re.search(r"\brunAction\s*\(", b) and label not in ("onConfirmed", "onClicked"):
+                # an action runner reached from an event (called or held):
+                # Uninstall is an action
+                if (_refs(b, ("runAction",)) and label not in ("onConfirmed", "onClicked")):
                     out.append((path, label, "runAction"))
                     break
-                for m in LOGIC_CALL.finditer(b):
-                    n = m.group(1)
-                    if n in logic and ("Logic", n) not in seen:
+                # a logic.js function, by any name of Logic (L = Logic; L.f())
+                for n in _refs(b, logic):
+                    if ("Logic", n) not in seen:
                         seen.add(("Logic", n))
                         todo.append((logic[n][1], logic))
-                # a bare call: a function of the same file (logic.js: of logic.js)
-                for n in _called(re.sub(r"\bLogic\.\w+", "", b), scope):
+                # a function of the same file (logic.js: of logic.js)
+                for n in _refs(re.sub(r"\bLogic\s*\.\s*\w+", "", b), scope):
                     if (id(scope), n) not in seen:
                         seen.add((id(scope), n))
                         todo.append((scope[n][1], scope))
@@ -584,6 +613,87 @@ def user_actions(mods):
     return out
 
 
+# the run-time guard: App.event (main marks an event run, the user's own
+# switch lifts it), State.event_guard (App arms it) and App.no_event. Set
+# only at these sites; anywhere else only made stricter (x.event = True,
+# x.state.event_guard = x.no_event)
+GUARD_ATTRS = {"event", "event_guard", "no_event"}
+SWITCH_SITES = {("core", "main"), ("core", "App.user_action"), ("core", "App.__init__"),
+                ("core", "State.__init__")}
+
+
+def _stricter(target, value):
+    return ((target.attr == "event" and isinstance(value, ast.Constant) and value.value is True)
+            or (target.attr == "event_guard" and isinstance(value, ast.Attribute)
+                and value.attr == "no_event"))
+
+
+def event_switches(mods):
+    """The run-time guard switched off or swapped outside SWITCH_SITES, in
+    any function of the package (reached from an event or not): an
+    assignment, an augmented one or a del of .event, .event_guard or
+    .no_event, setattr/delattr with that name, x["event"] = .. (vars(),
+    __dict__) and any __dict__ or vars() of an object. [(site, text)]"""
+    out = []
+
+    def bad(site, node):
+        out.append((site, ast.unparse(node)))
+
+    def attrs(t):
+        if isinstance(t, (ast.Tuple, ast.List)):
+            for e in t.elts:
+                yield from attrs(e)
+        elif isinstance(t, ast.Starred):
+            yield from attrs(t.value)
+        elif isinstance(t, ast.Attribute) and t.attr in GUARD_ATTRS:
+            yield t
+
+    def check(site, root):
+        if site in SWITCH_SITES:
+            return
+        for node in ast.walk(root):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    for a in attrs(t):
+                        if not (a is t and _stricter(a, node.value)):
+                            bad(site, node)
+                    if (isinstance(t, ast.Subscript)
+                            and _str_value(t.slice) in GUARD_ATTRS):
+                        bad(site, node)
+            elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+                if list(attrs(node.target)) or (isinstance(node.target, ast.Subscript)
+                                                and _str_value(node.target.slice) in GUARD_ATTRS):
+                    bad(site, node)
+            elif isinstance(node, ast.Delete):
+                if any(list(attrs(t)) for t in node.targets):
+                    bad(site, node)
+            elif isinstance(node, ast.Call):
+                f = node.func
+                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+                if name in ("setattr", "delattr", "__setattr__", "__delattr__") and \
+                        len(node.args) >= 2 and _str_value(node.args[1]) in GUARD_ATTRS | {None}:
+                    bad(site, node)
+                elif name == "vars" or any(k.arg in GUARD_ATTRS for k in node.keywords
+                                           if name == "update"):
+                    bad(site, node)
+            elif isinstance(node, ast.Attribute) and node.attr == "__dict__":
+                bad(site, node)
+
+    for m, tree in sorted(mods.items()):
+        tops = set()
+        for q, fn in _functions(tree):
+            tops.add(id(fn))
+            check((m, q), fn)
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                for c in node.body:
+                    if id(c) not in tops:
+                        check((m, node.name), c)
+            elif id(node) not in tops:
+                check((m, "<module>"), node)
+    return out
+
+
 # what writes bytes to a file
 WRITERS = {"_inplace_write", "_atomic_write", "write", "write_bytes", "write_text"}
 
@@ -733,7 +843,7 @@ def py_violations(sources=None):
     seen = reach(graph, PY_ROOTS, allowed_edges(mods, graph))
     return sorted(seen & PY_SINKS), (remove_argv(mods, seen) + deletes(mods, seen)
                                      + forgets(mods, seen) + restores(mods, seen)
-                                     + user_actions(mods))
+                                     + user_actions(mods) + event_switches(mods))
 
 
 def pause_calls_ok(mods):
@@ -884,6 +994,40 @@ class QmlInvariant(unittest.TestCase):
         hits = qml_violations(planted)
         self.assertEqual([(p, r) for p, r, _ in hits], [(path, "Component.onDestruction")], hits)
 
+    def test_checker_follows_references_not_only_calls(self):
+        # plants a grep for "name(" misses: a function handed over, not
+        # called (callLater, connect, a handler that is a bare name); a
+        # second function of the same name; logic.js through another name;
+        # runAction kept in a variable
+        logic = ('function wipe(bin) {\n    return [bin, "re" + "move"];\n}\n'
+                 'function safe() {\n    return 1;\n}\n')
+        plants = {
+            "later.qml": "Item {\n    Timer {\n        onTriggered: Qt.callLater(root.cleanup)\n    }\n"
+                         "    function cleanup() { root.launchRemove(); }\n}\n",
+            "connect.qml": "Item {\n    Component.onCompleted: root.closing.connect(cleanup)\n"
+                           "    function cleanup() { root.launchRemove(); }\n}\n",
+            "bare.qml": "Item {\n    Timer {\n        onTriggered: cleanup\n    }\n"
+                        "    function cleanup() { root.launchRemove(); }\n}\n",
+            "shadow.qml": "Item {\n    Item {\n        function cleanup() { return 0; }\n    }\n"
+                          "    Component.onDestruction: cleanup()\n"
+                          "    function cleanup() { root.launchRemove(); }\n}\n",
+            "alias.qml": "Item {\n    Component.onDestruction: {\n        const L = Logic;\n"
+                         "        Proc.runCommand(\"x\", L.wipe(root.bin), null);\n    }\n}\n",
+            "index.qml": "Item {\n    Component.onDestruction: {\n"
+                         "        Proc.runCommand(\"x\", Logic[\"wipe\"](root.bin), null);\n    }\n}\n",
+            "held.qml": "Item {\n    Timer {\n        onTriggered: {\n"
+                        "            const go = root.runAction;\n            go(\"uninstall\");\n"
+                        "        }\n    }\n}\n",
+            # none of these reaches anything: no hit
+            "fine.qml": "Item {\n    Component.onCompleted: { Logic.safe(); root.ok(); }\n"
+                        "    function ok() { return \"cleanup\"; }\n"
+                        "    function cleanup() { root.launchRemove(); }\n    // cleanup in a comment\n}\n",
+        }
+        for name, text in plants.items():
+            with self.subTest(plant=name):
+                hits = {p for p, _, _ in qml_violations({"logic.js": logic, name: text})}
+                self.assertEqual(hits, set() if name == "fine.qml" else {name})
+
 
 class PythonInvariant(unittest.TestCase):
     def setUp(self):
@@ -986,6 +1130,24 @@ class PythonInvariant(unittest.TestCase):
             # the typed restore and rescue
             ("core", "cmd_apply_all", "cmd_rescue(app)"),
             ("core", "cmd_apply_all", "cmd_restore(app)"),
+            # the run-time guard switched off (S6: only main and the user's
+            # own switch set App.event; nothing but State and App set the
+            # save guard): anywhere, reached from an event or not
+            ("core", "cmd_sync", "app.event = False"),
+            ("core", "cmd_sync", "app.event = 0"),
+            ("verify", "cmd_keys", "app.event = False"),
+            ("core", "App.commit", "self.state.event_guard = None"),
+            ("core", "cmd_sync", "app.state.event_guard = lambda what: None"),
+            ("core", "cmd_sync", "app.event, x = False, 1"),
+            ("core", "cmd_sync", "app.event &= False"),
+            ("core", "cmd_sync", "del app.state.event_guard"),
+            ("core", "cmd_sync", "setattr(app, 'event', False)"),
+            ("core", "cmd_sync", "setattr(app.state, 'event_' + 'guard', None)"),
+            ("core", "cmd_sync", "vars(app)['event'] = False"),
+            ("core", "cmd_sync", "app.__dict__.update(event=False)"),
+            ("core", "cmd_sync", "app.no_event = print"),
+            ("core", "cmd_sync", "core.App.no_event = lambda self, what: None"),
+            ("engine", "store", "app.event = False"),
         ]
         for mod, func, line in plants:
             with self.subTest(line=line):
@@ -999,6 +1161,14 @@ class PythonInvariant(unittest.TestCase):
         sinks, _ = py_violations(plant(dict(src, **{"families.alacritty": fam}),
                                        "families.alacritty", "apply", "core.cmd_remove(ctx.app)"))
         self.assertIn(("core", "cmd_remove"), sinks)
+
+    def test_the_guard_may_be_made_stricter_anywhere(self):
+        src = py_sources()
+        for mod, func, line in (("core", "cmd_sync", "app.event = True"),
+                                ("verify", "cmd_keys", "app.state.event_guard = app.no_event")):
+            with self.subTest(line=line):
+                self.assertEqual(event_switches(_modules(plant(src, mod, func, line))), [])
+        self.assertEqual(event_switches(self.mods), [])
 
     def test_checker_catches_a_guard_taken_out(self):
         src = py_sources()

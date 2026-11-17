@@ -529,6 +529,22 @@ class Obsidian(unittest.TestCase):
         self.assertFalse(os.path.exists(b))
         self.back_and_removed(b, away, before)
 
+    def test_remove_forgets_a_vault_gone_for_good_only_when_asked(self):
+        b, before = self.two_vaults_synced()
+        shutil.rmtree(b)                        # deleted, not unmounted
+        sd = os.path.join(self.sb.state, "appglass")
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("--forget-away", err)
+        self.assertEqual([r for r in self.records() if r.startswith(b)],
+                         [self.appearance_path(b), self.snippet_path(b)])
+        code, out, err = self.sb.run("remove", "--forget-away")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("forgot", err)
+        self.assertFalse(os.path.exists(sd), os.listdir(sd) if os.path.isdir(sd) else "")
+        self.assertFalse(os.path.exists(b))
+        self.assertEqual(self.sb.read(self.appearance_path(self.vault)), APPEARANCE)
+
     def test_glass_off_keeps_the_records_of_a_vault_not_mounted(self):
         b, before = self.two_vaults_synced()
         recs = self.records()

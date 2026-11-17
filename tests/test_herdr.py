@@ -53,6 +53,39 @@ class Herdr(unittest.TestCase):
     def layout(self):
         return self.sb.json(self.p("layouts", "appglass.json"))
 
+    def test_rescue_records_shared_json_that_holds_the_users_keys(self):
+        # the whole state dir lost (no original of shared.json in backup/):
+        # its glass layout key, which names appglass, is recorded as one
+        # appglass added; remove takes it out and keeps every key of the user
+        self.apply()
+        shared = self.p("shared.json")
+        self.assertEqual(self.sb.json(shared)["layout"], "appglass")
+        shutil.rmtree(os.path.join(self.sb.state, "appglass"))
+        code, out, err = self.sb.run("adopt", "--rescue", assume="herdr")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("layout", err)
+        self.apply()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.json(shared), {"frame.welcomed": "finished",
+                                                "space.colors": {"sp1": "ansi6"}})
+        self.assertFalse(os.path.exists(self.p("layouts", "appglass.json")))
+
+    def test_rescue_leaves_a_shared_json_whose_layout_is_not_appglass(self):
+        # a value that does not name appglass may be the user's: not taken
+        self.apply()
+        shared = self.p("shared.json")
+        obj = self.sb.json(shared)
+        obj["layout"] = "main"
+        with open(shared, "w") as f:
+            json.dump(obj, f)
+        shutil.rmtree(os.path.join(self.sb.state, "appglass"))
+        code, out, err = self.sb.run("adopt", "--rescue", assume="herdr")
+        self.assertEqual(code, 0, out + err)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.json(shared)["layout"], "main")
+
     # content
     def test_theme_content_and_keys(self):
         self.apply()

@@ -957,6 +957,48 @@ class EventGuard(Base):
             app.state.save()
         app.state.save()
 
+    def test_an_event_save_cannot_change_what_a_record_owes(self):
+        # what remove needs to give a file back: its kind and how, its
+        # backup and the original's sha, adopted. A record that keeps its
+        # key but loses one (a dropped backup: a later remove had no
+        # original) is a forget too
+        self.apply()
+        p = self.owned()
+        app = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+        app.state.owners["alacritty"]["files"][p].update(
+            kind="modified", how="edit", backup="backup/x.toml", orig_sha256="0" * 64,
+            adopted=True)
+        app.state.save()
+        for name, change in (
+                ("the backup dropped", lambda r: r.pop("backup")),
+                ("the backup renamed", lambda r: r.update(backup="backup/y.toml")),
+                ("modified made created", lambda r: r.update(kind="created")),
+                ("edit made owned", lambda r: r.update(how="owned")),
+                ("another original", lambda r: r.update(orig_sha256="1" * 64)),
+                ("no longer adopted", lambda r: r.pop("adopted")),
+                ("a record put new", lambda r: (r.clear(), r.update(kind="created", how="owned")))):
+            with self.subTest(name):
+                ev = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+                ev.event = True
+                change(ev.state.owners["alacritty"]["files"][p])
+                with self.assertRaises(core.EventRemove):
+                    ev.state.save()
+                with open(self.state_json) as f:
+                    rec = json.load(f)["owners"]["alacritty"]["files"][p]
+                self.assertEqual((rec["kind"], rec["how"], rec["backup"], rec["orig_sha256"],
+                                  rec["adopted"]),
+                                 ("modified", "edit", "backup/x.toml", "0" * 64, True))
+        # the rest of a record is the event's to write (its sha, a mark)
+        ev = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+        ev.event = True
+        ev.state.owners["alacritty"]["files"][p].update(sha256="2" * 64, unplanned=True)
+        ev.state.save()
+        # and the user's own switch may change it
+        with ev.user_action():
+            ev.state.owners["alacritty"]["files"][p].pop("backup")
+            ev.state.save()
+        ev.state.save()
+
     def test_an_event_run_cannot_restore_or_rescue(self):
         self.apply()
         app = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
@@ -1163,6 +1205,35 @@ class Rescue(Base):
         code, out, err = self.sb.run("remove")
         self.assertEqual(code, 0, out + err)
         self.assertFalse(os.path.exists(self.owned()))
+
+    def test_rescue_keeps_the_last_state_the_ring_can_restore(self):
+        # the oldest entry holds the last state.json (the newer ones were
+        # made with the state already lost): the rescue's own entry pushes
+        # the ring past RING_KEEP, and the prune must not take that one
+        self.apply()
+        shutil.rmtree(self.ring)
+
+        def entry(name, seq, state):
+            d = os.path.join(self.ring, name)
+            os.makedirs(d)
+            if state:
+                shutil.copy(self.state_json, os.path.join(d, "state.json"))
+            with open(os.path.join(d, "manifest.json"), "w") as f:
+                json.dump({"created": "2026-01-01T00:00:00", "files": {}, "state": state,
+                           "seq": seq}, f)
+        entry("20260101-000000-000000", 1, True)
+        for i in range(core.RING_KEEP):
+            entry("20260102-000000-00000%d" % i, 2 + i, False)
+        with open(self.state_json, "rb") as f:
+            saved = f.read()
+        os.remove(self.state_json)
+        code, out, err = self.sb.run("adopt", "--rescue", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        ents = self.entries()
+        self.assertIn("20260101-000000-000000", ents)
+        with open(os.path.join(self.ring, "20260101-000000-000000", "state.json"), "rb") as f:
+            self.assertEqual(f.read(), saved)
+        self.assertEqual(len(ents), core.RING_KEEP, ents)
 
     def test_rescue_needs_a_lost_state(self):
         self.apply()

@@ -465,12 +465,18 @@ class State:
         self.event_guard = None  # raises in an event run (App.no_event)
         self.saved = self.records()  # what the last save (or the load) held
 
+    # what remove needs to give a file back: an event save never changes it
+    OWED = ("kind", "how", "backup", "orig_sha256", "adopted")
+
     def records(self):
-        """{(owner, path)} of every file record, and (owner, None) of every owner."""
-        out = set()
+        """{(owner, path): what the record owes (OWED)} of every file record,
+        and {(owner, None): None} of every owner."""
+        out = {}
         for name, o in self.owners.items():
-            out.add((name, None))
-            out.update((name, p) for p in (o.get("files") or {}))
+            out[(name, None)] = None
+            for p, r in (o.get("files") or {}).items():
+                out[(name, p)] = tuple(json.dumps(r.get(k), sort_keys=True)
+                                       for k in self.OWED) if isinstance(r, dict) else None
         return out
 
     @property
@@ -494,12 +500,17 @@ class State:
                                 % (self.path, UNREADABLE_HINT))
         if self.save_guard is not None:
             self.save_guard()
-        # S6: an event run never forgets a record the last save held
+        # S6: an event run never forgets a record the last save held, nor
+        # changes what it owes (a dropped backup: no original for remove)
         now = self.records()
-        dropped = self.saved - now
+        dropped = set(self.saved) - set(now)
+        changed = {k for k in set(self.saved) & set(now) if self.saved[k] != now[k]}
         if dropped and self.event_guard is not None:
             self.event_guard("forget %s" % ", ".join(sorted(
                 p or "the %s owner" % o for o, p in dropped)))
+        if changed and self.event_guard is not None:
+            self.event_guard("change the record of %s (%s)" % (
+                ", ".join(sorted(p for _, p in changed)), "/".join(self.OWED)))
         env = self.env
         d = env.state_dir
         env.guard(self.path)
@@ -1098,6 +1109,7 @@ class App:
         self._ring_seq = None
         self.keep_state_dir = False
         self.full_remove = False    # appglass remove (every owner, the hook too)
+        self.forget_away = False    # appglass remove --forget-away
         self._orphans = None
         self.errors = 0
         self.families = discover(warn=self.warn)
@@ -1264,7 +1276,11 @@ class App:
                 env.guard(xp)
                 shutil.rmtree(xp)
         names = ring_entries(env)
-        drop = [x for x in names if x not in (name, self.ring_keep)]
+        # never the newest entry holding a state.json: with the state lost
+        # (the entries since have none), the last one restore can give back
+        last = next((x for x in reversed(names) if x != name
+                     and os.path.isfile(os.path.join(root, x, "state.json"))), None)
+        drop = [x for x in names if x not in (name, self.ring_keep, last)]
         while len(names) > RING_KEEP and drop:
             x = drop.pop(0)
             env.guard(os.path.join(root, x))
@@ -1439,8 +1455,20 @@ class App:
         for p in paths:
             self.warn("%s: %s is not there (its folder is gone: a drive not mounted, or "
                       "moved); its record is kept, appglass remove gives it back once the "
-                      "folder is back" % (owner_name, self.env.tilde(p)))
+                      "folder is back (appglass remove --forget-away forgets it, if it is "
+                      "gone for good)" % (owner_name, self.env.tilde(p)))
         return set(paths)
+
+    def _forget_away(self, owner_name, paths):
+        """remove --forget-away: drop the records (and backups) of paths
+        whose folder is gone; nothing is written there."""
+        self.no_event("forget the records of %s" % owner_name)
+        owner = self.state.owners[owner_name]
+        for p in paths:
+            self._drop_backup(owner["files"].pop(p))
+            self.state.save()
+            self.warn("%s: forgot %s (its folder is gone; nothing was written there)"
+                      % (owner_name, self.env.tilde(p)))
 
     def _note(self, p):
         if p not in self.changed:
@@ -1605,8 +1633,11 @@ class App:
             return False
         for p in list(owner.get("files", {})):
             self.env.guard(p)
-        away = self._keep_away(name, [p for p in owner.get("files", {})
-                                      if self._folder_gone(p)])
+        gone = [p for p in owner.get("files", {}) if self._folder_gone(p)]
+        if self.forget_away:
+            self._forget_away(name, gone)
+            gone = []
+        away = self._keep_away(name, gone)
         for p, rec in list(owner.get("files", {}).items()):
             if p in away:
                 continue
@@ -1907,8 +1938,9 @@ def _engine_pass(app, dry_run, families=None):
         hook.start_verify(app)
 
 
-def cmd_remove(app, only=None, keep_hook=False):
+def cmd_remove(app, only=None, keep_hook=False, forget_away=False):
     app.no_event("remove")
+    app.forget_away = forget_away
     if app.lost_state:
         raise AppglassError("state.json is %s (%s) but the backup ring holds saved states: "
                             "nothing removed. %s"
@@ -2798,6 +2830,21 @@ def _only_keys(keys, data):
     return bool(sets) and obj == sets
 
 
+def _named_keys(keys, data):
+    """The merge's keys (keys: merge_json's) that data holds at a string
+    value naming appglass ("layout": "appglass"): appglass's, whatever
+    the file held before. A list or a number may hold the user's too."""
+    try:
+        obj = json.loads(data.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    return {k: i for k, i in (keys or {}).items()
+            if isinstance(i.get("set"), str) and "appglass" in i["set"].lower()
+            and obj.get(k) == i["set"]}
+
+
 def _rescue_claims(app, backups=()):
     """adopt --rescue: [claim] for the files appglass wrote, edited or
     adopted. A claim is a dict: path, owner, kind (owned | edit | json |
@@ -2840,7 +2887,7 @@ def _rescue_claims(app, backups=()):
 
     def made(p):
         return _made(history, p)
-    out, skipped, builds, edits = [], [], [], []
+    out, skipped, builds, edits, merged = [], [], [], [], []
     for p, (owner, kind, undo, fn, planned, keys) in sorted(cand.items()):
         b = _bname(p) if _bname(p) in have else None
         claim = {"path": p, "owner": owner, "kind": kind, "undo": undo, "fn": fn,
@@ -2879,7 +2926,14 @@ def _rescue_claims(app, backups=()):
                     out.append(dict(claim, owner=owner))
                     continue
             if _holds_keys(keys, data) or MARK.search(data):
-                skipped.append(p)
+                named = _named_keys(keys, data)
+                if owner is not None and named:
+                    # with the user's keys, no original: the keys that name
+                    # appglass, once the family's own files are known (below)
+                    merged.append((dict(claim, owner=owner, keys=named),
+                                   sorted(set(keys or {}) - set(named))))
+                else:
+                    skipped.append(p)
             continue
         if p in units:
             mine = b is not None or (hook_on and data == planned) or HOOK_MARK in data
@@ -2907,6 +2961,14 @@ def _rescue_claims(app, backups=()):
     for c in builds:
         if c["owner"] in mine_owners:
             out.append(c)
+    for c, rest in merged:
+        if c["owner"] in mine_owners:
+            out.append(c)
+            if rest:
+                app.warn("adopt --rescue: %s: %s may be the user's too: left as is"
+                         % (env.tilde(c["path"]), ", ".join(rest)))
+        else:
+            skipped.append(c["path"])
     for c in edits:
         if _edit_names_ours(c, out):
             out.append(c)
@@ -3011,7 +3073,7 @@ def cmd_rescue(app, dry_run=False):
             return ("merged into: remove puts the original back" if c["kind"] == "json"
                     else "adopted: remove puts the original back")
         if c["kind"] == "json":
-            return "made by a merge: remove takes appglass's keys out"
+            return "merged into: remove takes appglass's keys out"
         return "written by appglass"
     if dry_run:
         for c in claims:
@@ -3514,6 +3576,9 @@ def main(argv=None, environ=None, out=None, err=None):
                          "files on disk in a new ring entry, then record them again")
     r = sub.add_parser("remove", help="restore every file appglass touched")
     r.add_argument("--only", help="comma-separated family names")
+    r.add_argument("--forget-away", action="store_true",
+                   help="also forget the records of files whose folder is gone for good "
+                        "(a deleted vault); nothing is written there")
     sp = sub.add_parser("status", help="show colours, levels, applied families and app routes")
     sp.add_argument("--json", action="store_true", help="machine-readable status")
     sub.add_parser("levels", help="print the current levels as JSON")
@@ -3636,7 +3701,7 @@ def main(argv=None, environ=None, out=None, err=None):
         elif args.cmd == "adopt":
             cmd_adopt(app, args.paths, dry_run=args.dry_run)
         elif args.cmd == "remove":
-            cmd_remove(app, args.only)
+            cmd_remove(app, args.only, forget_away=args.forget_away)
         elif args.cmd == "status":
             if args.json:
                 print(json.dumps(status_doc(app), indent=2, sort_keys=True), file=app.out)
