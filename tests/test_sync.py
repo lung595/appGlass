@@ -283,9 +283,6 @@ class SyncScript(unittest.TestCase):
         self.assertNotIn(old, new)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class GlassOffOn(unittest.TestCase):
     """The plugin's glass switch off then on (sync enabled false, then true)
@@ -380,3 +377,60 @@ class GlassOffOn(unittest.TestCase):
         self.assertIn("# mine", self.read(self.desk).decode())
         self.run_ok("remove")
         self.assertFalse(os.path.exists(os.path.join(self.w.sb.state, "appglass")))
+
+    def test_apply_all_while_off_leaves_parked_files(self):
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        parked = dict(self.w.state()["parked"])
+        out = self.run_ok("apply", "--all")
+        self.assertIn("glass is off", out)
+        self.assertNotIn("adopted again", out)
+        self.assertEqual(self.w.state()["parked"], parked)
+        self.assertNotIn("qtstyle", self.w.state()["owners"])
+        for p, data in self.hand.items():
+            self.assertEqual(self.read(p), data, p)
+
+    def test_on_counts_a_file_adopted_while_off_as_unchanged(self):
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        self.run_ok("adopt", self.desk)
+        out = self.sync(on)
+        self.assertNotIn("changed while glass was off", out)
+        files = self.w.state()["owners"]["qtstyle"]["files"]
+        self.assertIn(self.desk, files)
+        self.assertIn(self.so, files)
+        self.assertNotIn("parked", self.w.state())
+        self.run_ok("remove")
+        for p, data in self.hand.items():
+            self.assertEqual(self.read(p), data, p)
+
+    def test_on_warns_only_for_the_file_that_changed(self):
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        with open(self.desk, "a") as f:
+            f.write("# mine\n")
+        out = self.sync(on)
+        self.assertIn("vlc.desktop changed while glass was off", out)
+        self.assertNotIn("libappglass.so changed", out)
+        self.assertEqual(self.read(self.so), self.hand[self.so])
+
+    def test_remove_only_while_off_drops_its_parked_files(self):
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        self.assertIn(self.desk, self.w.state()["parked"])
+        self.run_ok("remove", "--only", "qtstyle")
+        parked = self.w.state().get("parked", {})
+        self.assertFalse([p for p, r in parked.items() if r["owner"] == "qtstyle"], parked)
+        out = self.sync(on)
+        self.assertNotIn("adopted again ~/.local/share/applications/vlc.desktop", out)
+        self.assertNotIn("qtstyle", self.w.state()["owners"])
+        for p, data in self.hand.items():
+            self.assertEqual(self.read(p), data, p)
+
+
+if __name__ == "__main__":
+    unittest.main()

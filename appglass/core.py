@@ -1419,7 +1419,16 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
 
 def cmd_remove(app, only=None, keep_hook=False):
     if only:
-        for name in _selected(app, only):
+        names = _selected(app, only)
+        parked = app.state.data.get("parked")
+        if parked:
+            # glass off parked these: removed, glass on must not adopt them again
+            for p in [p for p, r in parked.items() if r.get("owner") in names]:
+                del parked[p]
+            if not parked:
+                del app.state.data["parked"]
+            app.state.save()
+        for name in names:
             if app.remove_owner(name):
                 app.info("%s: removed" % name)
         app.sync_niri()
@@ -1474,18 +1483,27 @@ def _adopt_parked(app, dry_run):
         fam = app.families.get(owner)
         if fam is not None and not (app.installed(fam) and _family_enabled(app, owner)):
             continue
-        same = all(app.state.owner_of(p) is None and os.path.isfile(p)
-                   and not os.path.islink(p) and sha(_read(p)) == parked[p]["sha256"]
-                   for p in paths)
-        for p in paths:
+        # a file the same owner already holds again (appglass adopt while
+        # off) is fine; the owner's other files are adopted only when none
+        # of them changed (a family needs all of its files)
+        held = [p for p in paths if app.state.owner_of(p) == owner]
+        free = [p for p in paths if p not in held]
+        changed = [p for p in free
+                   if not (app.state.owner_of(p) is None and os.path.isfile(p)
+                           and not os.path.islink(p)
+                           and sha(_read(p)) == parked[p]["sha256"])]
+        for p in free:
             t = app.env.tilde(p)
-            if same:
+            if not changed:
                 adopt_path(app, p, owner, dry_run=dry_run)
                 app.info("adopt: %s %s (owner %s, as before glass off)"
                          % ("would adopt again" if dry_run else "adopted again", t, owner))
-            else:
+            elif p in changed:
                 app.warn("%s: %s changed while glass was off; left as is (appglass "
                          "adopt hands it over)" % (owner, t))
+            else:
+                app.info("adopt: %s left as is with the changed %s files"
+                         % (t, owner))
     if dry_run:
         return
     for owner, paths in by_owner.items():
@@ -1865,6 +1883,11 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
     from . import niri
     if app.settings_error:
         raise AppglassError("settings.json is invalid (%s)" % app.settings_error)
+    if not app.settings.get("enabled", True):
+        # parked files stay parked: glass on (the plugin's switch) adopts them
+        app.info("glass is off in settings.json (enabled false): nothing applied "
+                 "(appglass remove takes the files out)")
+        return
     routes = app_routes(app)
     fb, games = [], []
     for r, route in routes:
