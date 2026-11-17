@@ -213,7 +213,7 @@ class Gtk4(unittest.TestCase):
                        "org.gnome.Adwaita1.Demo", "nautilus-autorun-software"):
             import re
             self.assertTrue(any(re.match(i, app_id) for i in ids), app_id)
-        self.assertEqual(fam.APP_IDS, [a[0] for a in fam.APPS])
+        self.assertEqual(fam.APP_IDS, [a[0] for a in fam.APPS] + [a[0] for a in fam.FLATPAK_APPS])
         self.assertIn("partial", [a for a in fam.APPS if "Epiphany" in a[0]][0][2])
 
     def test_installed_detection(self):
@@ -474,6 +474,57 @@ class Gtk4(unittest.TestCase):
                            capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.gtk_css(), fam.GLASS_IMPORT + "\n")
+
+    # B5b generic rules
+    def test_sourceview_nested_views_and_selected_row(self):
+        self.apply()
+        g = self.glass()
+        self.assertIn(fam.SOURCEVIEW_RULE, g)
+        self.assertIn("textview.view > text", g)
+        self.assertIn(fam.NESTED_VIEW_RULE, g)
+        self.assertIn("window.background columnview > listview.view", g)
+        self.assertIn(".navigation-sidebar flowboxchild:selected { background-color: "
+                      "alpha(%s, 0.50); }" % self.roles()["secondary_container"], g)
+
+    # flatpak GTK4 apps: the css in ~/.var/app/<id>/config/gtk-4.0
+    def flatpak(self, app_id):
+        d = self.sb.path("flatpak", "app", app_id, "current", "active")
+        os.makedirs(d)
+        with open(os.path.join(d, "metadata"), "w") as f:
+            f.write("[Application]\nname=%s\nruntime=org.gnome.Platform/x86_64/50\n" % app_id)
+
+    def run_fp(self, *argv):
+        return self.sb.run(*argv, env={"PATH": self.bin,
+                                       "FLATPAK_SYSTEM_DIR": self.sb.path("flatpak")})
+
+    def test_flatpak_delivery(self):
+        self.flatpak("org.gnome.TextEditor")
+        self.before = self.sb.tree_hash()
+        code, out, err = self.run_fp("apply", "--only", "gtk4")
+        self.assertEqual(code, 0, err)
+        d = self.sb.path("home", ".var", "app", "org.gnome.TextEditor", "config", "gtk-4.0")
+        self.assertEqual(self.sb.read(os.path.join(d, "gtk.css")), fam.GTK_CSS)
+        self.assertEqual(self.sb.read(os.path.join(d, "dank-glass.css")), self.glass())
+        self.assertEqual(self.sb.read(os.path.join(d, "dank-colors.css")),
+                         self.sb.read(self.sb.cfg("gtk-4.0", "dank-colors.css")))
+        self.assertIn(r'r#"^org\.gnome\.TextEditor$"#', self.kdl())
+        self.assertNotIn("MissionCenter", self.kdl())
+        h = self.sb.tree_hash()
+        code, out, err = self.run_fp("apply", "--only", "gtk4")
+        self.assertIn("gtk4: up to date", out)
+        self.assertEqual(self.sb.tree_hash(), h)
+        code, out, err = self.run_fp("remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.tree_hash(), self.before)
+
+    def test_flatpak_only_is_installed(self):
+        self.flatpak("io.missioncenter.MissionCenter")
+        env = core.Env(dict(self.sb.env, PATH=self.sb.path("empty-path"),
+                            FLATPAK_SYSTEM_DIR=self.sb.path("flatpak")))
+        fam.LIBEXEC_DIRS = ()
+        self.assertTrue(fam.installed(env))
+        self.assertEqual([a[1] for a in fam.installed_flatpaks(env)],
+                         ["io.missioncenter.MissionCenter"])
 
     # GTK parses it
     @unittest.skipUnless(has_gi("4.0"), "python3-gobject with GTK 4 not installed")
