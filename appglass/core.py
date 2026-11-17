@@ -21,6 +21,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 
 STATE_VERSION = 1
 DEFAULT_CONTENT = 0.60
@@ -425,8 +426,9 @@ class State:
         self.path = os.path.join(env.state_dir, "state.json")
         d = _load_json(self.path)
         if not isinstance(d, dict) or d.get("version") != STATE_VERSION:
-            if d is not None:
-                raise AppglassError("unreadable state %s; refusing to guess" % self.path)
+            if d is not None or os.path.lexists(self.path):
+                raise AppglassError("unreadable state %s; refusing to guess. %s"
+                                    % (self.path, RESCUE_HINT))
             d = {"version": STATE_VERSION, "owners": {}, "state_parents": []}
         d.setdefault("owners", {})
         d.setdefault("state_parents", [])
@@ -475,6 +477,29 @@ class State:
                 os.rmdir(p)
             except OSError:
                 pass
+
+
+# ---------------------------------------------------------------- the ring
+
+RING_KEEP = 5
+RESCUE_HINT = ("appglass restore puts back the newest saved state.json and files "
+               "(appglass restore --list shows the ring, appglass restore <id> picks one); "
+               "without a saved one, move those files away or hand each to appglass with "
+               "appglass adopt <file>")
+
+
+def ring_dir(env):
+    return os.path.join(env.state_dir, "ring")
+
+
+def ring_entries(env):
+    """The ring's entries, oldest first (their names sort by time)."""
+    d = ring_dir(env)
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return []
+    return sorted(n for n in names if os.path.isfile(os.path.join(d, n, "manifest.json")))
 
 
 def _missing_dirs(d):
@@ -923,7 +948,15 @@ class App:
             self.warn("settings ignored (defaults used): %s" % self.settings_error)
         self.palette = Palette(self.env, warn=self.warn)
         self.levels = Levels.from_env(self.env, self.settings)
+        self.state_missing = not os.path.lexists(os.path.join(self.env.state_dir, "state.json"))
         self.state = State(self.env)
+        # state.json as this run found it: the ring entry keeps it
+        self._state_bytes = None if self.state_missing else _read(self.state.path)
+        self.ring_entry = None      # this run's ring entry (made at its first write)
+        self.ring_keep = None       # an entry pruning must keep (restore's source)
+        self._ring_files = {}
+        self.keep_state_dir = False
+        self._orphans = None
         self.errors = 0
         self.families = discover(warn=self.warn)
 
@@ -976,6 +1009,63 @@ class App:
             f.write(cur)
         return {"backup": os.path.join("backup", bname), "orig_sha256": sha(cur)}
 
+    # ---- the backup ring
+    def snapshot(self, p):
+        """Before this run first writes, deletes or restores p: p's bytes
+        and mode (or that it was absent) go into this run's ring entry,
+        with state.json as the run found it. The ring keeps RING_KEEP
+        entries; appglass restore puts one back."""
+        p = os.path.abspath(p)
+        if self.dry_run or self.state.dry or p in self._ring_files:
+            return
+        entry = self._ring_entry()
+        if os.path.islink(p):
+            rec = {"link": os.readlink(p)}
+        elif os.path.isfile(p):
+            data = _read(p)
+            blob = hashlib.sha1(p.encode()).hexdigest()[:16]
+            bpath = os.path.join(entry, blob)
+            self.env.guard(bpath)
+            with open(bpath, "wb") as f:
+                f.write(data)
+            rec = {"sha256": sha(data), "blob": blob, "mode": _mode(p)}
+        elif os.path.lexists(p):
+            return              # not a file: appglass writes none there
+        else:
+            rec = {"absent": True}
+        self._ring_files[p] = rec
+        doc = {"created": time.strftime("%Y-%m-%dT%H:%M:%S"), "files": self._ring_files,
+               "state": self._state_bytes is not None}
+        _atomic_write(os.path.join(entry, "manifest.json"),
+                      (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode())
+
+    def _ring_entry(self):
+        if self.ring_entry is not None:
+            return self.ring_entry
+        env = self.env
+        root = ring_dir(env)
+        t = time.time()
+        name = time.strftime("%Y%m%d-%H%M%S", time.localtime(t)) + "-%06d" % int((t % 1) * 1e6)
+        base, n = name, 1
+        while os.path.lexists(os.path.join(root, name)):
+            name = "%s-%d" % (base, n)
+            n += 1
+        entry = os.path.join(root, name)
+        for d in _missing_dirs(entry):
+            env.guard(d)
+        os.makedirs(entry)
+        if self._state_bytes is not None:
+            _atomic_write(os.path.join(entry, "state.json"), self._state_bytes)
+        self.ring_entry = entry
+        names = ring_entries(env) + [name]
+        drop = [x for x in names if x not in (name, self.ring_keep)]
+        while len(names) > RING_KEEP and drop:
+            x = drop.pop(0)
+            env.guard(os.path.join(root, x))
+            shutil.rmtree(os.path.join(root, x))
+            names.remove(x)
+        return entry
+
     # ---- commit
     def commit(self, ctx, app_ids=None, dry_run=False):
         """Write a ctx's plan; revert files this owner had but no longer plans."""
@@ -1022,6 +1112,7 @@ class App:
             if op.kind == "retire":
                 # adopted and taken over: deleted, the backup kept for remove
                 if os.path.lexists(p):
+                    self.snapshot(p)
                     os.remove(p)
                     changed.append(p)
                 rec["retired"] = True
@@ -1032,6 +1123,8 @@ class App:
             if rec is not None:
                 rec.pop("retired", None)
             cur = _read(p)
+            if cur != op.data or (op.mode is not None and _mode(p) != op.mode):
+                self.snapshot(p)
             for d in _missing_dirs(os.path.dirname(p)):
                 os.mkdir(d)
                 owner.setdefault("dirs", []).append(d)
@@ -1088,6 +1181,7 @@ class App:
     def _revert(self, owner_name, p, rec):
         env = self.env
         env.guard(p)
+        self.snapshot(p)
         if os.path.lexists(p) and not os.path.isfile(p):
             self.warn("%s is no longer a regular file; left as is" % p)
             return
@@ -1297,7 +1391,7 @@ def _unlock(env, lockf, created, app):
                     pass
         return
     st = app.state
-    if st is not None and (st.owners or st.data.get("parked")):
+    if st is not None and (st.owners or st.data.get("parked") or app.keep_state_dir):
         if created and not st.data.get("state_parents"):
             st.data["state_parents"] = created
             st.save()
@@ -1344,6 +1438,7 @@ def _family_enabled(app, name):
 def cmd_apply(app, only=None, dry_run=False, from_hook=False):
     app.from_hook = from_hook
     app.dry_run = dry_run
+    refuse_orphans(app)
     if app.settings_error and not from_hook:
         raise AppglassError("settings.json is invalid (%s); fix it with appglass set, "
                             "or delete it for the defaults" % app.settings_error)
@@ -1694,6 +1789,8 @@ def save_settings(app, s):
     p = _settings.path(app.env)
     owner = app.state.owner_of(p)
     if owner is None and os.path.lexists(p):
+        if _read(p) != _settings.dumps(_settings.validate(s)).encode("utf-8"):
+            app.snapshot(p)
         return _settings.save(app.env, s)
     if owner not in (None, "settings"):
         raise AppglassError("%s is recorded as appglass '%s''s" % (app.env.tilde(p), owner))
@@ -1718,6 +1815,7 @@ def cmd_sync(app, settings_file, dry_run=False):
         raise AppglassError("sync: %s not found" % settings_file)
     except (ValueError, UnicodeDecodeError) as ex:
         raise AppglassError("sync: %s rejected, nothing saved: %s" % (settings_file, ex))
+    refuse_orphans(app)
     if dry_run:
         app.info("settings: would save %s" % app.env.tilde(_settings.path(app.env)))
     else:
@@ -1898,6 +1996,7 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
     the niri fallback (detected fallback apps get the value-mode block) and
     games (opaque); hand files adopted first with --adopt."""
     from . import niri
+    refuse_orphans(app)
     if app.settings_error:
         raise AppglassError("settings.json is invalid (%s)" % app.settings_error)
     if not app.settings.get("enabled", True):
@@ -1928,6 +2027,268 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
         cmd_adopt(app, None, dry_run=dry_run)
         app.hand_files_reported = True
     cmd_apply(app, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------- safety floor
+
+# what appglass writes into its own files (the generated headers, the hook
+# section, the shims and units); a hand file counts only as the stub of an
+# adopted one
+MARK = re.compile(rb"(?i)appglass(?::|-sync:|-vibrancy:| for | hook)")
+ADOPTED_MARK = b"appglass adopted it"
+
+
+class _ProbeCtx(Ctx):
+    """A family's plan made only to learn the paths it writes, while
+    state.json is missing: no ownership check, nothing built or read
+    from the system launchers."""
+
+    def write_owned(self, path, text, meta=None, mode=None):
+        return self._add(os.path.abspath(path), Op("owned", b""))
+
+    def desktop_override(self, desktop_id, fn):
+        if self.system_desktop(desktop_id) is None:
+            return None
+        return self.write_owned(os.path.join(self.env.data_home, "applications", desktop_id), "")
+
+    def artifact(self, name, build, stamp, dest=None, mode=None):
+        return self.write_owned(dest or os.path.join(self.cache_dir, name), "")
+
+
+def _engine_paths(app):
+    """Every path appglass would write here: the installed families' plans,
+    the niri rule and include, the hook's units, scripts and section."""
+    from . import hook, niri
+    env = app.env
+    paths = set()
+    warn, dry, app.warn, app.dry_run = app.warn, app.dry_run, (lambda m: None), True
+    try:
+        for name, fam in sorted(app.families.items()):
+            if not app.installed(fam):
+                continue
+            ctx = _ProbeCtx(app, name)
+            try:
+                fam.apply(ctx)
+            except Exception:
+                pass
+            paths.update(ctx.ops)
+    finally:
+        app.warn, app.dry_run = warn, dry
+    cfg = niri.config_path(env)
+    paths.update((cfg, os.path.join(os.path.dirname(cfg), niri.FILE)))
+    paths.update(hook.unit_path(env, n) for n in hook.UNITS)
+    paths.update((hook.sync_path(env), hook.vibrancy_path(env), hook.config_path(env)))
+    return paths
+
+
+def orphans(app):
+    """With state.json missing: the files on disk that appglass wrote (its
+    marker in them). [] when state.json is there."""
+    if not app.state_missing:
+        return []
+    if app._orphans is None:
+        from . import adapters
+        hand = {os.path.join(app.env.home, rel) for rel, _, _ in adapters.HAND_FILES}
+        out = []
+        for p in sorted(_engine_paths(app)):
+            if not os.path.isfile(p):
+                continue
+            try:
+                data = _read(p)
+            except OSError:
+                continue
+            if data and (ADOPTED_MARK in data if p in hand else MARK.search(data)):
+                out.append(p)
+        app._orphans = out
+    return app._orphans
+
+
+def refuse_orphans(app):
+    """apply and sync write nothing over appglass files whose record is gone:
+    they would be taken for hand-made files, or edited twice."""
+    found = orphans(app)
+    if found:
+        raise AppglassError(
+            "state.json is missing (%s) but appglass files are on disk: %s. Nothing written. %s"
+            % (app.env.tilde(app.state.path), ", ".join(app.env.tilde(p) for p in found),
+               RESCUE_HINT))
+
+
+def cmd_restore(app, ident=None, list_only=False):
+    """Put a ring entry back: its files (bytes and mode, or absent) and its
+    state.json. The state before the restore becomes a new entry."""
+    env = app.env
+    names = ring_entries(env)
+    if list_only:
+        if not names:
+            app.info("restore: the ring is empty (%s)" % env.tilde(ring_dir(env)))
+        for n in reversed(names):
+            with open(os.path.join(ring_dir(env), n, "manifest.json")) as f:
+                m = json.load(f)
+            files = m.get("files", {})
+            app.info("%s  %d file%s%s" % (n, len(files), "" if len(files) == 1 else "s",
+                                         ", state.json" if m.get("state") else ""))
+        return
+    if not names:
+        raise AppglassError("restore: the ring is empty (%s): nothing saved to put back"
+                            % env.tilde(ring_dir(env)))
+    ident = ident or names[-1]
+    if ident not in names:
+        raise AppglassError("restore: no ring entry %s (appglass restore --list shows them)"
+                            % ident)
+    src = os.path.join(ring_dir(env), ident)
+    with open(os.path.join(src, "manifest.json")) as f:
+        m = json.load(f)
+    files = m.get("files", {})
+    for p in files:
+        env.guard(p)
+    app.ring_keep = ident
+    for p, rec in sorted(files.items()):
+        app.snapshot(p)
+        if rec.get("absent"):
+            if os.path.lexists(p):
+                os.remove(p)
+        elif "link" in rec:
+            if os.path.lexists(p):
+                os.remove(p)
+            os.symlink(rec["link"], p)
+        else:
+            with open(os.path.join(src, rec["blob"]), "rb") as f:
+                data = f.read()
+            if sha(data) != rec.get("sha256"):
+                raise AppglassError("restore: %s in %s is damaged" % (rec["blob"], ident))
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            _atomic_write(p, data)
+            if rec.get("mode") is not None:
+                os.chmod(p, rec["mode"])
+        app._note(p)
+    app._ring_entry()           # the state before the restore, even with no file
+    st = app.state.path
+    env.guard(st)
+    saved = os.path.join(src, "state.json")
+    if m.get("state") and os.path.isfile(saved):
+        with open(saved, "rb") as f:
+            _atomic_write(st, f.read())
+    elif os.path.lexists(st):
+        os.remove(st)
+    app.state = State(env)
+    app.keep_state_dir = True
+    app.info("restore: %s put back (%d file%s%s); the state before it is %s"
+             % (ident, len(files), "" if len(files) == 1 else "s",
+                ", state.json" if m.get("state") else ", no state.json",
+                os.path.basename(app.ring_entry)))
+
+
+def _quiet(app, fn, *a, **kw):
+    q = app.quiet
+    app.quiet = True
+    try:
+        return fn(*a, **kw)
+    finally:
+        app.quiet = q
+
+
+def doctor_drift(app):
+    """The drift between the repo render and the disk: [(line, fix)], fix a
+    function that repairs it, or None when only the user can."""
+    from . import hook, niri, plugin
+    env, st = app.env, app.state
+    out = []
+    tilde = env.tilde
+    if app.state_missing and orphans(app):
+        out.append(("state.json is missing but appglass files are on disk (%s): %s"
+                    % (", ".join(tilde(p) for p in orphans(app)), RESCUE_HINT), None))
+        return out
+    # the hook: its units, scripts and matugen section
+    if hook.installed(app):
+        try:
+            ctx = hook.plan(app)
+            changed = app.commit(ctx, dry_run=True)
+        except Conflict as ex:
+            changed, ctx = [], None
+            out.append(("hook: %s" % ex, None))
+        for p in changed:
+            what = "is missing" if not os.path.lexists(p) else "differs from the repo render"
+            out.append(("hook: %s %s" % (tilde(p), what), ("hook", lambda: hook.install(app))))
+        tool = hook.systemctl(env)
+        if tool:
+            for _, unit, _ in hook.ENABLED:
+                r = hook._ctl(app, "is-failed", "--quiet", unit)
+                if r is not None and r.returncode == 0:
+                    out.append(("hook: %s has failed (systemctl --user status %s)" % (unit, unit),
+                                ("ctl:" + unit, lambda u=unit: (hook._ctl(app, "reset-failed", u),
+                                                                hook._ctl(app, "restart", u)))))
+    else:
+        for n in hook.UNITS:
+            p = hook.unit_path(env, n)
+            if os.path.isfile(p) and st.owner_of(p) is None and _read(p) != hook.unit_render(n):
+                out.append(("hook: %s is hand-made and differs from the repo render "
+                            "(appglass adopt takes it over, then appglass hook install)"
+                            % tilde(p), None))
+    # the niri rule and include
+    if "niri" in st.owners:
+        for p in _quiet(app, niri.sync, app, dry_run=True):
+            what = "is missing" if not os.path.lexists(p) else "differs from the render"
+            out.append(("niri: %s %s" % (tilde(p), what), ("niri", lambda: niri.sync(app))))
+    # every other owned file against its recorded sha256
+    for name in sorted(st.owners):
+        if name in ("hook", "niri", "settings"):
+            continue
+        for p, rec in sorted(st.owners[name].get("files", {}).items()):
+            if rec.get("how") != "owned" or rec.get("retired"):
+                continue
+            cur = _read(p) if os.path.isfile(p) else None
+            if cur is not None and sha(cur) == rec.get("sha256"):
+                continue
+            what = "is missing" if cur is None else "changed since apply"
+            fix = (("apply:" + name, lambda n=name: cmd_apply(app, only=n))
+                   if name in app.families else None)
+            out.append(("%s: %s %s" % (name, tilde(p), what), fix))
+    # the plugin link
+    dst = plugin.target(env)
+    if os.path.islink(dst) and not os.path.exists(dst):
+        def relink():
+            env.guard(dst)
+            os.remove(dst)
+            plugin.install(app)
+        out.append(("plugin: %s is a dangling link (to %s)" % (tilde(dst), os.readlink(dst)),
+                    ("plugin", relink)))
+    elif os.path.islink(dst) and not plugin._ours(dst):
+        out.append(("plugin: %s links to %s, not to %s (move it away, then appglass plugin "
+                    "install)" % (tilde(dst), os.readlink(dst), plugin.source()), None))
+    elif os.path.lexists(dst) and not os.path.islink(dst):
+        out.append(("plugin: %s is a folder, not a link to %s: a copy does not follow the "
+                    "repository (move it away, then appglass plugin install)"
+                    % (tilde(dst), plugin.source()), None))
+    return out
+
+
+def cmd_doctor(app, fix=False):
+    """Lists the drift, one line each; --fix repairs what is the engine's
+    own (the ring keeps what it overwrites). 0 clean, 1 drift left."""
+    drift = doctor_drift(app)
+    if not drift:
+        app.info("doctor: no drift")
+        return 0
+    for line, f in drift:
+        print("drift: %s%s" % (line, "" if f or not fix else " (not fixed: yours to decide)"),
+              file=app.out)
+    if not fix:
+        print("doctor: %d drift%s (appglass doctor --fix repairs the ones appglass owns)"
+              % (len(drift), "" if len(drift) == 1 else "s"), file=app.out)
+        return 1
+    done = set()
+    for line, f in drift:
+        if f and f[0] not in done:
+            done.add(f[0])
+            f[1]()
+    left = doctor_drift(app)
+    if left:
+        for line, _ in left:
+            print("still: %s" % line, file=app.out)
+        return 1
+    print("doctor: fixed, no drift left", file=app.out)
+    return 0
 
 
 def detected(app):
@@ -2027,6 +2388,13 @@ def main(argv=None, environ=None, out=None, err=None):
                         "plugins folder, or take the link out")
     pl.add_argument("action", choices=("install", "remove"))
     pl.add_argument("--dry-run", action="store_true")
+    dr = sub.add_parser("doctor", help="check appglass's own files against the repo render "
+                                       "(units, niri rule, owned files, plugin link)")
+    dr.add_argument("--fix", action="store_true",
+                    help="re-render what drifted (the ring keeps what it overwrites)")
+    rs = sub.add_parser("restore", help="put back a backup ring entry (files and state.json)")
+    rs.add_argument("id", nargs="?", help="the entry (default: the newest)")
+    rs.add_argument("--list", action="store_true", help="list the ring, newest first")
     sub.add_parser("vibrancy", help="daemon: fade unfocused Alacritty windows (settings "
                                     "inactive; run by appglass-vibrancy.service)")
     args = ap.parse_args(argv)
@@ -2040,10 +2408,14 @@ def main(argv=None, environ=None, out=None, err=None):
         if args.cmd == "vibrancy":
             from . import vibrancy
             return vibrancy.run(env, err=err)
-        if (args.cmd in ("apply", "remove", "hook", "set", "sync", "learn", "adopt")
-                and not getattr(args, "dry_run", False) and not getattr(args, "json", False)):
+        if ((args.cmd in ("apply", "remove", "hook", "set", "sync", "learn", "adopt")
+                and not getattr(args, "dry_run", False) and not getattr(args, "json", False))
+                or (args.cmd == "doctor" and args.fix)
+                or (args.cmd == "restore" and not args.list)):
             lockf, created = _lock(env)
         app = App(environ, out=out, err=err, quiet=quiet)
+        app.dry_run = getattr(args, "dry_run", False)
+        rc = 0
         if args.cmd == "apply" and args.all:
             cmd_apply_all(app, dry_run=args.dry_run, adopt=args.adopt)
         elif args.cmd == "apply":
@@ -2071,6 +2443,10 @@ def main(argv=None, environ=None, out=None, err=None):
             cmd_set(app, args.key, args.value, apply_after=args.apply)
         elif args.cmd == "sync":
             cmd_sync(app, args.settings_file, dry_run=args.dry_run)
+        elif args.cmd == "doctor":
+            rc = cmd_doctor(app, fix=args.fix)
+        elif args.cmd == "restore":
+            cmd_restore(app, args.id, list_only=args.list)
         elif args.cmd == "plugin":
             from . import plugin
             (plugin.install if args.action == "install" else plugin.remove)(
@@ -2089,7 +2465,7 @@ def main(argv=None, environ=None, out=None, err=None):
         if lockf is not None:
             _unlock(env, lockf, created, app)
             lockf = None
-        return 1 if app.errors else 0
+        return 1 if app.errors else rc
     except AppglassError as ex:
         print("appglass: %s" % ex, file=err)
         return ex.exit_code

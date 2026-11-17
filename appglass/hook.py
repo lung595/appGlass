@@ -194,21 +194,34 @@ def record_enabled(app, sd):
     return sd
 
 
+def unit_render(name):
+    """The repo's bytes of a sync unit (installed verbatim)."""
+    with open(os.path.join(repo_root(), "shims", "sync", name), "rb") as f:
+        return f.read()
+
+
+def plan(app, ctx=None):
+    """What hook install writes, planned in a ctx (doctor compares it with
+    the disk). Raises Conflict for a hand-made unit or script."""
+    env = app.env
+    ctx = ctx or app.ctx("hook")
+    block = section(env)
+    ctx.edit_text(config_path(env), lambda t: add(t, block), undo=strip)
+    for n in UNITS:
+        ctx.write_owned(unit_path(env, n), unit_render(n), mode=0o644)
+    ctx.write_owned(sync_path(env), sync_shim(env), mode=0o755)
+    ctx.write_owned(vibrancy_path(env), vibrancy_shim(env), mode=0o755)
+    return ctx
+
+
 def install(app, dry_run=False):
     env = app.env
     for p in (template_path(), bin_path()):
         if not os.path.exists(p):
             app.error("hook: %s is missing" % p)
             return
-    ctx = app.ctx("hook")
-    block = section(env)
     try:
-        ctx.edit_text(config_path(env), lambda t: add(t, block), undo=strip)
-        for n in UNITS:
-            with open(os.path.join(repo_root(), "shims", "sync", n), "rb") as f:
-                ctx.write_owned(unit_path(env, n), f.read(), mode=0o644)
-        ctx.write_owned(sync_path(env), sync_shim(env), mode=0o755)
-        ctx.write_owned(vibrancy_path(env), vibrancy_shim(env), mode=0o755)
+        ctx = plan(app)
     except Conflict as ex:
         app.error("hook: %s (appglass adopt takes the hand-made sync files over)" % ex)
         return
