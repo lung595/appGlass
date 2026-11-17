@@ -262,6 +262,15 @@ def apply(ctx):
     apps = installed_apps(ctx.env)
     ids = [a[0] for a in apps]
     paths = [glass, gtk]
+    # a flatpak held opaque by the engine (S7): its launcher goes back to the
+    # system text (no gtk-4.0 access) until the next fingerprint. A host
+    # GTK4 app reads the global gtk.css: it cannot be made plain on its own.
+    for rec in ctx.records(plain=True):
+        dest = ctx.data_path("applications", rec["desktop_id"])
+        if rec.get("flatpak") and ctx.owns(dest):
+            p = ctx.desktop_override(rec["desktop_id"], lambda t: t)
+            if p:
+                paths.append(p)
     for rec in ctx.records():
         rid = [x for x in rec.get("app_ids") or () if x not in ids]
         if any(re.search(rx, n) for rx in ids for n in rec.get("names") or ()):

@@ -30,6 +30,9 @@ LAUNCHERS = (("vlc.desktop", "vlc"),)
 MODULES = ("Qt6Widgets",)
 # the engine routes every other host Qt 6 Widgets app here (ctx.records())
 GENERIC = True
+# the route is an environment variable on the launcher: never for an app
+# that starts other apps (adapters.resolve)
+ENV_ROUTE = True
 
 
 def installed(env):
@@ -102,7 +105,17 @@ def apply(ctx):
     paths = [shims.build(ctx, ADAPTER, style_path(env), src, _steps,
                          ("cxx", "moc", "pkgconfig"), qt=MODULES)]
     ids = []
+    # held opaque by the engine (S7): a launcher written before goes back to
+    # the system text (no style variables) until the next fingerprint
+    plain = {r["desktop_id"]: r for r in ctx.records(plain=True)}
+    for did in plain:
+        if ctx.owns(ctx.data_path("applications", did)):
+            p = ctx.desktop_override(did, lambda t: t)
+            if p:
+                paths.append(p)
     for desktop_id, cmd in LAUNCHERS:
+        if desktop_id in plain:
+            continue
         p = ctx.desktop_override(desktop_id,
                                  lambda t, c=cmd: launcher(env, t, c, ctx.levels.content))
         if p:

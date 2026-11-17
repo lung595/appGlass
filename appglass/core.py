@@ -656,11 +656,13 @@ class Ctx:
         # of the apps it actually configured (default: the module's APP_IDS)
         self.app_ids = None
 
-    def records(self, generic_only=False):
+    def records(self, generic_only=False, plain=False):
         """The detect records the engine routes to this family (adapters.resolve
         gives it as their family, glass): a generic family (GENERIC) glasses
         every one of them, not only the apps it lists. generic_only: only
-        the ones it does not list by hand."""
+        the ones it does not list by hand. plain: the ones the engine holds
+        opaque instead (a failed check, two failed launches: S7), whose
+        launchers go back to the plain app until the next fingerprint."""
         from . import adapters, engine
         g = engine.Gate(self.app)
         out = []
@@ -668,10 +670,14 @@ class Ctx:
             if not r.get("installed") or r.get("nodisplay"):
                 continue
             route = adapters.resolve(r, self.app.families, self.app.settings, gate=g)
-            if route.get("family") == self.owner and route["effective"] == "glass" \
-                    and (route.get("generic") or not generic_only):
+            if route.get("family") == self.owner and (route.get("generic") or not generic_only) \
+                    and ((route.get("state") == "opaque") if plain else route["effective"] == "glass"):
                 out.append(r)
         return out
+
+    def owns(self, path):
+        """This owner wrote path at an earlier apply."""
+        return self._record(os.path.abspath(path)) is not None
 
     # read-only info
     @property
@@ -1110,8 +1116,10 @@ class App:
             if fam.installed(self.env):
                 return True
             # a generic family: installed when the engine routes an app to it
+            # (a plain one too: its launchers are still ours, S7)
             return bool(getattr(fam, "GENERIC", False)
-                        and self.ctx(fam.NAME).records(generic_only=True))
+                        and (self.ctx(fam.NAME).records(generic_only=True)
+                             or self.ctx(fam.NAME).records(generic_only=True, plain=True)))
         except Exception as ex:  # detection must never break apply
             self.warn("%s: install check failed: %s" % (fam.NAME, ex))
             return False
@@ -3450,6 +3458,10 @@ def main(argv=None, environ=None, out=None, err=None):
             from . import verify
             app = App(environ, out=out, err=err, quiet=args.cmd == "keys", lenient=True)
             app.event = True
+            if lost_state_text(app):
+                # the engine writes nothing over a lost state: no keys (the
+                # wrapper starts the plain app), no launch recorded
+                return 1 if args.cmd == "keys" else 0
             if args.cmd == "keys":
                 return verify.cmd_keys(app, args.key, args.mode, app.out or sys.stdout)
             return verify.cmd_launch_check(app, args.key, args.pid)
@@ -3517,9 +3529,11 @@ def main(argv=None, environ=None, out=None, err=None):
             from . import verify
             if bool(args.key) == bool(args.queue):
                 raise AppglassError("verify: give one app key, or --queue")
+            refuse_orphans(app)
             rc = verify.cmd_verify(app, args.key, queue=args.queue)
         elif args.cmd == "fail":
             from . import verify
+            refuse_orphans(app)
             rc = verify.cmd_fail(app, args.key, args.reason)
         elif args.cmd == "hook":
             from . import hook

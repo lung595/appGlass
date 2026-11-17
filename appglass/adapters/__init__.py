@@ -305,6 +305,13 @@ def resolve(rec, families, settings=None, gate=None):
         if "game-launcher" in classes and a is not None and a.NAME in PRELOAD:
             return out(a.NAME, OPAQUE, "game launcher: never a preload (its children are "
                        "games)", state="opaque")
+        spawn = classes.get("spawner") or classes.get("game-launcher")
+        if spawn and getattr(families[fam], "ENV_ROUTE", False):
+            # S3/S8: GTK_THEME (and a Qt style that missed its scrub) would
+            # reach every app this one starts
+            return out(a.NAME if a else "niri-fallback", OPAQUE,
+                       "%s: no theme by environment, it starts other apps" % spawn,
+                       state="opaque")
         own = settings.get("apps", {}).get(fam) or {}
         mine = settings.get("apps", {}).get(key) or {}
         if injected:

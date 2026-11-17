@@ -32,7 +32,7 @@ import time
 
 from . import detect
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2       # 2: the spawner class, more elevators, Categories=Game
 STORE_VERSION = 1
 ROUTE_VERSION = 1
 
@@ -343,7 +343,11 @@ def gate(st, rec, injected, explicit):
             if v.get("result") == "pass":
                 return "glass", "checked (%s)" % v.get("at", "")
             if v.get("result") == "unverifiable":
-                # spec 1.7: an injected route stays off, a theme route on
+                # spec 1.7: an injected route stays off, a theme route on;
+                # the user's own on stays on (verify tells them, once)
+                if injected and explicit:
+                    return "glass", "enabled by you (could not be checked: %s)" % v.get(
+                        "reason", "?")
                 if injected:
                     return "opaque", "could not be checked: %s" % v.get("reason", "?")
                 return "glass", None
@@ -375,6 +379,16 @@ def explicit(app, key):
     if isinstance(own, dict) and "enabled" in own:
         return bool(own["enabled"])
     return None
+
+
+def explicit_on(app, fam, key):
+    """The user switched this injected route on themselves (the family's
+    own switch, else the app's): what adapters.resolve calls explicit."""
+    apps = app.settings.get("apps", {}) or {}
+    own = apps.get(fam) if isinstance(apps.get(fam), dict) else {}
+    mine = apps.get(key) if isinstance(apps.get(key), dict) else {}
+    exp = own.get("enabled") if "enabled" in own else mine.get("enabled")
+    return exp is True
 
 
 def family_gate(app, name):
@@ -425,12 +439,21 @@ def refresh(app, dry=False, families=None):
                 st.app(key)["plain"]["why"] = "stale"
                 changed.append(key)
             st.queue(key)
-        elif state == "glass" and injected and (a.get("plain") or {}).get("why") == "stale":
-            st.clear_plain(key)
-            changed.append(key)
+        elif state == "glass" and injected:
+            if (a.get("plain") or {}).get("why") == "stale":
+                st.clear_plain(key)
+                changed.append(key)
+            # on by the user's own switch: consent, not a check (S4). It is
+            # checked like any other, so the next update makes it stale
+            v = a.get("verify")
+            if not v or v.get("fp") != fp:
+                st.queue(key)
         elif state == "waiting" and route.get("enabled") is not False:
             st.queue(key)
         elif state == "glass" and route.get("family") and not injected:
+            if a.get("plain") and a["plain"].get("fp") != fp:
+                st.clear_plain(key)      # plain until the next fingerprint (S7)
+                changed.append(key)
             v = a.get("verify")
             if not v or v.get("fp") != fp:
                 st.queue(key)
@@ -481,7 +504,7 @@ def fail(app, key, reason, fp=None):
     a["fails"] = f
     paused = False
     if f["count"] >= 2:
-        paused = _pause(app, key, fp, "glass paused after an update: %s" % reason)
+        paused = _pause(app, key, fp, "two failed launches: %s" % reason, "launch")
     st.save()
     return f["count"], paused
 
@@ -494,17 +517,33 @@ def ok(app, key, fp=None):
         st.save()
 
 
-def _pause(app, key, fp, reason):
+PAUSED = {
+    "update": "%s: glass paused after an update",
+    "check": "%s: glass paused, its glass check failed",
+    "launch": "%s: glass paused after two failed launches",
+}
+
+
+def _pause(app, key, fp, reason, cause):
+    """Plain for this fingerprint, one notification. cause: update (a check
+    failed on a new version of an app checked before), check (its first
+    check failed), launch (two launches with no window)."""
     st = store(app)
     a = st.app(key)
     st.set_plain(key, fp, reason)
+    return notify_once(app, key, fp, PAUSED[cause] % app_name(app, key),
+                       "%s starts without glass from its next launch until its next "
+                       "update. %s" % (app_name(app, key), reason))
+
+
+def notify_once(app, key, fp, title, body, tag=""):
+    a = store(app).app(key)
     sent = a.setdefault("notified", [])
-    if fp in sent:
+    if tag + (fp or "") in sent:
         return True
-    sent.append(fp)
+    sent.append(tag + (fp or ""))
     del sent[:-5]
-    notify(app, key, "%s: glass paused after an update" % app_name(app, key),
-           "%s runs without glass until its next update. %s" % (app_name(app, key), reason))
+    notify(app, key, title, body)
     return True
 
 
@@ -512,6 +551,7 @@ def verified(app, key, fp, result, reason=""):
     """Record a check result for (key, fp)."""
     st = store(app)
     a = st.app(key)
+    prev = a.get("verify")
     a["verify"] = {"fp": fp, "result": result, "reason": reason, "route": ROUTE_VERSION,
                    "at": time.strftime("%Y-%m-%d %H:%M")}
     st.dequeue(key)
@@ -521,7 +561,8 @@ def verified(app, key, fp, result, reason=""):
             st.clear_plain(key)
         a.pop("fails", None)
     else:
-        _pause(app, key, fp, "check failed: %s" % reason)
+        _pause(app, key, fp, "check failed: %s" % reason,
+               "update" if prev and prev.get("fp") != fp else "check")
     st.save()
 
 

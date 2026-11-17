@@ -1,0 +1,688 @@
+"""The engine, fix round 1: every failure ends opaque (S7), env routes stop
+at one hop (S3, S8), checks are bounded and clean up after themselves, the
+root class knows the elevation front-ends, the gate checks routes the user
+switched on (S4).
+"""
+
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import unittest
+
+from fixtures.sandbox import Sandbox, fixture  # noqa: F401  (sets sys.path)
+from fixtures.apps import World, elf, desktop, _w
+from fixtures.shimworld import ShimWorld
+from appglass import adapters, core, detect, engine, verify
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GTK3 = ["libgtk-3.so.0", "libc.so.6"]
+QT6 = ["libQt6Widgets.so.6", "libQt6Gui.so.6", "libQt6Core.so.6"]
+LS = "org.localsend.localsend_app"
+
+HARNESS = """#!/bin/sh
+echo "$*" >> "%(log)s"
+cat "%(res)s"
+"""
+NOTIFY = """#!/bin/sh
+printf '%%s|' "$@" >> "%(log)s"; echo >> "%(log)s"
+"""
+
+
+def bin_elf(w, name, needed):
+    p = os.path.join(w.bin, name)
+    _w(p, elf(needed), 0o755)
+    return p
+
+
+def routes(sb):
+    code, out, err = sb.run("status", "--json")
+    assert code == 0, err
+    return {a["key"]: a for a in json.loads(out)["apps"]}
+
+
+def execs(text):
+    return re.findall(r"(?m)^Exec=(.*)$", text)
+
+
+class Stubbed(unittest.TestCase):
+    """A ShimWorld with a stub harness (one result for every app) and a
+    stub notify-send."""
+
+    def setUp(self):
+        self.w = ShimWorld()
+        self.sb = self.w.sb
+        self.world = World(self.sb)
+        self.hlog, self.res, self.nlog = (self.sb.path(n) for n in ("harness", "res", "notify"))
+        for n, t, log in (("stub-harness", HARNESS, self.hlog), ("stub-notify", NOTIFY, self.nlog)):
+            p = self.sb.path(n)
+            with open(p, "w") as f:
+                f.write(t % {"log": log, "res": self.res})
+            os.chmod(p, 0o755)
+        open(self.nlog, "w").close()
+        self.sb.env.update(APPGLASS_VERIFY_HARNESS=self.sb.path("stub-harness"),
+                           APPGLASS_NOTIFY=self.sb.path("stub-notify"),
+                           APPGLASS_POWER_SUPPLY=self.sb.path("no-power"))
+        self.result("pass", "background 204 (want 204)")
+
+    def tearDown(self):
+        self.w.cleanup()
+
+    def result(self, r, why):
+        with open(self.res, "w") as f:
+            f.write(json.dumps({"result": r, "reason": why}) + "\n")
+
+    def run_ok(self, *argv, env=None):
+        code, out, err = self.w.run(*argv, env=env)
+        self.assertEqual(code, 0, err)
+        return out + err
+
+    def notes(self):
+        with open(self.nlog) as f:
+            return [ln for ln in f.read().splitlines() if ln]
+
+    def harness_calls(self):
+        try:
+            with open(self.hlog) as f:
+                return f.read().splitlines()
+        except OSError:
+            return []
+
+    def store(self):
+        return self.sb.json(os.path.join(self.sb.state, "appglass", "engine.json"))
+
+    def marker(self, key):
+        return os.path.join(self.sb.state, "appglass", "plain", key)
+
+    def user_launcher(self, did):
+        return self.w.user(".local/share/applications", did)
+
+    def kdl(self):
+        return self.sb.read(self.sb.cfg("niri", "appglass.kdl"))
+
+
+class NativePlain(Stubbed):
+    """S7: a native route (GTK_THEME, the Qt style, the GTK4 flatpak flag)
+    that fails its check goes back to the plain app, on its launcher too."""
+
+    def setUp(self):
+        super().setUp()
+        self.g = bin_elf(self.w, "gtkthing", GTK3)
+        self.q = bin_elf(self.w, "qtthing", QT6)
+        self.w.launcher("org.example.GtkThing.desktop",
+                        desktop("Gtk Thing", self.g + " %U", StartupWMClass="org.example.GtkThing",
+                                Actions="new;"))
+        self.w.launcher("org.example.QtThing.desktop", desktop("Qt Thing", self.q))
+        # Solaar: listed by hand, autostarted from XDG_CONFIG_DIRS
+        self.w.exe("solaar", "#!/usr/bin/python3\nimport gi\ngi.require_version('Gtk', '3.0')\n")
+        self.w.launcher("solaar.desktop", desktop("Solaar", "solaar"))
+        self.sysconf = self.sb.path("etc-xdg")
+        _w(os.path.join(self.sysconf, "autostart", "solaar.desktop"),
+           desktop("Solaar", "solaar --window=hide"))
+        self.sb.env["XDG_CONFIG_DIRS"] = self.sysconf
+
+    def glass_then_fail(self):
+        self.run_ok("apply")
+        self.assertIn("GTK_THEME=", self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
+        self.assertIn("QT_STYLE_OVERRIDE=", self.sb.read(self.user_launcher("org.example.QtThing.desktop")))
+        self.assertIn("GTK_THEME=", self.sb.read(self.sb.cfg("autostart", "solaar.desktop")))
+        self.result("fail", "no opaque text on screen")
+        out = self.run_ok("verify", "--queue")
+        self.assertIn("fail", out)
+
+    def assert_plain(self):
+        for p in (self.user_launcher("org.example.GtkThing.desktop"),
+                  self.user_launcher("solaar.desktop"), self.sb.cfg("autostart", "solaar.desktop")):
+            for ex in execs(self.sb.read(p)):
+                self.assertNotIn("GTK_THEME", ex, p)
+        for ex in execs(self.sb.read(self.user_launcher("org.example.QtThing.desktop"))):
+            self.assertNotRegex(ex, r"QT_|APPGLASS_")
+        self.assertNotIn("GtkThing", self.kdl().split("// games")[0])
+
+    def test_fail_then_hook_launchers_run_plain(self):
+        self.glass_then_fail()
+        for k in ("org.example.GtkThing", "org.example.QtThing", "solaar"):
+            self.assertTrue(os.path.exists(self.marker(k)), k)
+        # verify ran the hook apply itself: plain already
+        self.assert_plain()
+        self.run_ok("apply", "--from-hook")
+        self.assert_plain()
+        r = routes(self.sb)
+        self.assertEqual(r["org.example.GtkThing"]["state"], "opaque")
+        # the launcher still runs the app
+        ex = execs(self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
+        self.assertEqual(ex, [self.g + " %U", "ignored-Gtk Thing"])
+
+    def test_two_failed_launches_take_the_launcher_plain(self):
+        self.run_ok("apply")
+        self.run_ok("fail", "org.example.GtkThing", "white window")
+        self.assertIn("GTK_THEME=", self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
+        self.run_ok("fail", "org.example.GtkThing", "white window")
+        for ex in execs(self.sb.read(self.user_launcher("org.example.GtkThing.desktop"))):
+            self.assertNotIn("GTK_THEME", ex)
+        n = [x for x in self.notes() if "Gtk Thing" in x]
+        self.assertEqual(len(n), 1)
+        self.assertIn("two failed launches", n[0])
+
+    def test_plain_family_is_still_installed(self):
+        """Every gtk3 app plain and the listed one gone: a typed apply does
+        not take the theme out as 'not installed'."""
+        self.glass_then_fail()
+        os.remove(os.path.join(self.w.bin, "solaar"))
+        self.run_ok("apply", "--from-hook")
+        out = self.run_ok("apply")
+        self.assertNotIn("gtk3: not installed", out)
+        self.assertIn("gtk3", self.w.state()["owners"])
+        self.assertTrue(os.path.exists(self.w.user(".local/share/themes/AppGlass/gtk-3.0/gtk.css")))
+        for ex in execs(self.sb.read(self.user_launcher("org.example.GtkThing.desktop"))):
+            self.assertNotIn("GTK_THEME", ex)
+
+    def test_next_fingerprint_brings_the_glass_back(self):
+        self.glass_then_fail()
+        self.result("pass", "ok")
+        bin_elf(self.w, "gtkthing", GTK3 + ["libm.so.6"])         # an update
+        self.run_ok("apply", "--from-hook")
+        self.assertFalse(os.path.exists(self.marker("org.example.GtkThing")))
+        self.assertIn("GTK_THEME=AppGlass",
+                      execs(self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))[0])
+        self.assertIn("GtkThing", self.kdl())
+
+    def test_notice_says_why(self):
+        """A first check that fails does not say 'after an update'; one
+        after an update does."""
+        self.glass_then_fail()
+        first = [n for n in self.notes() if "Gtk Thing" in n]
+        self.assertEqual(len(first), 1)
+        self.assertNotIn("after an update", first[0])
+        self.assertIn("check failed", first[0])
+        self.result("pass", "ok")
+        bin_elf(self.w, "gtkthing", GTK3 + ["libm.so.6"])
+        self.run_ok("apply", "--from-hook")
+        self.run_ok("verify", "--queue")
+        self.result("fail", "background alpha 255")
+        bin_elf(self.w, "gtkthing", GTK3 + ["libz.so.1"])
+        self.run_ok("apply", "--from-hook")
+        self.run_ok("verify", "--queue")
+        second = [n for n in self.notes() if "Gtk Thing" in n]
+        self.assertEqual(len(second), 2)
+        self.assertIn("after an update", second[1])
+
+    def test_user_launcher_edited_by_typed_apply_goes_plain(self):
+        """A launcher of the user's (shadowing the system one) that a typed
+        apply edited: a FAIL takes our prefix out again, theirs stays."""
+        mine = self.w.hand(".local/share/applications/org.example.GtkThing.desktop",
+                           desktop("My Thing", "env FOO=1 " + self.g))
+        before = self.sb.read(mine)
+        self.run_ok("apply")
+        self.assertIn("GTK_THEME=AppGlass", self.sb.read(mine))
+        self.result("fail", "no opaque text on screen")
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.sb.read(mine), before)
+        self.run_ok("remove")
+        self.assertEqual(self.sb.read(mine), before)
+
+    def test_hook_leaves_a_user_launcher_alone(self):
+        """S6: an event does not take over a launcher the user made; a typed
+        apply does (backed up)."""
+        self.run_ok("apply")
+        h = bin_elf(self.w, "other", GTK3)
+        self.w.launcher("org.example.Other.desktop", desktop("Other", h))
+        mine = self.w.hand(".local/share/applications/org.example.Other.desktop",
+                           desktop("Other (mine)", h + " --mine"))
+        before = self.sb.read(mine)
+        out = self.run_ok("apply", "--from-hook")
+        self.assertEqual(self.sb.read(mine), before)
+        self.assertIn("org.example.Other", out)
+        self.run_ok("apply")
+        self.assertIn("GTK_THEME=AppGlass", self.sb.read(mine))
+
+    def test_gtk4_flatpak_goes_plain(self):
+        self.world.flatpak_app("org.example.Gtk4App", "gtk4app",
+                               {"bin/gtk4app": elf(["libgtk-4.so.1", "libadwaita-1.so.0"])},
+                               runtime="org.gnome.Platform/x86_64/49")
+        self.run_ok("apply")
+        p = self.user_launcher("org.example.Gtk4App.desktop")
+        self.assertIn("--filesystem=xdg-config/gtk-4.0:ro", self.sb.read(p))
+        self.result("fail", "background alpha 255")
+        self.run_ok("verify", "--queue")
+        self.assertNotIn("--filesystem=xdg-config/gtk-4.0", self.sb.read(p))
+
+
+class Spawners(unittest.TestCase):
+    """S3/S8: no generic env route for an app whose children are other apps
+    (terminals, file managers, game launchers); a game with a toolkit is a
+    game."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        self.w = World(self.sb)
+        self.sb.env.update(self.w.env())
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def recs(self):
+        return {r["key"]: r for r in detect.scan(core.Env(self.sb.env))}
+
+    def route(self, key):
+        app = core.App(self.sb.env, quiet=True)
+        return adapters.resolve(self.recs()[key], app.families, app.settings)
+
+    def test_terminal_by_category(self):
+        self.w.exe("xfce4-terminal", elf(GTK3 + ["libvte-2.91.so.0"]))
+        self.w.app("xfce4-terminal.desktop", "Xfce Terminal", "xfce4-terminal",
+                   Categories="GTK;System;TerminalEmulator;")
+        self.w.exe("qterminal", elf(QT6))
+        self.w.app("qterminal.desktop", "QTerminal", "qterminal", Categories="Qt;System;")
+        for k in ("xfce4-terminal", "qterminal"):
+            r = self.route(k)
+            self.assertNotEqual(r["effective"], "glass", k)
+            self.assertIn("starts other apps", r["reason"], k)
+
+    def test_an_older_detect_cache_is_redone(self):
+        """A record cached by the code before these classes gets them: the
+        cache version moved on."""
+        self.w.exe("xfce4-terminal", elf(GTK3))
+        self.w.app("xfce4-terminal.desktop", "Xfce Terminal", "xfce4-terminal",
+                   Categories="GTK;System;TerminalEmulator;")
+        env = core.Env(self.sb.env)
+        recs, _ = engine.scan(env, write=True)
+        p = engine.cache_path(env)
+        doc = self.sb.json(p)
+        for e in doc["apps"].values():
+            e["record"]["classes"].pop("spawner", None)
+        doc["version"] = 1
+        with open(p, "w") as f:
+            json.dump(doc, f)
+        recs, changed = engine.scan(env, write=True)
+        self.assertIn("spawner", {r["key"]: r for r in recs}["xfce4-terminal"]["classes"])
+
+    def test_file_manager(self):
+        self.w.exe("thunar", elf(GTK3))
+        self.w.app("thunar.desktop", "Thunar", "thunar %F", Categories="System;Utility;FileManager;")
+        self.w.exe("pcmanfm-qt", elf(QT6))
+        self.w.app("pcmanfm-qt.desktop", "PCManFM-Qt", "pcmanfm-qt", Categories="System;")
+        for k in ("thunar", "pcmanfm-qt"):
+            r = self.route(k)
+            self.assertNotEqual(r["effective"], "glass", k)
+            self.assertIn("starts other apps", r["reason"], k)
+
+    def test_game_launchers_get_no_env_route(self):
+        self.w.exe("lutris", "#!/usr/bin/python3\nimport gi\ngi.require_version('Gtk', '3.0')\n")
+        self.w.app("net.lutris.Lutris.desktop", "Lutris", "lutris %U", Categories="Game;")
+        self.w.exe("prismlauncher", elf(QT6))
+        self.w.app("org.prismlauncher.PrismLauncher.desktop", "Prism Launcher", "prismlauncher",
+                   Categories="Game;ActionGame;")
+        for k in ("net.lutris.Lutris", "org.prismlauncher.PrismLauncher"):
+            r = self.route(k)
+            self.assertIn("game-launcher", self.recs()[k]["classes"], k)
+            self.assertNotEqual(r["effective"], "glass", k)
+
+    def test_game_category_with_sdl_or_gl_is_a_game(self):
+        self.w.exe("sdlgtk", elf(["libSDL2-2.0.so.0"] + GTK3))
+        self.w.app("sdlgtk.desktop", "SG", "sdlgtk", Categories="Game;")
+        self.w.exe("glqt", elf(["libGL.so.1"] + QT6))
+        self.w.app("glqt.desktop", "GQ", "glqt", Categories="Game;ArcadeGame;")
+        recs = self.recs()
+        for k in ("sdlgtk", "glqt"):
+            self.assertEqual(recs[k]["toolkit"], "game", k)
+            self.assertIn("game", recs[k]["classes"], k)
+            self.assertEqual(self.route(k)["state"], "excluded")
+        # a GL app that is not a game stays what it is
+        self.w.exe("glview", elf(["libGL.so.1"] + QT6))
+        self.w.app("glview.desktop", "GV", "glview", Categories="Graphics;")
+        self.assertEqual(self.recs()["glview"]["toolkit"], "qt-widgets")
+
+
+class Elevators(unittest.TestCase):
+    """S9: every elevation front-end is the root class, in Exec or in a
+    wrapper script."""
+
+    CASES = (
+        ("kdesu", "kdesu %(app)s"),
+        ("kdesu-c", "kdesu -c %(app)s"),
+        ("kdesudo", "kdesudo %(app)s"),
+        ("lxqt-sudo", "lxqt-sudo %(app)s"),
+        ("lxsudo", "lxsudo %(app)s"),
+        ("gksu", "gksu %(app)s"),
+        ("gksudo", "gksudo -u root %(app)s"),
+        ("beesu", "beesu %(app)s"),
+        ("su-to-root", "su-to-root -X -c %(app)s"),
+        ("systemd-run", "systemd-run --uid=0 %(app)s"),
+        ("systemd-run-p", "systemd-run -p User=root %(app)s"),
+        ("libexec-kdesu", "/usr/libexec/kf6/kdesu -c %(app)s"),
+    )
+
+    def setUp(self):
+        self.sb = Sandbox()
+        self.w = World(self.sb)
+        self.sb.env.update(self.w.env())
+        self.w.exe("tool", elf(QT6))
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def recs(self):
+        return {r["key"]: r for r in detect.scan(core.Env(self.sb.env))}
+
+    def test_exec(self):
+        for k, ex in self.CASES:
+            self.w.app("%s.desktop" % k, k, ex % {"app": "tool"})
+        recs = self.recs()
+        app = core.App(self.sb.env, quiet=True)
+        for k, _ in self.CASES:
+            self.assertIn("root", recs[k]["classes"], k)
+            r = adapters.resolve(recs[k], app.families, app.settings)
+            self.assertIn("runs as root", r["reason"], k)
+            self.assertNotEqual(r["effective"], "glass", k)
+
+    def test_wrapper_script(self):
+        for k, ex in self.CASES:
+            self.w.exe("w-%s" % k, "#!/bin/sh\nexec %s \"$@\"\n" % (ex % {"app": "tool"}))
+            self.w.app("%s.desktop" % k, k, "w-%s" % k)
+        recs = self.recs()
+        for k, _ in self.CASES:
+            self.assertIn("root", recs[k]["classes"], k)
+
+    def test_systemd_run_user_is_not_root(self):
+        self.w.app("u.desktop", "U", "systemd-run --user --scope tool")
+        self.assertNotIn("root", self.recs()["u"]["classes"])
+
+
+@unittest.skipUnless(shutil.which("g++") and shutil.which("pkg-config") and
+                     subprocess.run(["pkg-config", "--exists", "Qt6Widgets"]).returncode == 0,
+                     "no Qt 6 toolchain")
+class QtStyleScrub(unittest.TestCase):
+    """S8 ship gate for the Qt style: a child of the styled app sees no
+    QT_PLUGIN_PATH, QT_STYLE_OVERRIDE or APPGLASS_*; the style still got
+    its levels."""
+
+    APP = r"""
+#include <QApplication>
+#include <QStyle>
+#include <QWidget>
+#include <cstdio>
+#include <cstdlib>
+int main(int argc, char **argv) {
+    QApplication a(argc, argv);
+    QWidget w; w.ensurePolished();
+    printf("style=%s\n", a.style()->name().toUtf8().constData());
+    fflush(stdout);
+    return system("env");
+}
+"""
+
+    def test_children_get_no_style_env(self):
+        tmp = Sandbox()
+        try:
+            d = tmp.path("build")
+            os.makedirs(os.path.join(d, "styles"))
+            src = os.path.join(REPO, "shims", "qt-style")
+            for n in ("glassstyle.cpp", "appglass.json"):
+                shutil.copy(os.path.join(src, n), d)
+            moc = subprocess.run(["pkg-config", "--variable=libexecdir", "Qt6Core"],
+                                 capture_output=True, text=True).stdout.strip() + "/moc"
+            inc = subprocess.run(["pkg-config", "--cflags", "Qt6Widgets"], capture_output=True,
+                                 text=True).stdout.split()
+            libs = subprocess.run(["pkg-config", "--libs", "Qt6Widgets"], capture_output=True,
+                                  text=True).stdout.split()
+            subprocess.run([moc] + [x for x in inc if x.startswith("-I")] +
+                           ["glassstyle.cpp", "-o", "glassstyle.moc"], cwd=d, check=True)
+            subprocess.run(["g++", "-O0", "-shared", "-fPIC", "-std=c++17", "-I.", "glassstyle.cpp",
+                            "-o", "styles/libappglass.so", "-w"] + inc + libs, cwd=d, check=True)
+            with open(os.path.join(d, "app.cpp"), "w") as f:
+                f.write(self.APP)
+            subprocess.run(["g++", "-fPIC", "-std=c++17", "-w", "app.cpp", "-o", "app"] + inc + libs,
+                           cwd=d, check=True)
+            env = {"PATH": "/usr/bin:/bin", "HOME": tmp.home, "QT_QPA_PLATFORM": "offscreen",
+                   "QT_PLUGIN_PATH": d, "QT_STYLE_OVERRIDE": "appglass",
+                   "APPGLASS_CONTENT": "0.70", "APPGLASS_COLORS": tmp.path("none.json"),
+                   "XDG_RUNTIME_DIR": tmp.path("rt")}
+            os.makedirs(env["XDG_RUNTIME_DIR"], mode=0o700)
+            r = subprocess.run([os.path.join(d, "app")], env=env, capture_output=True,
+                               text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("style=appglass", r.stdout)
+            child = [ln for ln in r.stdout.splitlines() if "=" in ln and not ln.startswith("style=")]
+            self.assertTrue(any(ln.startswith("HOME=") for ln in child), r.stdout)
+            for ln in child:
+                self.assertFalse(ln.startswith(("QT_PLUGIN_PATH=", "QT_STYLE_OVERRIDE=",
+                                                "APPGLASS_")), ln)
+        finally:
+            tmp.cleanup()
+
+
+class ExplicitInjected(Stubbed):
+    """S4: an injected route the user switched on is checked, and goes
+    stale after an update like an automatic one."""
+
+    def setUp(self):
+        super().setUp()
+        self.world.flatpak_app(LS, "localsend", {
+            "bin/localsend": elf(["libflutter_linux_gtk.so", "libgtk-3.so.0"])},
+            runtime="org.freedesktop.Platform/x86_64/25.08")
+
+    def state(self):
+        return routes(self.sb)[LS]
+
+    def update(self, commit):
+        d = self.sb.path("flatpak", "app", LS, "x86_64", "stable")
+        shutil.copytree(os.path.join(d, "0123abcd"), os.path.join(d, commit), symlinks=True)
+        os.remove(os.path.join(d, "active"))
+        os.symlink(commit, os.path.join(d, "active"))
+
+    def test_enabled_by_you_is_checked_then_stale(self):
+        self.run_ok("set", "apps.localsend.enabled", "true")
+        self.run_ok("apply")
+        self.assertEqual(self.state()["state"], "glass")          # kept on (migration)
+        self.assertIn(LS, self.store()["queue"])
+        self.run_ok("verify", "--queue")
+        self.assertEqual(len(self.harness_calls()), 1)
+        self.assertEqual(self.state()["state"], "glass")
+        self.update("4567cdef")
+        self.run_ok("apply", "--from-hook")
+        self.assertEqual(self.state()["state"], "stale")
+        self.assertTrue(os.path.exists(self.marker(LS)))
+        self.assertIn(LS, self.store()["queue"])
+        self.run_ok("verify", "--queue")
+        self.assertEqual(len(self.harness_calls()), 2)
+        self.assertEqual(self.state()["state"], "glass")
+        self.assertFalse(os.path.exists(self.marker(LS)))
+
+    def test_unverifiable_keeps_your_on_and_tells_you(self):
+        self.run_ok("set", "apps.localsend.enabled", "true")
+        self.run_ok("apply")
+        self.result("unverifiable", "no window within 10 s")
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.state()["state"], "glass")
+        self.assertFalse(os.path.exists(self.marker(LS)))
+        self.assertEqual(len(self.notes()), 1)
+        self.assertIn("could not be checked", self.notes()[0])
+        self.run_ok("verify", "--queue")
+        self.assertEqual(len(self.notes()), 1)
+
+
+class LostState(Stubbed):
+    """The lost-state guard covers the engine's commands too."""
+
+    def setUp(self):
+        super().setUp()
+        bin_elf(self.w, "gtkthing", GTK3)
+        self.w.launcher("org.example.GtkThing.desktop", desktop("Gtk Thing", self.w.bin + "/gtkthing"))
+
+    def test_verify_fail_keys_refuse(self):
+        self.run_ok("apply")
+        st = os.path.join(self.sb.state, "appglass", "state.json")
+        os.remove(st)
+        eng = os.path.join(self.sb.state, "appglass", "engine.json")
+        before = self.sb.read(eng) if os.path.exists(eng) else None
+        for argv in (("verify", "--queue"), ("verify", "org.example.GtkThing"),
+                     ("fail", "org.example.GtkThing"), ("fail", "org.example.GtkThing"),
+                     ("keys", LS, "dark")):
+            code, out, err = self.w.run(*argv)
+            self.assertNotEqual(code, 0, argv)
+        self.assertEqual(self.harness_calls(), [])
+        self.assertEqual(self.sb.read(eng) if os.path.exists(eng) else None, before)
+        self.assertFalse(os.path.exists(self.marker("org.example.GtkThing")))
+        self.assertFalse(os.path.exists(os.path.join(self.sb.cache, "appglass", "keys")))
+        # launch-check stays lenient but writes nothing
+        wf = self.sb.write("windows.json", "[]", base=self.sb.root)
+        proc = self.sb.path("proc")
+        os.makedirs(proc, exist_ok=True)
+        for _ in range(2):
+            code, out, err = self.w.run("launch-check", "org.example.GtkThing", "4242", env={
+                "APPGLASS_NIRI_WINDOWS": wf, "APPGLASS_PROC": proc,
+                "APPGLASS_LAUNCH_WAIT": "0.1", "APPGLASS_LAUNCH_STEP": "0.05"})
+            self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.read(eng) if os.path.exists(eng) else None, before)
+
+
+class Budget(Stubbed):
+    """The verify unit: a run checks what fits its time budget, applies after
+    each result, and leaves the rest queued."""
+
+    def setUp(self):
+        super().setUp()
+        for i in range(3):
+            g = bin_elf(self.w, "g%d" % i, GTK3)
+            self.w.launcher("org.example.G%d.desktop" % i, desktop("G%d" % i, g))
+        slow = self.sb.path("slow-harness")
+        with open(slow, "w") as f:
+            f.write("#!/bin/sh\necho \"$*\" >> %s\nsleep 0.6\ncat %s\n" % (self.hlog, self.res))
+        os.chmod(slow, 0o755)
+        self.sb.env["APPGLASS_VERIFY_HARNESS"] = slow
+
+    def test_budget_leaves_the_rest_queued(self):
+        self.run_ok("apply")
+        self.assertEqual(len(self.store()["queue"]), 3)
+        self.result("fail", "no opaque text on screen")
+        out = self.run_ok("verify", "--queue", env={"APPGLASS_VERIFY_BUDGET": "1"})
+        n = len(self.harness_calls())
+        self.assertGreaterEqual(n, 1)
+        self.assertLess(n, 3)
+        self.assertEqual(len(self.store()["queue"]), 3 - n)
+        self.assertIn("left queued", out)
+        # what was checked is applied already (plain launchers)
+        done = [k for k in ("org.example.G0", "org.example.G1", "org.example.G2")
+                if k not in self.store()["queue"]]
+        for k in done:
+            ex = execs(self.sb.read(self.user_launcher(k + ".desktop")))
+            self.assertNotIn("GTK_THEME", ex[0])
+
+    def test_unit_timeout_fits_the_budget(self):
+        with open(os.path.join(REPO, "shims", "sync", "appglass-verify.service")) as f:
+            t = f.read()
+        m = re.search(r"(?m)^TimeoutSec=(\d+)(min)?$", t)
+        secs = int(m.group(1)) * (60 if m.group(2) else 1)
+        self.assertGreaterEqual(secs, verify.BUDGET + 2 * verify.APP_MAX)
+        self.assertNotIn("KillMode=", t.replace("KillMode=control-group", ""))
+
+
+class Cleanup(unittest.TestCase):
+    """A run stopped by SIGTERM scrubs its private dir; stale agv.* dirs
+    are swept; processes of the hidden session do not survive it."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        self.base = self.sb.path("rtbase")
+        os.makedirs(self.base, mode=0o700)
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def test_sweep_stale_dirs(self):
+        old = os.path.join(self.base, "agv.old1")
+        os.makedirs(os.path.join(old, "rt"))
+        t = time.time() - 3600
+        os.utime(old, (t, t))
+        new = os.path.join(self.base, "agv.new1")
+        os.makedirs(new)
+        other = os.path.join(self.base, "keepme")
+        os.makedirs(other)
+        os.utime(other, (t, t))
+        verify.sweep(self.base)
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(new))
+        self.assertTrue(os.path.exists(other))
+
+    def test_kill_session_by_runtime_dir(self):
+        run = os.path.join(self.base, "agv.k1")
+        rt = os.path.join(run, "rt")
+        os.makedirs(rt)
+        env = {"PATH": "/usr/bin:/bin", "XDG_RUNTIME_DIR": rt}
+        p = subprocess.Popen(["setsid", "sleep", "60"], env=env)
+        q = subprocess.Popen(["sleep", "60"], env={"PATH": "/usr/bin:/bin",
+                                                   "XDG_RUNTIME_DIR": rt + "x"})
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                with open("/proc/%d/cmdline" % p.pid, "rb") as f:
+                    if f.read().startswith(b"sleep"):
+                        break
+                time.sleep(0.02)
+            n = verify.kill_session(run)
+            self.assertEqual(n, 1)
+            self.assertEqual(p.wait(timeout=5), -signal.SIGKILL)
+            self.assertIsNone(q.poll())
+        finally:
+            for x in (p, q):
+                if x.poll() is None:
+                    x.kill()
+                    x.wait()
+
+    def test_sigterm_scrubs_the_private_dir(self):
+        """A verify run killed by systemd (SIGTERM) still deletes agv.*."""
+        prog = r"""
+import os, sys, time
+sys.path.insert(0, %(repo)r)
+from appglass import verify
+verify.install_term_handler()
+run = verify.new_run(%(base)r)
+print(run, flush=True)
+try:
+    time.sleep(30)
+finally:
+    verify._scrub(run)
+"""
+        p = subprocess.Popen([sys.executable, "-c", prog % {"repo": REPO, "base": self.base}],
+                             stdout=subprocess.PIPE, text=True)
+        run = p.stdout.readline().strip()
+        self.assertTrue(os.path.isdir(run))
+        p.send_signal(signal.SIGTERM)
+        p.wait(timeout=10)
+        self.assertFalse(os.path.exists(run))
+
+
+class RpmQuiet(unittest.TestCase):
+    """A write to rpmdb.sqlite-wal keeps the sync waiting."""
+
+    def test_wal_write_counts(self):
+        sb = Sandbox()
+        try:
+            db = sb.path("rpmdb.sqlite")
+            open(db, "w").close()
+            old = time.time() - 60
+            os.utime(db, (old, old))
+            wal = db + "-wal"
+            open(wal, "w").close()
+            fake = sb.path("fake-appglass")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\necho \"$*\" >> %s\n" % sb.path("calls"))
+            os.chmod(fake, 0o755)
+            env = dict(sb.env, APPGLASS_BIN=fake, APPGLASS_RPMDB=db, APPGLASS_RPMDB_QUIET="2",
+                       APPGLASS_SYNC_SETTLE="0")
+            t = time.monotonic()
+            r = subprocess.run(["sh", os.path.join(REPO, "bin", "appglass-sync")], env=env,
+                               capture_output=True, text=True, timeout=30)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertGreaterEqual(time.monotonic() - t, 1.5)
+        finally:
+            sb.cleanup()
+
+
+if __name__ == "__main__":
+    unittest.main()

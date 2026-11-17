@@ -16,6 +16,11 @@ verify <key> | --queue
     Not run while a game window is open (exit 75: try later), nor on a
     battery under 20 %. In a sandbox only the stand-in named by
     $APPGLASS_VERIFY_HARNESS runs (it prints the result as JSON).
+    A run checks what fits BUDGET seconds ($APPGLASS_VERIFY_BUDGET), runs
+    the hook apply after each result and leaves the rest queued for the next
+    event (the unit's TimeoutSec is above BUDGET + 2 * APP_MAX). SIGTERM
+    (systemd stopping the unit) still kills the hidden session and deletes
+    its private dir; a dir left by a killed run is swept at the next start.
 
 launch-check <key> <pid>
     Started by each glass wrapper (setsid -f) before it runs the app: polls
@@ -48,6 +53,9 @@ import time
 from . import engine
 
 EX_TEMPFAIL = 75
+BUDGET = 25 * 60       # seconds of checks per run, the rest stays queued
+APP_MAX = 90           # one app at most: staging, the 50 s session, the apply
+STALE_RUN = 15 * 60    # an agv.* dir older than this is a killed run's
 WINDOW_WAIT = 10
 LAUNCH_WAIT = 20
 TOL = 0.05
@@ -251,6 +259,75 @@ def session_env(env, home, run):
     return e
 
 
+def new_run(base):
+    """A private dir agv.* under base, with its runtime dir rt (0700)."""
+    run = tempfile.mkdtemp(prefix="agv.", dir=base)
+    os.chmod(run, 0o700)
+    os.mkdir(os.path.join(run, "rt"), 0o700)
+    return run
+
+
+def kill_session(run, proc="/proc"):
+    """SIGKILL every process of the hidden session: the ones whose
+    XDG_RUNTIME_DIR is run/rt (the app's own setsid session and the
+    dbus-run-session services escape a process-group kill). Returns how
+    many were killed."""
+    want = b"XDG_RUNTIME_DIR=" + os.path.join(run, "rt").encode()
+    me, n = os.getpid(), 0
+    for _ in range(3):
+        hit = 0
+        try:
+            pids = [int(x) for x in os.listdir(proc) if x.isdigit()]
+        except OSError:
+            return n
+        for pid in pids:
+            if pid == me:
+                continue
+            try:
+                with open(os.path.join(proc, str(pid), "environ"), "rb") as f:
+                    if want not in f.read().split(b"\0"):
+                        continue
+                os.kill(pid, signal.SIGKILL)
+                hit += 1
+            except (OSError, ValueError):
+                continue
+        n += hit
+        if not hit:
+            break
+        time.sleep(0.1)
+    return n
+
+
+def sweep(base, age=STALE_RUN):
+    """Delete the agv.* dirs a killed run left under base (FUSE mounts out
+    first, this file system only); a live run's dir is younger than age."""
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return
+    now = time.time()
+    for n in names:
+        d = os.path.join(base, n)
+        try:
+            st = os.lstat(d)
+        except OSError:
+            continue
+        if (not n.startswith("agv.") or not stat.S_ISDIR(st.st_mode)
+                or st.st_uid != os.getuid() or now - st.st_mtime < age):
+            continue
+        kill_session(d)
+        _scrub(d)
+
+
+def _term(signum, frame):
+    raise SystemExit(128 + signum)
+
+
+def install_term_handler():
+    """SIGTERM unwinds (the finally blocks kill the session and scrub)."""
+    signal.signal(signal.SIGTERM, _term)
+
+
 def run_harness(app, rec, level):
     """{"result": pass|fail|unverifiable, "reason", "shot"}."""
     env = app.env
@@ -270,11 +347,11 @@ def run_harness(app, rec, level):
         if not env.which(tool):
             return {"result": "unverifiable", "reason": "%s not installed" % tool}
     base = private_base(env)
-    run = tempfile.mkdtemp(prefix="agv.", dir=base)
+    sweep(base)
+    run = new_run(base)
+    p = None
     try:
-        os.chmod(run, 0o700)
         rt = os.path.join(run, "rt")
-        os.mkdir(rt, 0o700)
         home = stage(app, rec, run)
         cmd = launcher_exec(app, rec, home)
         if not cmd:
@@ -312,6 +389,12 @@ def run_harness(app, rec, level):
             res["shot"] = dst
         return res
     finally:
+        if p is not None and p.poll() is None:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        kill_session(run)
         _scrub(run)
 
 
@@ -323,8 +406,9 @@ def _scrub(run):
             mounts = [ln.split()[1] for ln in f if ln.split()[1].startswith(run + "/")]
     except OSError:
         mounts = []
+    fm = shutil.which("fusermount3") or shutil.which("fusermount") or "fusermount3"
     for m in sorted(mounts, key=len, reverse=True):
-        subprocess.run(["fusermount3", "-u", "-z", m], stdout=subprocess.DEVNULL,
+        subprocess.run([fm, "-u", "-z", m], stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
     subprocess.run(["rm", "-rf", "--one-file-system", run], stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL)
@@ -382,6 +466,12 @@ def verify_one(app, key):
                                  "reason": res.get("reason", ""), "route": engine.ROUTE_VERSION,
                                  "at": time.strftime("%Y-%m-%d %H:%M")}
         st.dequeue(key)
+        if route.get("injected") and engine.explicit_on(app, route.get("family"), key):
+            # the user's own on stays on (S4): say the check could not run
+            name = engine.app_name(app, key)
+            engine.notify_once(app, key, rec.get("fp"), "%s: glass could not be checked" % name,
+                               "%s keeps the glass you switched on, unchecked: %s"
+                               % (name, res.get("reason", "?")), tag="unverifiable:")
         st.save()
     return res
 
@@ -396,6 +486,7 @@ def cmd_verify(app, key=None, queue=False):
     if on_low_battery(app.env):
         app.info("verify: on battery under 20 %: waiting, nothing checked")
         return EX_TEMPFAIL
+    install_term_handler()
     if queue:
         # the queue as a hook run sees it now (an app may have changed since)
         app.from_hook = True
@@ -404,17 +495,25 @@ def cmd_verify(app, key=None, queue=False):
     if not keys:
         app.info("verify: nothing queued")
         return 0
-    live = False
-    for k in keys:
+    try:
+        budget = float(app.env.environ.get("APPGLASS_VERIFY_BUDGET") or BUDGET)
+    except ValueError:
+        budget = BUDGET
+    t0 = time.monotonic()
+    for i, k in enumerate(keys):
+        if i and time.monotonic() - t0 + min(APP_MAX, budget) > budget:
+            app.info("verify: time budget used: %d left queued for the next run"
+                     % (len(keys) - i))
+            break
         res = verify_one(app, k)
         app.info("verify: %s: %s (%s)" % (k, res.get("result"), res.get("reason", "")))
-        live = live or res.get("result") == "pass"
-    if live and app.state.owners:
-        # a PASS may let a route go live: the hook run brings it in
-        from .core import cmd_apply
-        app.from_hook = True
-        app._engine_records = None
-        cmd_apply(app, None, False, from_hook=True)
+        if res.get("result") in ("pass", "fail") and app.state.owners:
+            # a PASS lets a route go live, a FAIL takes it out (S7): the
+            # hook run brings either in now, not at the end of the queue
+            from .core import cmd_apply
+            app.from_hook = True
+            app._engine_records = None
+            cmd_apply(app, None, False, from_hook=True)
     return 0
 
 
@@ -509,6 +608,12 @@ def cmd_fail(app, key, reason=None):
     n, paused = engine.fail(app, key, reason or "failed launch (appglass fail)")
     app.info("%s: failed launch %d on this version%s" % (
         key, n, ": glass paused until the next update" if paused else ""))
+    if paused and app.state.owners:
+        # a theme route has no wrapper to read the marker: the hook run
+        # takes it out of the launcher (S7)
+        from .core import cmd_apply
+        app._engine_records = None
+        cmd_apply(app, None, False, from_hook=True)
     return 0
 
 

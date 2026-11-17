@@ -59,11 +59,13 @@ fi
 exec 8>"$RT/appglass-sync.lock"
 flock -w 60 8 || exit 0
 [ "$MODE" = discord ] || sleep "${APPGLASS_SYNC_SETTLE:-1}"   # let DMS finish writing
-# a dnf transaction: wait until the rpm db had no change for 5 s (at most 60 s)
+# a dnf transaction: wait until the rpm db had no change for 5 s (at most 60 s);
+# sqlite writes the -wal and -shm files first, the db itself only at a checkpoint
 if [ "$MODE" = all ] && [ -e "$RPMDB" ]; then
     quiet="${APPGLASS_RPMDB_QUIET:-5}"
     for _ in $(seq 1 60); do
-        age=$(( $(date +%s) - $(stat -c %Y "$RPMDB" 2>/dev/null || echo 0) ))
+        last=$(stat -c %Y "$RPMDB" "$RPMDB-wal" "$RPMDB-shm" 2>/dev/null | sort -n | tail -n 1)
+        age=$(( $(date +%s) - ${last:-0} ))
         [ "$age" -ge "$quiet" ] && break
         sleep 1
     done

@@ -6,17 +6,40 @@
 //   text roles                                : always opaque
 // Load: QT_PLUGIN_PATH=<dir containing styles/> QT_STYLE_OVERRIDE=appglass
 // Colours: APPGLASS_COLORS (default ~/.cache/dms/dms-colors.json, "mode" picks dark/light).
+// The variables are read once, then taken out of the environment, so apps this one starts
+// (a browser from a link, a terminal, a game) do not load the style too.
 #include <QtWidgets>
 #include <QStylePlugin>
+#include <unistd.h>
 
 namespace {
+struct Env { QString colors; double content, bar; bool dialogs, debug, debug2; QStringList opaque; };
+
+double envF(const char *n, double d) { bool ok; double v = qEnvironmentVariable(n).toDouble(&ok); return ok ? v : d; }
+
+// one hop only: the levels are kept here, the variables leave the environment
+const Env &env() {
+    static const Env e = [] {
+        Env v{qEnvironmentVariable("APPGLASS_COLORS", QDir::homePath() + "/.cache/dms/dms-colors.json"),
+              envF("APPGLASS_CONTENT", 0.60), envF("APPGLASS_BAR", 0.125),
+              qEnvironmentVariable("APPGLASS_DIALOGS") == "glass", qEnvironmentVariableIsSet("APPGLASS_DEBUG"),
+              qEnvironmentVariable("APPGLASS_DEBUG") == "2",
+              qEnvironmentVariable("APPGLASS_OPAQUE").split(',', Qt::SkipEmptyParts)};
+        QList<QByteArray> names{"QT_PLUGIN_PATH", "QT_STYLE_OVERRIDE"};
+        for (char **p = environ; p && *p; ++p)
+            if (!strncmp(*p, "APPGLASS_", 9)) names << QByteArray(*p).split('=').first();
+        for (const auto &n : names) qunsetenv(n.constData());
+        return v;
+    }();
+    return e;
+}
+
 struct Pal { QColor win, high, highest, fg, fgVar, outline, hl, onHl, link; };
 
 Pal loadPal() {
     Pal p{QColor("#1e2226"), QColor("#282c30"), QColor("#33373b"), QColor("#e0e2e8"), QColor("#c2c7cf"),
           QColor("#8c9198"), QColor("#9acbfa"), QColor("#003150"), QColor("#9acbfa")};
-    QString path = qEnvironmentVariable("APPGLASS_COLORS", QDir::homePath() + "/.cache/dms/dms-colors.json");
-    QFile f(path);
+    QFile f(env().colors);
     if (!f.open(QIODevice::ReadOnly)) return p;
     auto root = QJsonDocument::fromJson(f.readAll()).object();
     QString mode = root.value("mode").toString("dark");
@@ -28,8 +51,6 @@ Pal loadPal() {
     return p;
 }
 QColor withA(QColor c, double a) { c.setAlphaF(a); return c; }
-double envF(const char *n, double d) { bool ok; double v = qEnvironmentVariable(n).toDouble(&ok); return ok ? v : d; }
-
 bool isBar(const QWidget *w) {
     return qobject_cast<const QMenuBar *>(w) || qobject_cast<const QToolBar *>(w) || qobject_cast<const QStatusBar *>(w)
         || qobject_cast<const QTabBar *>(w) || qobject_cast<const QHeaderView *>(w);
@@ -45,11 +66,11 @@ bool isPopup(const QWidget *w) {
 class GlassStyle : public QProxyStyle {
 public:
     GlassStyle() : QProxyStyle(QStyleFactory::create("Fusion")), pal(loadPal()) {
-        content = envF("APPGLASS_CONTENT", 0.60);
-        bar = envF("APPGLASS_BAR", 0.125);
-        glassDialogs = qEnvironmentVariable("APPGLASS_DIALOGS") == "glass";
-        dbg2 = qEnvironmentVariable("APPGLASS_DEBUG") == "2"; if (dbg2) qApp->installEventFilter(this);
-        opaqueApps = qEnvironmentVariable("APPGLASS_OPAQUE").split(',', Qt::SkipEmptyParts);
+        content = env().content;
+        bar = env().bar;
+        glassDialogs = env().dialogs;
+        dbg2 = env().debug2; if (dbg2) qApp->installEventFilter(this);
+        opaqueApps = env().opaque;
     }
     // opaque base palette (popups, dialogs) - text roles always opaque
     QPalette opaquePalette() const {
@@ -82,7 +103,7 @@ public:
     void polish(QPalette &p) override { p = opaquePalette(); }
     void polish(QWidget *w) override {
         QProxyStyle::polish(w);
-        if (qEnvironmentVariableIsSet("APPGLASS_DEBUG") && (w->autoFillBackground() || w->isWindow()))
+        if (env().debug && (w->autoFillBackground() || w->isWindow()))
             qWarning("appglass polish %s '%s' autofill=%d role=%d parent=%s", w->metaObject()->className(),
                      qPrintable(w->objectName()), w->autoFillBackground(), int(w->backgroundRole()),
                      w->parentWidget() ? w->parentWidget()->metaObject()->className() : "-");

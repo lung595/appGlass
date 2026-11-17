@@ -64,6 +64,17 @@ _SONAMES = tuple((re.compile(r), t) for r, t in SONAMES)
 
 TERMINALS = ("alacritty", "kitty", "foot", "footclient", "ghostty", "wezterm",
              "wezterm-gui", "konsole", "gnome-terminal-server", "ptyxis")
+# apps whose children are other apps: an environment variable set for them
+# reaches every app they start (S3, S8). Categories first, then names.
+SPAWNER_CATEGORIES = (("TerminalEmulator", "terminal"), ("FileManager", "file manager"))
+SPAWNER_NAMES = (
+    (r"(?i)^(xfce4-terminal|qterminal|tilix|terminator|lxterminal|mate-terminal|sakura"
+     r"|terminology|xterm|uxterm|urxvt|rxvt|guake|tilda|yakuake|cool-retro-term|kgx"
+     r"|gnome-terminal|blackbox|contour|rio|st|%s)$" % "|".join(re.escape(t) for t in TERMINALS),
+     "terminal"),
+    (r"(?i)^(thunar|pcmanfm|pcmanfm-qt|nemo|caja|dolphin|nautilus|spacefm|doublecmd"
+     r"|krusader)$", "file manager"),
+)
 
 # next to the binary (or one level up)
 DIR_MARKERS = (
@@ -100,18 +111,74 @@ FLATPAK_BASES = (
 MAX_SCAN = 512 << 20
 
 # classes (engine spec 1.3): root, game (sticky), sensitive, game-launcher
-ROOT_CMDS = ("pkexec", "sudo", "run0", "doas")
-_ROOT_SCRIPT = re.compile(r"(?m)(?:^|[\s;&|(`'\"])(?:exec\s+)?(?:/\S*/)?(pkexec|sudo|run0|doas)\s+\S"
-                          r"|(?:^|[\s;&|(`])(?:/\S*/)?su\s+(?:-c|-|-l|--login)(?:\s|$)")
+ROOT_CMDS = ("pkexec", "sudo", "run0", "doas", "kdesu", "kdesudo", "lxqt-sudo", "lxsudo",
+             "gksu", "gksudo", "beesu", "su-to-root")
+# options of the elevators that take a value (the value is not the app)
+_ROOT_VALUED = {"-u", "--user", "-g", "--group", "-p", "--property", "--uid", "--gid",
+                "-m", "--message", "-D", "--description", "--unit", "-E", "--setenv",
+                "--slice", "-M", "--machine", "-H", "--host", "--working-directory",
+                "-C", "--chdir", "--prompt", "-P"}
+_ROOT_SCRIPT = re.compile(r"(?m)(?:^|[\s;&|(`'\"])(?:exec\s+)?(?:/\S*/)?(%s)\s+\S"
+                          r"|(?:^|[\s;&|(`])(?:/\S*/)?su\s+(?:-c|-|-l|--login)(?:\s|$)"
+                          % "|".join(re.escape(c) for c in sorted(ROOT_CMDS, key=len, reverse=True)))
+_SYSTEMD_RUN = re.compile(r"(?m)(?:^|[\s;&|(`'\"])(?:exec\s+)?(?:/\S*/)?systemd-run(\s[^\n]*)$")
 GAME_DIRS = ("/steamapps/common/", "/compatdata/", "/Heroic/", "/lutris/", "/Games/")
 GAME_CMDS = ("wine", "wine64", "proton", "umu-run")
 _GAME_SCRIPT = re.compile(r"(?m)(?:^|[\s;&|(`'\"/])(wine|wine64|proton|umu-run)\s+\S")
 SENSITIVE = (r"(?i)keepassxc", r"(?i)bitwarden", r"(?i)1password", r"(?i)proton[ ._-]?pass",
              r"(?i)seahorse", r"(?i)(^|\.)authenticator$", r"(?i)org\.gnome\.World\.Secrets",
              r"(?i)^secrets$")
-GAME_LAUNCHERS = (r"(?i)^(steam|lutris|heroic|bottles|umu-run)$", r"net\.lutris\.Lutris",
-                  r"com\.heroicgameslauncher\.", r"com\.usebottles\.bottles",
-                  r"com\.valvesoftware\.Steam")
+GAME_LAUNCHERS = (r"(?i)^(steam|lutris|heroic|bottles|umu-run|prismlauncher|polymc|multimc"
+                  r"|atlauncher|itch|minigalaxy|gamehub|playonlinux|legendary-gl)$",
+                  r"net\.lutris\.Lutris", r"com\.heroicgameslauncher\.",
+                  r"com\.usebottles\.bottles", r"com\.valvesoftware\.Steam",
+                  r"org\.prismlauncher\.", r"org\.polymc\.", r"org\.multimc\.",
+                  r"com\.atlauncher\.", r"io\.itch\.", r"io\.github\.sharkwouter\.Minigalaxy")
+# a Categories=Game app that draws through SDL, GL or Vulkan is a game,
+# whatever toolkit draws its menus
+_GFX = re.compile(r"^lib(SDL[23]|GL|GLX|OpenGL|EGL|vulkan)[-.]")
+
+
+def root_target(argv):
+    """(elevator, the app it runs) when argv runs something as root (or as
+    another user), else None. The app is None when not found."""
+    if not argv:
+        return None
+    b0 = os.path.basename(argv[0])
+    if b0 == "su":
+        if not set(argv[1:]) & {"-c", "-", "-l", "--login"}:
+            return None
+    elif b0 == "systemd-run":
+        opts = " ".join(argv[1:])
+        if "--user" in argv[1:] and not re.search(r"--uid\b|\bUser=", opts):
+            return None
+    elif b0 not in ROOT_CMDS:
+        return None
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "--":
+            i += 1
+            break
+        if a in ("-c", "--command"):
+            words = argv[i + 1].split() if i + 1 < len(argv) else []
+            return b0, (words[0] if words else None)
+        if not a.startswith("-"):
+            break
+        i += 2 if a in _ROOT_VALUED else 1
+    return b0, (argv[i] if i < len(argv) else None)
+
+
+def _root_in_script(txt):
+    m = _ROOT_SCRIPT.search(txt)
+    if m:
+        return (m.group(1) or "su").strip()
+    for m in _SYSTEMD_RUN.finditer(txt):
+        if root_target(["systemd-run"] + m.group(1).split()):
+            return "systemd-run"
+    return None
+
+
 APPIMAGE_MAGIC = b"AI\x02"
 # an AppImage is not opened (the squashfs reader is deferred): its toolkit is
 # guessed from its name, weak evidence only (opaque until learned)
@@ -484,6 +551,7 @@ class Probe:
         self.exec = None
         self.classes = {}      # class -> why (root, game)
         self.appimage = None
+        self.gfx = None        # an SDL/GL/Vulkan library it links
 
     def mark(self, cls, why):
         self.classes.setdefault(cls, why)
@@ -549,6 +617,8 @@ class Probe:
                 self.fuses = fz
                 self.add("electron", "Electron %s fuse wire" % fz["electron"])
         for so in elf_needed(real):
+            if self.gfx is None and _GFX.search(so):
+                self.gfx = so
             for rx, tk in _SONAMES:
                 if rx.search(so):
                     self.add(tk, "links %s" % so)
@@ -583,9 +653,9 @@ class Probe:
                 self.add("qt-widgets", "python Qt import")
             elif re.search(r"\bGtk\b|\bgtk\b", txt):
                 self.add("gtk3", "python gtk import (GTK3 assumed)", weak=True)
-        m = _ROOT_SCRIPT.search(txt)
-        if m:
-            self.mark("root", "%s in %s" % ((m.group(1) or "su").strip(), os.path.basename(real)))
+        el = _root_in_script(txt)
+        if el:
+            self.mark("root", "%s in %s" % (el, os.path.basename(real)))
         m = _GAME_SCRIPT.search(txt)
         if m:
             self.mark("game", "runs %s (%s)" % (m.group(1), os.path.basename(real)))
@@ -742,12 +812,11 @@ def detect_desktop(env, desktop_id, paths):
             if i < len(argv):
                 argv = argv[i:]
                 exe = argv[0]
-        b0 = os.path.basename(exe)
-        if b0 in ROOT_CMDS or (b0 == "su" and set(argv[1:]) & {"-c", "-", "-l", "--login"}):
-            pr.mark("root", "%s in Exec" % b0)
-            rest = [a for a in argv[1:] if not a.startswith("-")]
-            if rest:
-                exe = rest[0]
+        rt = root_target(argv)
+        if rt:
+            pr.mark("root", "%s in Exec" % rt[0])
+            if rt[1]:
+                exe = rt[1]
         why = game_argv(argv)
         if why:
             pr.mark("game", why)
@@ -783,6 +852,15 @@ def detect_desktop(env, desktop_id, paths):
     if any(re.search(rx, n) for rx in GAME_LAUNCHERS for n in allnames + [
             os.path.basename(argv[0]) if argv else ""] if n) and "game" not in classes:
         classes["game-launcher"] = "game launcher (its children are games)"
+    cats = [c for c in entry.get("Categories", "").split(";") if c]
+    if "Game" in cats and pr.gfx and not {"game", "game-launcher"} & set(classes):
+        classes["game"] = "Categories=Game and links %s" % pr.gfx
+    spawn = next((why for c, why in SPAWNER_CATEGORIES if c in cats), None) or next(
+        (why for rx, why in SPAWNER_NAMES for n in allnames + [
+            os.path.basename(pr.exec or ""), os.path.basename(argv[0]) if argv else ""]
+         if n and re.search(rx, n)), None)
+    if spawn:
+        classes["spawner"] = "%s (starts other apps)" % spawn
     if "game" in classes and rec["toolkit"] != "game":
         rec["toolkit"] = "game"
         rec["evidence"] = ["%s -> game" % classes["game"]] + rec["evidence"]
