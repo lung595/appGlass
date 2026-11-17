@@ -64,6 +64,7 @@ typedef struct inst {
     PFN_vkDestroyInstance DestroyInstance;
     PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR GetPhysicalDeviceSurfaceCapabilitiesKHR;
     PFN_vkGetPhysicalDeviceQueueFamilyProperties GetPhysicalDeviceQueueFamilyProperties;
+    PFN_vkGetPhysicalDeviceProperties GetPhysicalDeviceProperties;
 } inst;
 static inst *insts;
 
@@ -76,14 +77,14 @@ static inst *insts;
     X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants) X(CmdSetViewport) X(CmdSetScissor) \
     X(CmdDraw) X(QueueSubmit) X(CreateFence) X(DestroyFence) X(WaitForFences) X(ResetFences) X(CreateSemaphore) X(DestroySemaphore)
 
-typedef struct pipe { VkFormat fmt; VkRenderPass rp; VkDescriptorSetLayout dsl; VkPipelineLayout pl; VkPipeline p; } pipe;
+typedef struct pipe { VkFormat fmt; VkRenderPass rp; VkDescriptorSetLayout dsl; VkPipelineLayout pl; VkPipeline p; struct pipe *next; } pipe;
 #define MAXQ 16
 typedef struct dev {
     void *key; VkDevice h; VkPhysicalDevice pd; inst *in; struct dev *next;
     PFN_vkGetDeviceProcAddr gdpa; PFN_vkSetDeviceLoaderData set_data;
     int graphics_only;                   /* every queue family the app asked for can do graphics */
     struct { VkQueue q; uint32_t fam; } qs[MAXQ]; int nq;
-    pipe pp;                             /* the pass for one format (rebuilt when another one shows up) */
+    pipe *pipes;                         /* one pass per swapchain format, kept until vkDestroyDevice */
 #define X(n) PFN_vk##n n;
     DEV_FNS(X)
 #undef X
@@ -96,8 +97,8 @@ static dev *dev_by_key(void *k) { for (dev *d = devs; d; d = d->next) if (d->key
 /* ---------------- swapchains ---------------- */
 #define MAXI 16
 typedef struct sc {
-    VkSwapchainKHR h; dev *d; struct sc *next;
-    VkExtent2D ext; uint32_t n; VkCommandPool pool; VkDescriptorPool dp;
+    VkSwapchainKHR h; dev *d; pipe *pp; struct sc *next;
+    VkExtent2D ext; uint32_t n; VkCommandPool pool; uint32_t fam; VkDescriptorPool dp;
     VkImage img[MAXI]; VkImageView view[MAXI]; VkFramebuffer fb[MAXI]; VkDescriptorSet ds[MAXI];
     VkCommandBuffer cb[MAXI]; VkFence fence[MAXI]; VkSemaphore sem[MAXI];
 } sc;
@@ -117,20 +118,21 @@ static void sc_free(sc *s) {
     free(s);
 }
 
-static void pipe_free(dev *d) {
-    pipe *p = &d->pp;
+static void pipe_free(dev *d, pipe *p) {
     if (p->p) d->DestroyPipeline(d->h, p->p, NULL);
     if (p->pl) d->DestroyPipelineLayout(d->h, p->pl, NULL);
     if (p->dsl) d->DestroyDescriptorSetLayout(d->h, p->dsl, NULL);
     if (p->rp) d->DestroyRenderPass(d->h, p->rp, NULL);
-    memset(p, 0, sizeof *p);
+    free(p);
 }
 
-/* render pass + pipeline for one swapchain format */
-static int pipe_for(dev *d, VkFormat fmt) {
-    pipe *p = &d->pp;
-    if (p->p && p->fmt == fmt) return 1;
-    pipe_free(d);
+static pipe *pipe_find(dev *d, VkFormat fmt) { for (pipe *p = d->pipes; p; p = p->next) if (p->fmt == fmt) return p; return NULL; }
+
+/* render pass + pipeline for one swapchain format, built once per device and format: the command
+ * buffers, framebuffers and descriptor sets of every swapchain of that format use it */
+static pipe *pipe_build(dev *d, VkFormat fmt) {
+    pipe *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
     p->fmt = fmt;
     VkAttachmentDescription at = { 0, fmt, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
@@ -175,28 +177,40 @@ static int pipe_for(dev *d, VkFormat fmt) {
     VkResult r = d->CreateGraphicsPipelines(d->h, 0, 1, &gpi, NULL, &p->p);
     d->DestroyShaderModule(d->h, vs, NULL); d->DestroyShaderModule(d->h, fs, NULL);
     if (r) goto fail;
-    return 1;
+    return p;
 fail:
     LOG("could not build the pass for format %d", fmt);
-    pipe_free(d); return 0;
+    pipe_free(d, p); return NULL;
+}
+
+static pipe *pipe_for(dev *d, VkFormat fmt) {
+    pthread_mutex_lock(&mu); pipe *p = pipe_find(d, fmt); pthread_mutex_unlock(&mu);
+    if (p) return p;
+    pipe *n = pipe_build(d, fmt);                  /* built outside the lock: no present waits on it */
+    if (!n) return NULL;
+    pthread_mutex_lock(&mu);
+    if (!(p = pipe_find(d, fmt))) { n->next = d->pipes; d->pipes = p = n; n = NULL; }
+    pthread_mutex_unlock(&mu);
+    if (n) pipe_free(d, n);                        /* another thread built the same one first */
+    return p;
 }
 
 /* per-image views, framebuffers, descriptor sets, fences, semaphores; command buffers come at the first present */
 static int sc_init(sc *s, VkFormat fmt) {
     dev *d = s->d;
-    if (!pipe_for(d, fmt)) return 0;
+    if (!(s->pp = pipe_for(d, fmt))) return 0;
     VkDescriptorPoolSize ps = { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, s->n };
     VkDescriptorPoolCreateInfo dpi = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, NULL, 0, s->n, 1, &ps };
     if (d->CreateDescriptorPool(d->h, &dpi, NULL, &s->dp)) return 0;
     VkDescriptorSetLayout l[MAXI];
-    for (uint32_t i = 0; i < s->n; i++) l[i] = d->pp.dsl;
+    for (uint32_t i = 0; i < s->n; i++) l[i] = s->pp->dsl;
     VkDescriptorSetAllocateInfo dai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, NULL, s->dp, s->n, l };
     if (d->AllocateDescriptorSets(d->h, &dai, s->ds)) return 0;
     for (uint32_t i = 0; i < s->n; i++) {
         VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, NULL, 0, s->img[i], VK_IMAGE_VIEW_TYPE_2D, fmt, { 0 },
             { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 } };
         if (d->CreateImageView(d->h, &vi, NULL, &s->view[i])) return 0;
-        VkFramebufferCreateInfo fi = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO, NULL, 0, d->pp.rp, 1, &s->view[i], s->ext.width, s->ext.height, 1 };
+        VkFramebufferCreateInfo fi = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO, NULL, 0, s->pp->rp, 1, &s->view[i], s->ext.width, s->ext.height, 1 };
         if (d->CreateFramebuffer(d->h, &fi, NULL, &s->fb[i])) return 0;
         VkDescriptorImageInfo ii = { 0, s->view[i], VK_IMAGE_LAYOUT_GENERAL };
         VkWriteDescriptorSet w = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, s->ds[i], 0, 0, 1, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, &ii, NULL, NULL };
@@ -209,10 +223,12 @@ static int sc_init(sc *s, VkFormat fmt) {
     return 1;
 }
 
+/* the command buffers of one swapchain, for the queue family it is presented from */
 static int sc_record(sc *s, uint32_t fam) {
-    dev *d = s->d;
+    dev *d = s->d; pipe *pp = s->pp;
     VkCommandPoolCreateInfo pci = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, NULL, 0, fam };
-    if (d->CreateCommandPool(d->h, &pci, NULL, &s->pool)) return 0;
+    if (d->CreateCommandPool(d->h, &pci, NULL, &s->pool)) { s->pool = 0; return 0; }
+    s->fam = fam;
     VkCommandBufferAllocateInfo ai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, NULL, s->pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, s->n };
     if (d->AllocateCommandBuffers(d->h, &ai, s->cb)) return 0;
     for (uint32_t i = 0; i < s->n; i++) {
@@ -220,11 +236,11 @@ static int sc_record(sc *s, uint32_t fam) {
         if (d->set_data) d->set_data(d->h, c); else *(void **)c = d->key;   /* layer-made dispatchable object */
         VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         if (d->BeginCommandBuffer(c, &bi)) return 0;
-        VkRenderPassBeginInfo rb = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO, NULL, d->pp.rp, s->fb[i], { { 0, 0 }, s->ext }, 0, NULL };
+        VkRenderPassBeginInfo rb = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO, NULL, pp->rp, s->fb[i], { { 0, 0 }, s->ext }, 0, NULL };
         d->CmdBeginRenderPass(c, &rb, VK_SUBPASS_CONTENTS_INLINE);
-        d->CmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d->pp.p);
-        d->CmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d->pp.pl, 0, 1, &s->ds[i], 0, NULL);
-        d->CmdPushConstants(c, d->pp.pl, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof pc, &pc);
+        d->CmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, pp->p);
+        d->CmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_GRAPHICS, pp->pl, 0, 1, &s->ds[i], 0, NULL);
+        d->CmdPushConstants(c, pp->pl, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof pc, &pc);
         VkViewport v = { 0, 0, (float)s->ext.width, (float)s->ext.height, 0, 1 };
         VkRect2D r = { { 0, 0 }, s->ext };
         d->CmdSetViewport(c, 0, 1, &v); d->CmdSetScissor(c, 0, 1, &r);
@@ -264,8 +280,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, con
     VkSwapchainCreateInfoKHR m = *ci;
     m.compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
     m.imageUsage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    /* the first call retires ci->oldSwapchain even when it fails: a retry passes none */
+    VkSwapchainCreateInfoKHR asked = *ci;
+    asked.oldSwapchain = VK_NULL_HANDLE;
     VkResult r = d->CreateSwapchainKHR(device, &m, al, out);
-    if (r) { LOG("glass swapchain refused (%d): created as asked", r); return d->CreateSwapchainKHR(device, ci, al, out); }
+    if (r) { LOG("glass swapchain refused (%d): created as asked", r); return d->CreateSwapchainKHR(device, &asked, al, out); }
     sc *s = calloc(1, sizeof *s);
     uint32_t n = 0;
     if (s) { s->h = *out; s->d = d; s->ext = ci->imageExtent; d->GetSwapchainImagesKHR(device, *out, &n, NULL); }
@@ -275,7 +294,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, con
         LOG("glass setup failed: swapchain recreated as asked");
         if (s) { s->n = n <= MAXI ? n : 0; sc_free(s); }
         d->DestroySwapchainKHR(device, *out, al);
-        return d->CreateSwapchainKHR(device, ci, al, out);
+        return d->CreateSwapchainKHR(device, &asked, al, out);
     }
     LOG("swapchain %ux%u format %d, %u images: compositeAlpha %s -> PRE_MULTIPLIED, usage 0x%x -> 0x%x",
         ci->imageExtent.width, ci->imageExtent.height, ci->imageFormat, s->n,
@@ -306,37 +325,50 @@ static int fam_of(dev *d, VkQueue q, uint32_t *fam) {
     return 0;
 }
 
+/* The global lock only guards the lists. The swapchains of a present are externally synchronised by
+ * the app (it may not destroy or present them elsewhere meanwhile), so the waits and submits below
+ * run unlocked and a slow present never stalls another thread. */
 static VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue q, const VkPresentInfoKHR *pi) {
     pthread_mutex_lock(&mu);
     dev *d = dev_by_key(key_of(q));
-    if (!d) { pthread_mutex_unlock(&mu); return VK_ERROR_DEVICE_LOST; }
+    uint32_t fam = 0; int known = d && fam_of(d, q, &fam);
+    pthread_mutex_unlock(&mu);
+    if (!d) return VK_ERROR_DEVICE_LOST;
     double t0 = now_ms();
     uint32_t nw = pi->waitSemaphoreCount; const VkSemaphore *w = pi->pWaitSemaphores;
-    VkSemaphore last = 0; int keyed = 0;
-    VkPipelineStageFlags st[64];
-    for (uint32_t i = 0; i < 64; i++) st[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    for (uint32_t k = 0; k < pi->swapchainCount; k++) {
-        sc *s = sc_find(pi->pSwapchains[k]);
-        uint32_t idx = pi->pImageIndices[k], fam;
+    VkPipelineStageFlags stb[64], *st = nw <= 64 ? stb : malloc(nw * sizeof *st);
+    if (!st) { LOG("present: no memory for %u wait stages, passed through unkeyed", nw); return d->QueuePresentKHR(q, pi); }
+    for (uint32_t i = 0; i < (nw > 64 ? nw : 64); i++) st[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    VkSemaphore last = 0; int keyed = 0; VkResult r = VK_SUCCESS;
+    for (uint32_t k = 0; known && k < pi->swapchainCount; k++) {
+        pthread_mutex_lock(&mu); sc *s = sc_find(pi->pSwapchains[k]); pthread_mutex_unlock(&mu);
+        uint32_t idx = pi->pImageIndices[k];
         if (!s || idx >= s->n) continue;
-        if (!s->pool) {
-            if (!fam_of(d, q, &fam) || !sc_record(s, fam)) {
-                LOG("present: could not record the pass, swapchain left as is");
-                if (s->pool) { d->DestroyCommandPool(d->h, s->pool, NULL); }
-                s->pool = 0; continue;
-            }
+        if (s->pool && s->fam != fam) {     /* presented from another queue family: record again for it */
+            if (d->WaitForFences(d->h, s->n, s->fence, VK_TRUE, UINT64_MAX)) continue;
+            LOG("present: queue family %u, recorded for %u: recording again", fam, s->fam);
+            d->DestroyCommandPool(d->h, s->pool, NULL); s->pool = 0;
         }
-        d->WaitForFences(d->h, 1, &s->fence[idx], VK_TRUE, UINT64_MAX);
+        if (!s->pool && !sc_record(s, fam)) {
+            LOG("present: could not record the pass, swapchain left as is");
+            if (s->pool) d->DestroyCommandPool(d->h, s->pool, NULL);
+            s->pool = 0; continue;
+        }
+        if ((r = d->WaitForFences(d->h, 1, &s->fence[idx], VK_TRUE, UINT64_MAX))) break;
         d->ResetFences(d->h, 1, &s->fence[idx]);
-        VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, last ? 1 : (nw <= 64 ? nw : 64), last ? &last : w, st, 1, &s->cb[idx], 1, &s->sem[idx] };
-        VkResult r = d->QueueSubmit(q, 1, &si, s->fence[idx]);
-        if (r) { pthread_mutex_unlock(&mu); return r; }
+        VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, last ? 1 : nw, last ? &last : w, st, 1, &s->cb[idx], 1, &s->sem[idx] };
+        if ((r = d->QueueSubmit(q, 1, &si, s->fence[idx]))) break;
         last = s->sem[idx]; keyed++;
     }
+    if (st != stb) free(st);
+    if (r) return r;
     pthread_once(&trace_once, trace_init);
-    if (trace_f && keyed) { fprintf(trace_f, "%.2f %.2f %.2f\n", t0, last_present > 0 ? t0 - last_present : 0, now_ms() - t0); fflush(trace_f); }
-    if (keyed) last_present = t0;
-    pthread_mutex_unlock(&mu);
+    if (keyed) {
+        pthread_mutex_lock(&mu);
+        if (trace_f) { fprintf(trace_f, "%.2f %.2f %.2f\n", t0, last_present > 0 ? t0 - last_present : 0, now_ms() - t0); fflush(trace_f); }
+        last_present = t0;
+        pthread_mutex_unlock(&mu);
+    }
     if (!keyed) return d->QueuePresentKHR(q, pi);
     VkPresentInfoKHR m = *pi;
     m.waitSemaphoreCount = 1; m.pWaitSemaphores = &last;
@@ -381,6 +413,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateInstance(const VkInstanceCreateIn
     i->DestroyInstance = (PFN_vkDestroyInstance)next(*out, "vkDestroyInstance");
     i->GetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)next(*out, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
     i->GetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)next(*out, "vkGetPhysicalDeviceQueueFamilyProperties");
+    i->GetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)next(*out, "vkGetPhysicalDeviceProperties");
     pthread_mutex_lock(&mu); i->next = insts; insts = i; pthread_mutex_unlock(&mu);
     LOG("instance: layer on, %d keys", keys());
     return VK_SUCCESS;
@@ -427,6 +460,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice pd, const
         uint32_t f = ci->pQueueCreateInfos[i].queueFamilyIndex;
         if (f >= nf || !(qf[f].queueFlags & VK_QUEUE_GRAPHICS_BIT)) d->graphics_only = 0;
     }
+    if (dbg() && in->GetPhysicalDeviceProperties) {   /* which adapter the app picked */
+        VkPhysicalDeviceProperties pr; in->GetPhysicalDeviceProperties(pd, &pr);
+        LOG("device: %s (vendor 0x%04x device 0x%04x, driver 0x%x, Vulkan %u.%u)", pr.deviceName, pr.vendorID, pr.deviceID,
+            pr.driverVersion, VK_API_VERSION_MAJOR(pr.apiVersion), VK_API_VERSION_MINOR(pr.apiVersion));
+    }
     pthread_mutex_lock(&mu); d->next = devs; devs = d; pthread_mutex_unlock(&mu);
     return VK_SUCCESS;
 }
@@ -440,7 +478,7 @@ static VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice h, const VkAllocatio
     }
     pthread_mutex_unlock(&mu);
     if (!d) return;
-    pipe_free(d);
+    for (pipe *p = d->pipes, *n; p; p = n) { n = p->next; pipe_free(d, p); }
     d->DestroyDevice(h, al);
     free(d);
 }

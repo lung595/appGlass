@@ -19,6 +19,7 @@ It is a prototype:
 **Result**
 
 - The NVIDIA Wayland WSI offers `PRE_MULTIPLIED` alpha, and the window really is translucent on it.
+- wgpu picks the NVIDIA GPU: with `APPGLASS_DEBUG=1` the layer logs `device: NVIDIA ... (vendor 0x10de ...)` at `vkCreateDevice` (harness, ArtCraft 0.19.2). It is the only device the launcher creates.
 - The GPU route gives the same levels as the CPU route: content 153, bar 166, text 255.
 - No frame flashed, during hovers or during 14 swapchain rebuilds.
 - At 60 Hz the GPU route uses about **24x less CPU** than the llvmpipe route. At 240 Hz it uses about 11x less while presenting 3.5x more frames.
@@ -63,16 +64,20 @@ APPGLASS_KEYS="121316:0.60,151517:0.60,060607:0.65"  APPGLASS_SNAP=0.25
   - the colour space is sRGB-nonlinear;
   - every queue family the app created can do graphics.
 
-  In every other case the swapchain is created exactly as asked (opaque), and the reason is logged with `APPGLASS_DEBUG`. If the driver refuses the rewritten swapchain, or the layer cannot build its pass, the layer recreates the swapchain exactly as asked. The app never sees an error from the layer.
+  In every other case the swapchain is created exactly as asked (opaque), and the reason is logged with `APPGLASS_DEBUG`. If the driver refuses the rewritten swapchain, or the layer cannot build its pass (or the swapchain has more than 16 images), the layer recreates the swapchain exactly as asked. That retry passes no `oldSwapchain`: the first call has already retired it. The app never sees an error from the layer.
 - **The pass.** Each swapchain image is both the input attachment and the colour attachment of a one-subpass render pass:
   - load and store, layout `GENERAL`, `PRESENT_SRC` before and after;
   - a full-screen triangle where each fragment reads its own pixel (`subpassLoad`) and writes the keyed, premultiplied value.
 
-  This works for both RGBA and BGRA, needs no device feature, no copy and no extra image. One command buffer is recorded per image at the first present.
+  This works for both RGBA and BGRA, needs no device feature, no copy and no extra image.
+  - The render pass and pipeline are built once per device and format and kept until `vkDestroyDevice`, so swapchains of different formats on one device each keep theirs.
+  - One command buffer is recorded per image at the first present, for the queue family of that present. A later present from another family waits for the swapchain's last passes and records again.
 - **The present.** For each keyed swapchain the layer submits one batch to the presenting queue:
   - the batch waits on the app's semaphores and signals a semaphore that belongs to the layer;
   - the real `vkQueuePresentKHR` waits on that semaphore;
-  - a fence per image keeps a command buffer from being resubmitted before its last run has finished.
+  - a fence per image keeps a command buffer from being resubmitted before its last run has finished;
+  - every wait semaphore of the app's present is waited on, also past 64;
+  - the layer's lock only guards its lists. The fence wait and the submit run without it, so a slow present on one swapchain does not hold up another thread.
 - **The formula.** The layer uses the same formula as `appglass-ck.c`: colour-to-alpha against the nearest key, glass alpha `1 - (1 - a)(1 - A)`, premultiplied rgb, `tol` 0.02, and `snap` (0.25 in the wrapper). There is one addition:
   - A channel within one 8-bit level of a key counts as the key.
   - wgpu on Vulkan dithers its output. On the GL route it does not. So a translucent egui fill lands on the key ±1 level at random.
@@ -83,7 +88,9 @@ APPGLASS_KEYS="121316:0.60,151517:0.60,060607:0.65"  APPGLASS_SNAP=0.25
   - the shim scrubs `APPGLASS_SCRUB` from children.
 
   Its EGL hooks stay idle on Vulkan.
-- **Children.** The wrapper lists `WGPU_BACKEND`, `VK_ADD_LAYER_PATH` and `VK_INSTANCE_LAYERS` in `APPGLASS_SCRUB` when it added them itself. The shim drops them, every `APPGLASS_*` variable and `appglass-ck.so` from `LD_PRELOAD` on every exec or spawn of another program. Apps and games started from the launcher (flatpak, xdg-open) never load the layer. `tests/test_vklayer.py` (`Wrapper.test_child_scrubbed`) checks this.
+- **Children.** The wrapper always lists `WGPU_BACKEND`, `VK_ADD_LAYER_PATH` and `VK_INSTANCE_LAYERS` in `APPGLASS_SCRUB`. The shim drops them, every `APPGLASS_*` variable and `appglass-ck.so` from `LD_PRELOAD` on every exec or spawn of another program. Apps and games started from the launcher (flatpak, xdg-open) never load the layer.
+  - When the user had set one of the three before, the wrapper saves that value as `APPGLASS_ORIG_<var>`, and the shim gives it back to the child as it was, without the layer in it.
+  - `tests/test_vklayer.py` (`Wrapper.test_child_scrubbed`, `test_child_gets_the_users_own_values`) checks both cases.
 
 ### Shaders
 
@@ -118,6 +125,15 @@ The tests then check:
 - both RGBA and BGRA;
 - nothing changes without keys, and without the layer.
 
+A second client (`multi`) runs the swapchain lifecycles of a real app, with two frames in flight and a clean teardown:
+
+- two swapchains with different formats on one device, presented in turn;
+- recreation with `oldSwapchain`: one too large to key (17 images), then a normal one;
+- 120 frames with a resize every 25 frames;
+- presents that wait on 70 semaphores.
+
+When the Khronos validation layer is installed (or `APPGLASS_TEST_VVL` names a dir with its manifest), these runs put it under the glass layer with sync validation on, so it checks every call the glass layer makes, and any validation error fails the test. Before round 1 of fixes these runs found a use-after-free of the render pass with two formats (the process crashed), a retired `oldSwapchain` passed again, and dropped wait semaphores past 64. They now report no errors.
+
 To build it by hand (for example to try it):
 
 ```
@@ -148,6 +164,8 @@ cp shims/vklayer/appglass-vk.json $LIB/vk/
 | White glyph pixels at 255 | 3421 | 3423 |
 | Fully opaque pixels | 34163 | 34427 |
 | measure.py | pass | pass |
+
+After round 1 of fixes (per-format passes, the unlocked present), a re-run of the GPU route gave the same numbers, also after 10 width changes (`shots/gpu/b1b-fix1/`).
 
 **CPU and pacing.** Three hovers; idle is 10 s with the pointer outside.
 
@@ -193,7 +211,7 @@ All shots, logs, traces, recordings (`frames.tsv`, `flash.tsv`) and the harness 
   - sRGB swapchain formats are refused (left opaque): the pass would need sRGB-aware keys.
   - 10-bit, float formats and HDR colour spaces are also refused.
   - ArtCraft uses `R8G8B8A8_UNORM` in sRGB-nonlinear, so it is covered.
-- **Queues.** If an app creates a queue family without graphics, every swapchain of that app stays opaque, because the layer draws on the presenting queue.
+- **Queues.** If an app creates a queue family without graphics, every swapchain of that app stays opaque, because the layer draws on the presenting queue. lavapipe has one queue family, so the re-recording for a present from another family is not covered by a test.
 - **Other Vulkan apps.**
   - The layer is generic, but its keys are ArtCraft's.
   - Any other app needs its own keys and the same scrub.

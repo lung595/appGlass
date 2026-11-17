@@ -6,7 +6,8 @@
 # swapchain and colour-keys the launcher's dark background colours to the DMS glass levels in one
 # GPU draw before each present. appglass-ck.so is still preloaded for the window's opaque region
 # (winit sets a full one for a window made without transparency) and for APPGLASS_SCRUB: no app the
-# launcher starts sees the layer, its path, the backend choice or the keys.
+# launcher starts sees the layer, its path, the backend choice or the keys (a value the user had
+# set for one of these reaches it unchanged).
 # No global layer manifest is written: only this wrapper's env names the layer.
 # Plain start on demand: APPGLASS_ARTCRAFT=off appglass-artcraft-gpu
 set -u
@@ -25,14 +26,15 @@ lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
 c=$(printf '%s' "$lv" | jq -r '.content')
 b=$(printf '%s' "$lv" | jq -r '.bar')
-# only scrub what this wrapper adds: a value the user already set is passed on as before
-scrub=''
-[ -n "${WGPU_BACKEND:-}" ] || scrub="$scrub WGPU_BACKEND"
-[ -n "${VK_ADD_LAYER_PATH:-}" ] || scrub="$scrub VK_ADD_LAYER_PATH"
-[ -n "${VK_INSTANCE_LAYERS:-}" ] || scrub="$scrub VK_INSTANCE_LAYERS"
+# children never get this wrapper's values: the shim scrubs all three, and a value the user had set
+# before comes back to them as it was (APPGLASS_ORIG_<var>, which the shim hands back)
 exec env WGPU_BACKEND=vulkan \
     VK_ADD_LAYER_PATH="$LIB/vk${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}" \
     VK_INSTANCE_LAYERS=VK_LAYER_APPGLASS_glass${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS} \
+    ${WGPU_BACKEND+"APPGLASS_ORIG_WGPU_BACKEND=$WGPU_BACKEND"} \
+    ${VK_ADD_LAYER_PATH+"APPGLASS_ORIG_VK_ADD_LAYER_PATH=$VK_ADD_LAYER_PATH"} \
+    ${VK_INSTANCE_LAYERS+"APPGLASS_ORIG_VK_INSTANCE_LAYERS=$VK_INSTANCE_LAYERS"} \
     LD_PRELOAD="$LIB/appglass-ck.so${LD_PRELOAD:+ $LD_PRELOAD}" \
-    APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 APPGLASS_SCRUB="${scrub# }" \
+    APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 \
+    APPGLASS_SCRUB="WGPU_BACKEND VK_ADD_LAYER_PATH VK_INSTANCE_LAYERS" \
     "$BIN" "$@"

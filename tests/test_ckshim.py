@@ -289,6 +289,23 @@ class CkShimReal(unittest.TestCase):
         self.assertNotIn("WGPU_BACKEND", e)
         self.assertFalse([k for k in e if k.startswith("APPGLASS_")])
 
+    def test_scrub_hands_back_saved_values(self):
+        # a listed var the wrapper changed comes back as the user had it (APPGLASS_ORIG_<var>);
+        # a saved value for a var that is not listed is dropped like any APPGLASS_* var
+        if not self.spawn_ok:
+            self.skipTest("libc without pidfd_spawnp")
+        env = {"PATH": os.environ.get("PATH", os.defpath), "LD_PRELOAD": self.so,
+               "APPGLASS_SCRUB": "WGPU_BACKEND VK_INSTANCE_LAYERS",
+               "WGPU_BACKEND": "vulkan", "APPGLASS_ORIG_WGPU_BACKEND": "gl",
+               "VK_INSTANCE_LAYERS": "VK_LAYER_X", "APPGLASS_ORIG_KEEP": "2", "KEEP": "1"}
+        r = subprocess.run([self.spawn], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        e = dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
+        self.assertEqual(e.get("WGPU_BACKEND"), "gl")
+        self.assertNotIn("VK_INSTANCE_LAYERS", e)
+        self.assertEqual(e.get("KEEP"), "1")
+        self.assertFalse([k for k in e if k.startswith("APPGLASS_")])
+
 
 if __name__ == "__main__":
     unittest.main()
