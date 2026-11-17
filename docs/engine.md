@@ -127,7 +127,7 @@ The wrapper starts the app with `--inspect=127.0.0.1:0` (a random port on loopba
 
 Measured on Feishin 1.17.0: the inspector port is gone about 4 s before the screenshot, and the app keeps running with its glass.
 
-Limit: the hidden check starts Feishin in a throwaway HOME, where it opens its first-run dialogs ("server required", "a new version has been installed"). Their dimmed backdrop covers the glass, so the check sees about 205 where it expects 153 and reports a fail.
+First run: the hidden check starts Feishin in a throwaway HOME. Left alone, Feishin opens "a new version has been installed" 2 s after its window, and its dimmed backdrop covers the glass (the check read 235 where it expects 153: a fail). So the throwaway HOME is seeded first with what Feishin keeps after that dialog: its Local Storage holds `version` = the version read from the `package.json` in the flatpak's `app.asar`. Your own Feishin profile is never read or written. With no server set, Feishin then shows its "server required" page, which carries the glass (153, a pass). When the version cannot be read, the check is not run and counts as unverifiable.
 
 ## Never touched
 

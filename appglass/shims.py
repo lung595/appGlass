@@ -329,6 +329,69 @@ def flatpak_info(env, app_id):
     return detect.flatpak_app(env, app_id)
 
 
+def asar_version(path):
+    """The version in the package.json of an Electron app.asar, or None."""
+    import struct
+    try:
+        with open(path, "rb") as f:
+            head = f.read(16)
+            if len(head) < 16:
+                return None
+            hdr = json.loads(f.read(struct.unpack("<I", head[12:16])[0]))
+            ent = hdr["files"]["package.json"]
+            f.seek(8 + struct.unpack("<I", head[4:8])[0] + int(ent["offset"]))
+            v = json.loads(f.read(int(ent["size"])))["version"]
+    except (OSError, ValueError, KeyError, TypeError, struct.error):
+        return None
+    return v if isinstance(v, str) and re.match(r"^[\w.+-]{1,64}$", v) else None
+
+
+def _crc32c(data, _t=[]):
+    if not _t:
+        for n in range(256):
+            for _ in range(8):
+                n = (n >> 1) ^ (0x82f63b78 if n & 1 else 0)
+            _t.append(n)
+    crc = 0xffffffff
+    for b in data:
+        crc = _t[(crc ^ b) & 0xff] ^ (crc >> 8)
+    return crc ^ 0xffffffff
+
+
+def _varint(n):
+    out = b""
+    while n >= 0x80:
+        out += bytes([(n & 0x7f) | 0x80])
+        n >>= 7
+    return out + bytes([n])
+
+
+def local_storage_log(origin, items):
+    """A Chromium Local Storage leveldb with items {key: value} (str, Latin-1)
+    for origin ("file://"), as one write-ahead log (000003.log) in an
+    otherwise empty leveldb dir: leveldb creates its manifest and replays
+    the log on open. Keys and values carry Chromium's Latin-1 prefix (1);
+    the origin gets its META record (last modified, size)."""
+    import struct
+    import time
+    puts = [(b"VERSION", b"1")]
+    size = 0
+    for k, v in items.items():
+        key, val = k.encode("latin-1"), v.encode("latin-1")
+        puts.append((b"_" + origin.encode() + b"\x00\x01" + key, b"\x01" + val))
+        size += len(key) + len(val)
+    # base::Time: microseconds since 1601-01-01
+    now = int(time.time() * 1e6) + 11644473600 * 1000000
+    puts.append((b"META:" + origin.encode(), b"\x08" + _varint(now) + b"\x10" + _varint(size)))
+    body = struct.pack("<QI", 1, len(puts))
+    for k, v in puts:
+        body += b"\x01" + _varint(len(k)) + k + _varint(len(v)) + v
+    assert len(body) < 32768 - 7, "one block"
+    c = _crc32c(b"\x01" + body)
+    masked = (((c >> 15) | (c << 17)) + 0xa282ead8) & 0xffffffff
+    return struct.pack("<IHB", masked, len(body), 1) + body
+
+
 def launcher(ctx, desktop_id, wrapper_path, app_id=None, command=None):
     """The launcher override that starts wrapper_path; a warning (and
     None) without a system launcher."""

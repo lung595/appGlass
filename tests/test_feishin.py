@@ -103,6 +103,144 @@ INJECT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
                       "shims", "electron-hook", "agl-inject.py")
 
 
+def crc32c(data):
+    """The test's own CRC-32C (Castagnoli), bit by bit."""
+    crc = 0xffffffff
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            crc = (crc >> 1) ^ (0x82f63b78 if crc & 1 else 0)
+    return crc ^ 0xffffffff
+
+
+def varint(d, i):
+    n = shift = 0
+    while True:
+        b = d[i]
+        i += 1
+        n |= (b & 0x7f) << shift
+        shift += 7
+        if not b & 0x80:
+            return n, i
+
+
+def read_log(d):
+    """{key: value} of a leveldb log (one block of FULL records), each
+    record's masked CRC checked."""
+    import struct
+    out, i = {}, 0
+    while i + 7 <= len(d):
+        crc, n, t = struct.unpack("<IHB", d[i:i + 7])
+        body = d[i + 7:i + 7 + n]
+        c = crc32c(bytes([t]) + body)
+        assert crc == ((((c >> 15) | (c << 17)) + 0xa282ead8) & 0xffffffff), "crc"
+        assert t == 1, "a FULL record"
+        seq, count = struct.unpack("<QI", body[:12])
+        assert seq >= 1
+        j = 12
+        for _ in range(count):
+            assert body[j] == 1, "a put"
+            kl, j = varint(body, j + 1)
+            k = body[j:j + kl]
+            vl, j = varint(body, j + kl)
+            out[k] = body[j:j + vl]
+            j += vl
+        i += 7 + n
+    return out
+
+
+def asar(path, files):
+    """A minimal asar archive with files {name: bytes} at its top."""
+    import struct
+    hdr, off, blob = {"files": {}}, 0, b""
+    for n, data in files.items():
+        hdr["files"][n] = {"size": len(data), "offset": str(off)}
+        off += len(data)
+        blob += data
+    j = json.dumps(hdr).encode()
+    pad = (4 - len(j) % 4) % 4
+    pickle = struct.pack("<II", 4 + len(j) + pad, len(j)) + j + b"\0" * pad
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(struct.pack("<II", 4, len(pickle)) + pickle + blob)
+
+
+class FirstRun(ShimCase, unittest.TestCase):
+    """E4: the hidden check starts Feishin in a throwaway home, where its
+    first run opens the release notes over the window 2 s after the page
+    loads (localStorage "version" is not this version): the shot would read
+    the dialog. The check seeds Feishin's Local Storage (a leveldb log
+    Chromium replays) with the version it ships, read from its app.asar;
+    without a version it is unverifiable, not a fail (an explicit on stays)."""
+    FAMILY = "feishin"
+    KEY = "org.jeffvli.feishin"
+    FLATPAK = KEY
+    SYSTEM = "org.jeffvli.feishin.desktop"
+    LAUNCHER = Feishin.LAUNCHER
+    FILES = Feishin.FILES
+    LS = ".var/app/org.jeffvli.feishin/config/feishin/Local Storage/leveldb/000003.log"
+
+    def files(self):
+        return self.w.sb.path("flatpak", "app", self.KEY, "current", "active", "files")
+
+    def ship(self, version):
+        asar(os.path.join(self.files(), "main", "resources", "app.asar"),
+             {"package.json": json.dumps({"name": "feishin", "version": version}).encode(),
+              "x.js": b"0"})
+
+    def app(self):
+        from appglass import core
+        return core.App(self.w.sb.env, quiet=True)
+
+    def test_crc32c_of_the_test(self):
+        self.assertEqual(crc32c(b"123456789"), 0xe3069283)
+
+    def test_the_seed_holds_the_shipped_version(self):
+        from appglass.families import feishin
+        self.ship("9.8.7")
+        seed = feishin.verify_seed(self.app().env)
+        self.assertEqual(list(seed), [self.LS])
+        kv = read_log(seed[self.LS])
+        self.assertEqual(kv[b"VERSION"], b"1")
+        self.assertEqual(kv[b"_file://\x00\x01version"], b'\x01"9.8.7"')
+        self.assertIn(b"META:file://", kv)
+
+    def test_no_version_no_seed(self):
+        from appglass.families import feishin
+        self.assertIsNone(feishin.verify_seed(self.app().env))
+        self.ship("")
+        self.assertIsNone(feishin.verify_seed(self.app().env))
+
+    def test_the_staged_home_holds_the_seed(self):
+        from appglass import engine, verify
+        self.ship("1.17.0")
+        self.enable()
+        self.apply()
+        app = self.app()
+        rec = engine.record_for(app, self.KEY)
+        run = self.w.sb.path("run")
+        home = verify.stage(app, rec, run)
+        self.assertIsNone(verify.seed(app, rec, home))
+        with open(os.path.join(home, self.LS), "rb") as f:
+            self.assertEqual(read_log(f.read())[b"_file://\x00\x01version"], b'\x01"1.17.0"')
+
+    def test_without_a_seed_the_check_is_unverifiable(self):
+        from appglass import engine, verify
+        self.enable()
+        self.apply()
+        app = self.app()
+        rec = engine.record_for(app, self.KEY)
+        home = verify.stage(app, rec, self.w.sb.path("run"))
+        why = verify.seed(app, rec, home)
+        self.assertIn("first run", why)
+        self.assertFalse(os.path.exists(os.path.join(home, ".var")))
+
+    def test_an_app_without_a_seed_hook_needs_none(self):
+        from appglass import verify
+        app = self.app()
+        self.assertIsNone(verify.seed(app, {"key": "gedit"}, self.w.sb.path("h")))
+
+
 class FakeInspector:
     """A loopback WebSocket that answers Runtime.evaluate like Node's
     inspector. close_on_arm: stop listening once the close is armed (Node's

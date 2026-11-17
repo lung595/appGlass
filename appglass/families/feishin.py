@@ -19,6 +19,9 @@ Files (owned; adopted hand files restored by remove):
   ~/.local/share/applications/org.jeffvli.feishin.desktop -> the wrapper
 """
 
+import json
+import os
+
 from .. import shims
 
 NAME = "feishin"
@@ -36,6 +39,22 @@ ROLES = (("surface", "101418"), ("surface_container", "1e2226"),
 
 def installed(env):
     return shims.installed_flatpak(env, FLATPAK)
+
+
+def verify_seed(env):
+    """{path under HOME: bytes}: Feishin's first-run state for its hidden
+    check, or None when its version is not known. A first run (no
+    localStorage "version") opens the release notes over the window 2 s
+    after the page loads; seeded with the version it ships, Feishin opens
+    its own page (no server yet) with no dialog."""
+    info = shims.flatpak_info(env, FLATPAK)
+    v = shims.asar_version(os.path.join(info["files"], "main", "resources", "app.asar")) \
+        if info else None
+    if not v:
+        return None
+    rel = os.path.join(".var", "app", FLATPAK, "config", "feishin", "Local Storage", "leveldb",
+                       "000003.log")
+    return {rel: shims.local_storage_log("file://", {"version": json.dumps(v)})}
 
 
 def css(ctx):

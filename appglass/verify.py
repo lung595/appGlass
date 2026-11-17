@@ -244,6 +244,25 @@ def stage(app, rec, run):
     return home
 
 
+def seed(app, rec, home):
+    """The app's own first-run state in the throwaway home (its family's
+    verify_seed: {path under HOME: bytes}), so no first-run dialog covers
+    the window the check shoots. Returns why it cannot be seeded, or None."""
+    fam = app.families.get(route_of(app, rec).get("family") or "")
+    fn = getattr(fam, "verify_seed", None)
+    if fn is None:
+        return None
+    files = fn(app.env)
+    if not files:
+        return "cannot seed the first run of %s (its version is not known)" % fam.NAME
+    for rel, data in files.items():
+        dst = os.path.join(home, rel)
+        os.makedirs(os.path.dirname(dst), mode=0o700, exist_ok=True)
+        with open(dst, "wb") as f:
+            f.write(data)
+    return None
+
+
 def _rehome(env, home, text):
     """A staged text file with the real $HOME rewritten to the throwaway
     one, except the appglass repo: a wrapper calls bin/appglass as
@@ -495,6 +514,9 @@ def run_harness(app, rec, level):
     try:
         rt = os.path.join(run, "rt")
         home = stage(app, rec, run)
+        why = seed(app, rec, home)
+        if why:
+            return {"result": "unverifiable", "reason": why}
         cmd = launcher_exec(app, rec, home)
         if not cmd:
             return {"result": "unverifiable", "reason": "no launcher to start"}
