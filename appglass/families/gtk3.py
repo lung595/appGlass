@@ -86,12 +86,25 @@ def _a(v):
     return "%s.%s" % (whole, frac.ljust(2, "0"))
 
 
+# Adwaita greys all window text to #919190 when unfocused, with no transition
+BACKDROP_FG = """\
+/* Adwaita greys all window text to #919190 when unfocused (:backdrop): too faint on glass */
+window.background:backdrop { color: mix(@window_fg_color, @window_bg_color, 0.15); }
+"""
+# with the inactive fade on, text keeps its focused colour (Adwaita's own
+# focused names), so only the background changes and nothing jumps
+BACKDROP_FG_FADE = """\
+/* unfocused: the background fades, text keeps its focused colour */
+window.background:backdrop, button:backdrop, button:backdrop.flat,
+notebook > header > tabs > arrow:backdrop { color: @theme_fg_color; }
+.view:backdrop, iconview:backdrop, .view text:backdrop, iconview text:backdrop,
+textview text:backdrop, list:backdrop, entry:backdrop { color: @theme_text_color; }
+"""
+
 RULES = """\
 /* content level {c} */
 window.background, window.background:backdrop {{ background-color: alpha(@window_bg_color, {c}); }}
-/* Adwaita greys all window text to #919190 when unfocused (:backdrop): too faint on glass */
-window.background:backdrop {{ color: mix(@window_fg_color, @window_bg_color, 0.15); }}
-.view, .view:backdrop, .view:disabled, iconview, iconview:backdrop,
+{backdrop_fg}.view, .view:backdrop, .view:disabled, iconview, iconview:backdrop,
 .view text, .view text:backdrop, .view text:disabled, iconview text, iconview text:backdrop,
 textview text, textview text:backdrop, textview text:disabled, textview border,
 treeview.view, treeview.view:backdrop, list, list:backdrop, scrolledwindow viewport {{ background-color: transparent; }}
@@ -152,7 +165,9 @@ def render(ctx):
         lines.append("@define-color window_fg_color %s;" % rf)
         lines.append("@define-color view_fg_color %s;" % rf)
     lines.append("")
-    lines.append(RULES.format(c=_a(lv.content), b=_a(lv.bar), i=_a(lv.bar_over_content)))
+    fade = inactive.active(ctx.settings, lv.content)
+    lines.append(RULES.format(c=_a(lv.content), b=_a(lv.bar), i=_a(lv.bar_over_content),
+                              backdrop_fg=BACKDROP_FG_FADE if fade else BACKDROP_FG))
     lines += inactive_rule(ctx)
     return "\n".join(lines)
 

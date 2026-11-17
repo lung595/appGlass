@@ -7,6 +7,7 @@ import subprocess
 import unittest
 import urllib.parse
 
+from fixtures.css import backdrop_text_changes
 from fixtures.sandbox import Sandbox, fixture
 from appglass import core
 from appglass.families import gtk3 as fam
@@ -131,6 +132,19 @@ class Gtk3(unittest.TestCase):
         self.assertIn("alpha(@window_bg_color, 0.70)", t)
         self.assertIn("alpha(@headerbar_bg_color, 0.70)", t)   # bar = max(content, 0.65)
         self.assertIn("alpha(@sidebar_bg_color, 0.00)", t)
+
+    def test_inactive_backdrop_keeps_text(self):
+        # with the fade on, unfocused text keeps the focused colour: Adwaita
+        # greys it at once (no transition), which reads as a jump
+        self.sb.set_level(0.8)
+        self.apply()
+        t = self.theme()
+        self.assertEqual(backdrop_text_changes(t), [])
+        self.assertNotIn("window.background:backdrop { color: mix(", t)
+        self.assertIn("window.background:backdrop", t[t.index("text keeps"):])
+        self.sb.run("set", "inactive.enabled", "false")
+        self.apply()
+        self.assertIn("window.background:backdrop { color: mix(", self.theme())
 
     def test_inactive_backdrop_fades(self):
         self.sb.set_level(0.8)

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import unittest
 
+from fixtures.css import backdrop_text_changes
 from fixtures.sandbox import Sandbox, fixture
 from appglass import core
 from appglass.families import gtk4 as fam
@@ -132,6 +133,18 @@ class Gtk4(unittest.TestCase):
         self.assertIn("window_bg_color alpha(%s, 0.50);" % self.roles()["surface_container"], g)
         self.assertIn("sidebar_bg_color alpha(%s, 0.30);"
                       % self.roles()["surface_container_high"], g)
+
+    def test_inactive_backdrop_keeps_text(self):
+        # with the fade on, only the background changes when unfocused: the
+        # header bar contents keep their focused look (no filter, no jump)
+        self.sb.set_level(0.8)
+        self.apply()
+        g = self.glass()
+        self.assertEqual(backdrop_text_changes(g), [])
+        self.assertIn("tabbar .box:backdrop > .end-action { filter: none; }", g)
+        self.run_ag("set", "inactive.enabled", "false")
+        self.apply()
+        self.assertIn("filter: opacity(0.8); }", self.glass())   # off: the old cue
 
     def test_inactive_backdrop_fades(self):
         self.apply()

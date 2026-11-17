@@ -73,13 +73,19 @@ GTK_CSS = DANK_IMPORT + "\n" + GLASS_IMPORT + "\n"
 _DANK_RE = re.compile(r"^@import url.*dank-colors\.css.*\);$")
 TARGET = 2.25
 
-BACKDROP_RULE = """\
-/* Unfocused windows: Adwaita fades bar contents with filter: opacity(0.5) */
+BACKDROP_SELECTORS = """\
 headerbar:backdrop > windowhandle,
 toolbarview > .top-bar:backdrop > windowhandle, toolbarview > .bottom-bar:backdrop > windowhandle,
 searchbar > revealer > box:backdrop > *, actionbar > revealer > box:backdrop > *,
-tabbar .box:backdrop > scrolledwindow, tabbar .box:backdrop > .start-action, tabbar .box:backdrop > .end-action { filter: opacity(0.8); }
-"""
+tabbar .box:backdrop > scrolledwindow, tabbar .box:backdrop > .start-action, tabbar .box:backdrop > .end-action"""
+BACKDROP_RULE = (
+    "/* Unfocused windows: Adwaita fades bar contents with filter: opacity(0.5) */\n"
+    + BACKDROP_SELECTORS + " { filter: opacity(0.8); }\n")
+# with the inactive fade on, the bar contents (titles, icons) keep their
+# focused look: the filter has no transition, so it would jump and fade text
+BACKDROP_RULE_FADE = (
+    "/* Unfocused windows: the background fades, bar contents stay as focused */\n"
+    + BACKDROP_SELECTORS + " { filter: none; }\n")
 
 FG_ROLES = ("window_fg_color", "view_fg_color", "headerbar_fg_color",
             "headerbar_backdrop_fg_color", "sidebar_fg_color", "sidebar_backdrop_fg_color",
@@ -155,7 +161,7 @@ def render(ctx):
         "/* Dimmed text (.dim-label/.dimmed, pathbar, subtitles) defaults to 0.55 */",
         ":root { --dim-opacity: 0.80; }",
         "",
-        BACKDROP_RULE,
+        BACKDROP_RULE_FADE if inactive.active(ctx.settings, c) else BACKDROP_RULE,
     ]
     lines += inactive_rule(ctx)
     return "\n".join(lines)
