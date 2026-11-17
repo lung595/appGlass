@@ -1922,14 +1922,15 @@ def cmd_status(app):
     lv = app.levels
     p("levels:   content %.2f (%d)  bars %.2f (%d)  popups 1.0 (255)"
       % (lv.content, lv.content8, lv.bar, lv.bar8))
+    renders = {}
     for name in sorted(app.families):
         fam = app.families[name]
         inst = "installed" if app.installed(fam) else "not installed"
         o = st.owners.get(name)
         if o:
             files = ", ".join(sorted(o.get("files", {})))
-            r = family_render(app, name)
-            how = " (renders on the %s%s)" % (r[0].upper(), ": " + r[1] if r[1] else "") if r else ""
+            r = renders[name] = family_render(app, name)
+            how = " (%s)" % render_says(r) if r else ""
             p("%-10s %s, applied%s: %s" % (name, inst, how, files))
         else:
             p("%-10s %s, not applied" % (name, inst))
@@ -1937,7 +1938,7 @@ def cmd_status(app):
         o = st.owners.get(name)
         p("%-10s %s" % (name, ("applied: " + ", ".join(sorted(o["files"]))) if o else "not applied"))
     try:
-        routes = app_routes(app)
+        routes = app_routes(app, renders=renders)
     except Exception as ex:  # status must not die on a detection bug
         app.warn("detect failed: %s" % ex)
         routes = []
@@ -1952,7 +1953,7 @@ def cmd_status(app):
 
 
 def family_render(app, name):
-    """(gpu | cpu, why) for an applied family with a render_route(env, owner)
+    """(gpu | cpu | off, why) for an applied family with a render_route(env, owner)
     (the route its wrapper takes), else None"""
     fam, o = app.families.get(name), app.state.owners.get(name)
     if o is None or not hasattr(fam, "render_route"):
@@ -1964,10 +1965,19 @@ def family_render(app, name):
         return None
 
 
-def app_routes(app, records=None):
+def render_says(rd):
+    """the words for a family_render() result: "renders on the GPU: why",
+    or for off "starts plain, without glass: why"."""
+    route, why = rd
+    says = "starts plain, without glass" if route == "off" else "renders on the %s" % route.upper()
+    return says + (": " + why if why else "")
+
+
+def app_routes(app, records=None, renders=None):
     """[(record, route)] for every installed, shown app: route = adapters.resolve();
     a glass app whose family says where it renders gets "render" and the
-    reason says it."""
+    reason says it. renders: {family: family_render()} already asked (the
+    probe behind it takes about 0.1 s), else asked here."""
     from . import adapters
     records = detected(app) if records is None else records
     out = []
@@ -1978,10 +1988,11 @@ def app_routes(app, records=None):
         fam = route.get("family")
         if fam and route["effective"] == "glass" and not app.installed(app.families[fam]):
             route.update(effective="fallback", reason="family %s: not installed" % fam)
-        rd = family_render(app, fam) if fam and route["effective"] == "glass" else None
+        rd = None
+        if fam and route["effective"] == "glass":
+            rd = renders[fam] if renders is not None and fam in renders else family_render(app, fam)
         if rd:
-            route.update(render=rd[0], reason="%s, renders on the %s%s"
-                         % (route["reason"], rd[0].upper(), ": " + rd[1] if rd[1] else ""))
+            route.update(render=rd[0], reason="%s, %s" % (route["reason"], render_says(rd)))
         out.append((r, route))
     return out
 
@@ -2027,13 +2038,13 @@ def _inactive_doc(app):
 def status_doc(app):
     from . import adapters
     st, lv = app.state, app.levels
-    fams = {}
+    fams, renders = {}, {}
     for name in sorted(app.families):
         o = st.owners.get(name)
         fams[name] = {"installed": app.installed(app.families[name]),
                       "enabled": _family_enabled(app, name),
                       "applied": sorted(app.env.tilde(f) for f in o.get("files", {})) if o else []}
-        rd = family_render(app, name)
+        rd = renders[name] = family_render(app, name)
         if rd:
             fams[name].update(render=rd[0], render_why=rd[1])
     core_owners = {n: sorted(app.env.tilde(f) for f in st.owners[n]["files"])
@@ -2049,7 +2060,7 @@ def status_doc(app):
                 clash.setdefault(fam, []).append(h["path"])
     apps = []
     counts = {}
-    for r, route in app_routes(app):
+    for r, route in app_routes(app, renders=renders):
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1
         own = (app.settings.get("apps", {}).get(r["key"]) or {}).get("route")
         apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
@@ -3272,8 +3283,9 @@ def cmd_doctor(app, fix=False):
         for name in sorted(app.state.owners):
             rd = family_render(app, name)
             if rd:
-                print("render: %s on the %s%s" % (name, rd[0].upper(),
-                                                  " (%s)" % rd[1] if rd[1] else ""), file=app.out)
+                where = "plain, without glass" if rd[0] == "off" else "on the " + rd[0].upper()
+                print("render: %s %s%s" % (name, where, " (%s)" % rd[1] if rd[1] else ""),
+                      file=app.out)
     drift = doctor_drift(app)
     if not drift:
         app.info("doctor: no drift")

@@ -104,7 +104,8 @@ class Manifest(unittest.TestCase):
 
 
 CLIENT = r"""
-// client <R|B> : headless OPAQUE swapchain 64x32, fill, present, read the presented image back.
+// client <R|B|S> : headless OPAQUE swapchain 64x32 (RGBA, BGRA or BGRA sRGB), fill, present, read
+// the presented image back.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,7 +135,8 @@ static void put(uint8_t *p, int bgr, uint32_t rgb) {
     p[0] = bgr ? b : r; p[1] = g; p[2] = bgr ? r : b; p[3] = 255;
 }
 int main(int argc, char **argv) {
-    int bgr = argv[1][0] == 'B'; VkFormat fmt = bgr ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_R8G8B8A8_UNORM;
+    int bgr = argv[1][0] != 'R';
+    VkFormat fmt = argv[1][0] == 'S' ? VK_FORMAT_B8G8R8A8_SRGB : bgr ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_R8G8B8A8_UNORM;
     const char *ie[] = { "VK_KHR_surface", "VK_EXT_headless_surface" };
     VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO, .apiVersion = VK_API_VERSION_1_1 };
     VkInstanceCreateInfo ici = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, .pApplicationInfo = &app, .enabledExtensionCount = 2, .ppEnabledExtensionNames = ie };
@@ -200,6 +202,24 @@ int main(int argc, char **argv) {
     }
     vkDestroySwapchainKHR(dev, sc, 0); vkDestroyDevice(dev, 0); vkDestroySurfaceKHR(in, surf, 0); vkDestroyInstance(in, 0);
     return 0;
+}
+"""
+
+
+NOMEM = r"""
+// built into a test copy of the layer with -Dcalloc=appglass_test_calloc: APPGLASS_TEST_NOMEM=<n>
+// makes the n-th calloc of the layer fail (1: the instance record, 2: the device record)
+#undef calloc                         /* this file calls the real one */
+#include <stdlib.h>
+#include <pthread.h>
+void *appglass_test_calloc(size_t n, size_t s);
+static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+static int calls;
+void *appglass_test_calloc(size_t n, size_t s) {
+    const char *e = getenv("APPGLASS_TEST_NOMEM");
+    pthread_mutex_lock(&m); int k = ++calls; pthread_mutex_unlock(&m);
+    if (e && atoi(e) == k) return NULL;
+    return calloc(n, s);
 }
 """
 
@@ -330,6 +350,17 @@ class Layer(unittest.TestCase):
         subprocess.run([GCC, "-O2", "-Wall", "-Werror", "-shared", "-fPIC", "-fvisibility=hidden",
                         "-o", cls.so, SRC, "-lpthread"], check=True, capture_output=True, timeout=120)
         shutil.copy(os.path.join(D, "appglass-vk.json"), cls.layer_dir)
+        # the same layer with its calloc()s failing on demand (APPGLASS_TEST_NOMEM=<n>: the n-th)
+        cls.nomem_dir = os.path.join(cls.dir, "vk-nomem")
+        os.mkdir(cls.nomem_dir)
+        c = os.path.join(cls.dir, "nomem.c")
+        with open(c, "w") as f:
+            f.write(NOMEM)
+        subprocess.run([GCC, "-O2", "-Wall", "-Werror", "-shared", "-fPIC", "-fvisibility=hidden",
+                        "-Dcalloc=appglass_test_calloc", "-o",
+                        os.path.join(cls.nomem_dir, "libappglass-vk.so"), SRC, c, "-lpthread"],
+                       check=True, capture_output=True, timeout=120)
+        shutil.copy(os.path.join(D, "appglass-vk.json"), cls.nomem_dir)
         c = os.path.join(cls.dir, "client.c")
         with open(c, "w") as f:
             f.write(CLIENT)
@@ -354,14 +385,16 @@ class Layer(unittest.TestCase):
         self.assertEqual(syms, ["vkGetDeviceProcAddr", "vkGetInstanceProcAddr",
                                 "vkNegotiateLoaderLayerInterfaceVersion"])
 
-    def run_client(self, fmt, layer=True, keys="121316:0.60,060607:0.65"):
+    def run_client(self, fmt, layer=True, keys="121316:0.60,060607:0.65", **extra):
         env = {"PATH": "/usr/bin:/bin", "HOME": self.dir, "XDG_CACHE_HOME": self.dir,
                "VK_DRIVER_FILES": LVP, "VK_LOADER_LAYERS_DISABLE": "~implicit~",
                "APPGLASS_DEBUG": "1", "LP_NUM_THREADS": "1"}
         if layer:
-            env.update(VK_ADD_LAYER_PATH=self.layer_dir, VK_INSTANCE_LAYERS=LAYER)
+            env.update(VK_ADD_LAYER_PATH=layer if isinstance(layer, str) else self.layer_dir,
+                       VK_INSTANCE_LAYERS=LAYER)
         if keys:
             env["APPGLASS_KEYS"] = keys
+        env.update(extra)
         r = subprocess.run([self.client, fmt], env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         px = [tuple(map(int, l.split())) for l in r.stdout.split("\n") if l.strip()]
@@ -397,6 +430,44 @@ class Layer(unittest.TestCase):
         self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
         self.assertEqual(px[1], (0x06, 0x06, 0x07, 255))
         self.assertNotIn("PRE_MULTIPLIED", log)
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_srgb_stays_opaque(self):
+        """a format the pass does not key (sRGB: the shader would see linear values): the
+        swapchain is made exactly as asked (OPAQUE, no extra usage) and the pixels are untouched"""
+        px, log = self.run_client("S")
+        self.assertIn("stays opaque: format is not 8-bit UNORM with alpha", log)
+        self.assertNotIn("PRE_MULTIPLIED", log)
+        self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
+        self.assertEqual(px[1], (0x06, 0x06, 0x07, 255))
+        self.assertEqual(px[2], (255, 255, 255, 255))
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_no_instance_record_passes_through(self):
+        """no memory for the instance record: the app still gets its instance, device, swapchain
+        and presents, opaque and untouched"""
+        px, log = self.run_client("B", layer=self.nomem_dir, APPGLASS_TEST_NOMEM="1")
+        self.assertIn("no memory for the instance record", log)
+        self.assertNotIn("PRE_MULTIPLIED", log)
+        self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
+        self.assertEqual(px[1], (0x06, 0x06, 0x07, 255))
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_no_device_record_passes_through(self):
+        """no memory for the device record: vkGetDeviceQueue, the swapchain and the present all
+        reach the driver as the app made them"""
+        px, log = self.run_client("B", layer=self.nomem_dir, APPGLASS_TEST_NOMEM="2")
+        self.assertIn("no memory for the device record", log)
+        self.assertNotIn("PRE_MULTIPLIED", log)
+        self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
+        self.assertEqual(px[1], (0x06, 0x06, 0x07, 255))
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_nomem_build_keys_when_nothing_fails(self):
+        """the test build is the same layer: with no calloc failing it keys as usual"""
+        (content, *_), log = self.run_client("B", layer=self.nomem_dir)
+        self.assertIn("PRE_MULTIPLIED", log)
+        self.assertAlmostEqual(content[3], 153, delta=1)
 
     @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
     def test_untouched_without_layer(self):

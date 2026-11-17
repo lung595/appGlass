@@ -136,14 +136,14 @@ def vulkan_device(env, d):
 
 
 def render_route(env, owner):
-    """("gpu" | "cpu", why) for an applied family: the route the wrapper takes
-    with the env status runs in (APPGLASS_ARTCRAFT=cpu forces the CPU route;
-    =off starts the launcher plain, on its own Vulkan renderer, without glass)"""
+    """("gpu" | "cpu" | "off", why) for an applied family: the route the wrapper
+    takes with the env status runs in (APPGLASS_ARTCRAFT=cpu forces the CPU route;
+    =off starts the launcher plain, on its own renderer, without glass: no glass route)"""
     knob = env.environ.get("APPGLASS_ARTCRAFT", "")
     if knob == "cpu":
         return "cpu", "APPGLASS_ARTCRAFT=cpu"
     if knob == "off":
-        return "gpu", "APPGLASS_ARTCRAFT=off: starts plain, without glass"
+        return "off", "APPGLASS_ARTCRAFT=off"
     files = owner.get("files", {})
     d = shims.lib_dir(env, APP, "vk")
     layer_files = [os.path.join(d, n) for n in (LAYER_SO, LAYER_JSON, PROBE)]

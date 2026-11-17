@@ -214,11 +214,33 @@ class ArtCraft(ShimCase, unittest.TestCase):
             code, out, err = self.w.run("status", "--json", env={"APPGLASS_ARTCRAFT": "cpu"})
             fam = json.loads(out)["families"]["artcraft"]
             self.assertEqual((fam["render"], fam["render_why"]), ("cpu", "APPGLASS_ARTCRAFT=cpu"))
-            code, out, err = self.w.run("status", "--json", env={"APPGLASS_ARTCRAFT": "off"})
-            fam = json.loads(out)["families"]["artcraft"]
-            self.assertEqual(fam["render"], "gpu")
-            self.assertIn("APPGLASS_ARTCRAFT=off", fam["render_why"])
-            self.assertIn("plain", fam["render_why"])
+            # off: no glass at all, so neither the GPU nor the CPU glass route
+            off = {"APPGLASS_ARTCRAFT": "off"}
+            code, out, err = self.w.run("status", "--json", env=off)
+            doc = json.loads(out)
+            fam = doc["families"]["artcraft"]
+            self.assertEqual((fam["render"], fam["render_why"]), ("off", "APPGLASS_ARTCRAFT=off"))
+            app = [a for a in doc["apps"] if a["key"] == self.KEY][0]
+            self.assertEqual(app["render"], "off")
+            self.assertIn("starts plain, without glass", app["reason"])
+            self.assertNotIn("GPU", app["reason"])
+            code, out, err = self.w.run("status", env=off)
+            self.assertRegex(out, r"(?m)^artcraft .*applied \(starts plain, without glass: "
+                                  r"APPGLASS_ARTCRAFT=off\)")
+            code, dout, derr = self.w.run("doctor", env=off)
+            self.assertIn("render: artcraft plain, without glass (APPGLASS_ARTCRAFT=off)\n", dout)
+
+    def test_status_probes_once(self):
+        """one status run asks the probe once, for the family and the app row both"""
+        self.enable()
+        self.apply()
+        count = os.path.join(self.w.sb.root, "probe.count")
+        with self.device(code="echo run >> '%s'; echo 'gpu Fake GPU'" % count):
+            doc = self.status()
+        self.assertEqual(doc["families"]["artcraft"]["render"], "gpu")
+        self.assertEqual([a for a in doc["apps"] if a["key"] == self.KEY][0]["render"], "gpu")
+        with open(count) as f:
+            self.assertEqual(f.read().count("run"), 1)
 
     # --- the wrapper: gpu, cpu or plain
 

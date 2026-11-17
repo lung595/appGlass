@@ -14,7 +14,7 @@ Without it, wgpu's Vulkan swapchain is opaque, and the only glass route is the C
 
 - `~/.local/lib/appglass/artcraft/vk/libappglass-vk.so`, built with the host `cc` from `appglass-vk.c` and `glass-spv.h` (rebuilt only when they or the compiler change);
 - `~/.local/lib/appglass/artcraft/vk/appglass-vk.json`, the explicit manifest (`library_path` `./libappglass-vk.so`);
-- `~/.local/lib/appglass/artcraft/vk/appglass-vkprobe`, built with the same `cc` and headers from `appglass-vkprobe.c` (it `dlopen`s `libvulkan.so.1`, so it needs no `-lvulkan`). It creates a Vulkan instance, lists the physical devices (`gpu <name>` or `cpu <name>` per line) and exits 0 only when one of them is not `VK_PHYSICAL_DEVICE_TYPE_CPU`, 1 when only lavapipe answers, 2 when there is no loader, no instance or no device. It takes about 60 ms on the NVIDIA host, so it runs at every start, uncached.
+- `~/.local/lib/appglass/artcraft/vk/appglass-vkprobe`, built with the same `cc` and headers from `appglass-vkprobe.c` (it `dlopen`s `libvulkan.so.1`, so it needs no `-lvulkan`). It creates a Vulkan instance, lists the physical devices (`gpu <name>` or `cpu <name>` per line) and exits 0 only when one of them is not `VK_PHYSICAL_DEVICE_TYPE_CPU`, 1 when only lavapipe answers, 2 when there is no loader, no instance or no device. With the layer on it takes about 0.1 s on the NVIDIA host (80-120 ms wall, 0.07-0.12 s CPU), so it runs at every start, uncached. A `status` run asks it once, for the family line and the app row both.
 
 Nothing is written to `/usr/share/vulkan`, `/etc/vulkan` or `~/.local/share/vulkan`. `appglass remove --only artcraft` deletes the three files with the rest of the family (a hand-made file it adopted is put back). When the probe or the layer does not build, neither is installed.
 
@@ -23,7 +23,7 @@ The one wrapper, `appglass-artcraft`, picks the route at every start:
 | Case | Route |
 |---|---|
 | `APPGLASS_ARTCRAFT=off`, no `appglass-ck.so`, or a light system theme | plain (opaque, as the launcher ships) |
-| the three layer files there, and `appglass-vkprobe` exits 0, run with this route's env (the user's own Vulkan env, the layer added, no `__EGL_VENDOR_LIBRARY_FILENAMES`, no core file, 10 s timeout) | **GPU**: `WGPU_BACKEND=vulkan`, the layer, the keys, no `__EGL_VENDOR_LIBRARY_FILENAMES`; `LP_NUM_THREADS=4` and `APPGLASS_MAXFPS=60`, which the layer keeps to only when wgpu still lands on a CPU device |
+| the three layer files there, and `appglass-vkprobe` exits 0, run with this route's env (the user's own Vulkan env, the layer added, no `__EGL_VENDOR_LIBRARY_FILENAMES`, no core file, 10 s timeout) | **GPU**: `WGPU_BACKEND=vulkan`, the layer, the keys, no `__EGL_VENDOR_LIBRARY_FILENAMES`; `LP_NUM_THREADS=4` and `APPGLASS_MAXFPS=60`, which the layer keeps to only when wgpu still lands on a CPU device (on purpose: a safety net for lavapipe; a GPU is never capped, 3108 presents in 14.5 s at 240 Hz) |
 | `APPGLASS_ARTCRAFT=cpu`, or no layer, or the probe finds only lavapipe, no device or crashes (a broken driver, a damaged layer), and Mesa EGL is installed | **CPU**: Mesa EGL, `WGPU_BACKEND=gl`, llvmpipe 4 threads, the keys, `APPGLASS_MAXFPS=60` |
 | none of the above | plain |
 
@@ -33,7 +33,7 @@ Why the probe and not a look at the files: Fedora's `mesa-vulkan-drivers` ships 
 
 When the layer does not build (no Vulkan headers, for example), apply warns once, the CPU route is still installed, and status gives the reason.
 
-`appglass status` shows the route on the family line, `artcraft   installed, applied (renders on the GPU): ...` or `(renders on the CPU: <why>)`. `status --json` has `render` and `render_why` on the family, and the app's route reason says it too, which is what the plugin's app row shows. `appglass doctor` prints `render: artcraft on the GPU` (an information line, not drift). They run the same probe the same way as the wrapper, in the env status runs in: `APPGLASS_ARTCRAFT=cpu` there gives `cpu` (`APPGLASS_ARTCRAFT=cpu`), `=off` gives `gpu` with "starts plain, without glass", only lavapipe gives `no Vulkan GPU, only llvmpipe (...)`, a probe that fails gives `no usable Vulkan device (...)`.
+`appglass status` shows the route on the family line, `artcraft   installed, applied (renders on the GPU): ...` or `(renders on the CPU: <why>)`. `status --json` has `render` and `render_why` on the family, and the app's route reason says it too, which is what the plugin's app row shows. `appglass doctor` prints `render: artcraft on the GPU` (an information line, not drift). They run the same probe the same way as the wrapper, in the env status runs in: `APPGLASS_ARTCRAFT=cpu` there gives `cpu` (`APPGLASS_ARTCRAFT=cpu`), `=off` gives `off` (`APPGLASS_ARTCRAFT=off`, "starts plain, without glass"; doctor: `render: artcraft plain, without glass (APPGLASS_ARTCRAFT=off)`), only lavapipe gives `no Vulkan GPU, only llvmpipe (...)`, a probe that fails gives `no usable Vulkan device (...)`.
 
 **Result**
 
@@ -124,7 +124,7 @@ APPGLASS_KEYS="121316:0.60,151517:0.60,060607:0.65"  APPGLASS_SNAP=0.25
 
 | File | What |
 |---|---|
-| `shims/vklayer/appglass-vk.c` | the layer (about 500 lines of C, no dependencies beyond the Vulkan headers) |
+| `shims/vklayer/appglass-vk.c` | the layer (about 600 lines of C, no dependencies beyond the Vulkan headers) |
 | `shims/vklayer/appglass-vk.json` | explicit layer manifest, `library_path` `./libappglass-vk.so` (next to it) |
 | `shims/vklayer/glass.vert`, `glass.frag`, `gen-spv.py`, `glass-spv.h` | the pass and its generated SPIR-V |
 | `shims/vklayer/appglass-vkprobe.c` | the device probe the wrapper and status run |
@@ -145,7 +145,9 @@ The tests then check:
 - an edge between 153 and 255;
 - a key ±1 level still gives the glass level;
 - both RGBA and BGRA;
-- nothing changes without keys, and without the layer.
+- nothing changes without keys, and without the layer;
+- a `B8G8R8A8_SRGB` swapchain with keys stays opaque ("format is not 8-bit UNORM with alpha"), pixels untouched;
+- with no instance record or no device record (a test build of the layer whose `calloc` fails on demand), every call passes through and the image is untouched.
 
 A second client (`multi`) runs the swapchain lifecycles of a real app, with two frames in flight and a clean teardown:
 
@@ -230,8 +232,9 @@ The same harness, with the files installed by `appglass apply --only artcraft` i
 | run 2 | 0.67 s (3.8 %), 936 presents | 18.20 s (113.4 %), 841 presents |
 | CPU per present | 0.7-0.8 ms | 21.6-21.9 ms |
 | Idle 10 s | 0 | 0 |
+| 240 Hz output, scrolling (about 14.5 s) | 2.06 s in 14.5 s (14.2 % of one core), 3108 presents | 17.95 s in 14.4 s (124.7 %), 815 presents |
 
-Scrolling costs about 25 times less CPU on the GPU route. Shots, logs and scripts: `shots/artgpu/` in the probe notes.
+At 60 Hz scrolling costs about 25 times less CPU on the GPU route. At 240 Hz it costs about 9 times less: the GPU route has no frame cap (by design, only a CPU device is capped) and presents about 214 frames a second, the CPU route about 57. A CPU monitor that divides by all 16 cores (dgop) shows the GPU route at about 0.9 % while scrolling at 240 Hz. Shots, logs and scripts: `shots/artgpu/` in the probe notes.
 
 ## Limits and open points
 
@@ -242,6 +245,8 @@ Scrolling costs about 25 times less CPU on the GPU route. Shots, logs and script
   - sRGB swapchain formats are refused (left opaque): the pass would need sRGB-aware keys.
   - 10-bit, float formats and HDR colour spaces are also refused.
   - ArtCraft uses `R8G8B8A8_UNORM` in sRGB-nonlinear, so it is covered.
+- **No surface check in the probe.** The probe creates an instance and lists the devices, it makes no Wayland surface. If the NVIDIA device is found but wgpu then cannot make a Wayland surface on it (a broken NVIDIA EGL WSI with a working Vulkan instance), the GPU route opens no window and there is no automatic fallback. `APPGLASS_ARTCRAFT=cpu` starts it on the CPU route.
+- **No record, no glass.** An instance or device the layer has no record for (no memory for one, or a physical device it cannot match to an instance) passes every call straight through: the window opens opaque, as without the layer. A test build of the layer with its allocations failing on demand covers both.
 - **Queues.** If an app creates a queue family without graphics, every swapchain of that app stays opaque, because the layer draws on the presenting queue. lavapipe has one queue family, so the re-recording for a present from another family is not covered by a test.
 - **Other Vulkan apps.**
   - The layer is generic, but its keys are ArtCraft's.

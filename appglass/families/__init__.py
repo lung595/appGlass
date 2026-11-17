@@ -32,8 +32,8 @@ undo(env, path, text) -> str   (optional)
 
 render_route(env, owner) -> (str, str)   (optional)
     For a family whose wrapper picks a render route at launch: the route it
-    takes as installed ("gpu" | "cpu") and why ("" when there is nothing to
-    say). ``owner`` is the family's state.json record. status, status --json
+    takes as installed ("gpu" | "cpu", or "off" when a knob starts the app
+    plain, without glass) and why ("" when there is nothing to say). ``owner`` is the family's state.json record. status, status --json
     (``render``, ``render_why``), doctor and the plugin's app row show it.
 
 There is no remove function: remove is the core's job, from state.json
