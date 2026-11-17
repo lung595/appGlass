@@ -31,6 +31,7 @@
 static bool g_active = false;
 #define LOG(...) do { if (g_log) fprintf(stderr, "jfglass: " __VA_ARGS__); } while (0)
 static bool g_log = false;
+static QString g_css;   // JFGLASS_CSS, read once at load (then unset)
 
 static const char *POLL_JS =
     "(function(){var s=document.getElementById('jfglass');if(!s||!document.head)return -1;"
@@ -41,7 +42,7 @@ class JfGlass : public QObject {
     Q_OBJECT
 public:
     explicit JfGlass(QQmlApplicationEngine *e) : QObject(e), eng(e) {
-        QFile f(qEnvironmentVariable("JFGLASS_CSS"));
+        QFile f(g_css);
         if (f.open(QIODevice::ReadOnly)) css = QString::fromUtf8(f.read(256 * 1024));
         LOG("css %lld bytes\n", (long long)css.size());
         up.start();
@@ -127,6 +128,7 @@ private:
     bool ready = false, video_open = false;
 };
 
+
 static void (*real_load)(QQmlApplicationEngine *, const QUrl &);
 extern "C" void _ZN21QQmlApplicationEngine4loadERK4QUrl(QQmlApplicationEngine *self, const QUrl &url) {
     if (!real_load) real_load = reinterpret_cast<decltype(real_load)>(dlsym(RTLD_NEXT, "_ZN21QQmlApplicationEngine4loadERK4QUrl"));
@@ -143,8 +145,11 @@ __attribute__((constructor)) static void jfglass_init() {
     exe[n] = 0;
     const char *b = strrchr(exe, '/'); b = b ? b + 1 : exe;
     if (strcmp(b, "jellyfin-desktop") != 0) return;   // QtWebEngineProcess etc.: do nothing
-    unsetenv("LD_PRELOAD");                              // children do not inherit the shim
     g_log = qEnvironmentVariableIsSet("JFGLASS_LOG");
+    g_css = qEnvironmentVariable("JFGLASS_CSS");
+    unsetenv("LD_PRELOAD");                              // children do not inherit the shim
+    unsetenv("JFGLASS_CSS");
+    unsetenv("JFGLASS_LOG");
     g_active = true;
     QQuickWindow::setDefaultAlphaBuffer(true);
     LOG("preload active\n");

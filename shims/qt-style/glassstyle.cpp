@@ -6,8 +6,17 @@
 //   text roles                                : always opaque
 // Load: QT_PLUGIN_PATH=<dir containing styles/> QT_STYLE_OVERRIDE=appglass
 // Colours: APPGLASS_COLORS (default ~/.cache/dms/dms-colors.json, "mode" picks dark/light).
+// Environment: the style reads its variables once and takes them out of the process
+// environment (APPGLASS_*, QT_STYLE_OVERRIDE=appglass, its own QT_PLUGIN_PATH entry), so a
+// shell, a game or any app the Qt app starts never inherits them. Qt has read
+// QT_STYLE_OVERRIDE and QT_PLUGIN_PATH before it creates the style.
+// Opaque-paint widgets (WA_OpaquePaintEvent: KTextEditor's view and icon border) in a glass
+// window lose the attribute, so the glass under them is painted (no holes, no double fill).
 #include <QtWidgets>
 #include <QStylePlugin>
+#include <dlfcn.h>
+#include <cstring>
+extern char **environ;
 
 namespace {
 struct Pal { QColor win, high, highest, fg, fgVar, outline, hl, onHl, link; };
@@ -30,6 +39,32 @@ Pal loadPal() {
 QColor withA(QColor c, double a) { c.setAlphaF(a); return c; }
 double envF(const char *n, double d) { bool ok; double v = qEnvironmentVariable(n).toDouble(&ok); return ok ? v : d; }
 
+// take the style's variables out of the environment (children never inherit them):
+// every APPGLASS_*, QT_STYLE_OVERRIDE=appglass and the plugin dir this library was loaded from
+void scrubEnv() {
+    QList<QByteArray> names;
+    for (char **e = environ; e && *e; e++)
+        if (!strncmp(*e, "APPGLASS_", 9)) names << QByteArray(*e, int(strcspn(*e, "=")));
+    for (const QByteArray &n : names) qunsetenv(n.constData());
+    if (qEnvironmentVariable("QT_STYLE_OVERRIDE").compare("appglass", Qt::CaseInsensitive) == 0)
+        qunsetenv("QT_STYLE_OVERRIDE");
+    QString mine;   // <dir>/styles/libappglass.so -> <dir>
+    Dl_info info;
+    if (dladdr(reinterpret_cast<void *>(&scrubEnv), &info) && info.dli_fname)
+        mine = QFileInfo(QString::fromLocal8Bit(info.dli_fname)).canonicalPath() + "/..";
+    mine = QDir(mine).canonicalPath();
+    if (qEnvironmentVariableIsSet("QT_PLUGIN_PATH")) {
+        QStringList keep;
+        for (const QString &d : qEnvironmentVariable("QT_PLUGIN_PATH").split(':', Qt::SkipEmptyParts)) {
+            const QString c = QDir(d).canonicalPath();
+            if (!(c.isEmpty() ? QDir::cleanPath(d) : c).endsWith("/appglass/qt6") && (mine.isEmpty() || c != mine))
+                keep << d;
+        }
+        if (keep.isEmpty()) qunsetenv("QT_PLUGIN_PATH");
+        else qputenv("QT_PLUGIN_PATH", keep.join(':').toLocal8Bit());
+    }
+}
+
 bool isBar(const QWidget *w) {
     return qobject_cast<const QMenuBar *>(w) || qobject_cast<const QToolBar *>(w) || qobject_cast<const QStatusBar *>(w)
         || qobject_cast<const QTabBar *>(w) || qobject_cast<const QHeaderView *>(w);
@@ -50,6 +85,7 @@ public:
         glassDialogs = qEnvironmentVariable("APPGLASS_DIALOGS") == "glass";
         dbg2 = qEnvironmentVariable("APPGLASS_DEBUG") == "2"; if (dbg2) qApp->installEventFilter(this);
         opaqueApps = qEnvironmentVariable("APPGLASS_OPAQUE").split(',', Qt::SkipEmptyParts);
+        scrubEnv();
     }
     // opaque base palette (popups, dialogs) - text roles always opaque
     QPalette opaquePalette() const {
@@ -87,6 +123,10 @@ public:
                      qPrintable(w->objectName()), w->autoFillBackground(), int(w->backgroundRole()),
                      w->parentWidget() ? w->parentWidget()->metaObject()->className() : "-");
         if (isPopup(w)) { w->setPalette(opaquePalette()); return; }
+        if (!w->isWindow() && w->testAttribute(Qt::WA_OpaquePaintEvent) && !isPopup(w->window())
+            && !w->testAttribute(Qt::WA_NativeWindow) && !w->testAttribute(Qt::WA_PaintOnScreen)
+            && !w->inherits("QOpenGLWidget") && !w->inherits("QQuickWidget"))
+            w->setAttribute(Qt::WA_OpaquePaintEvent, false);   // the glass under it gets painted
         if (w->isWindow()) {
             bool dialog = qobject_cast<QDialog *>(w) || w->windowType() == Qt::Dialog || w->windowType() == Qt::Sheet;
             bool skip = opaqueApps.contains(QCoreApplication::applicationName(), Qt::CaseInsensitive)
