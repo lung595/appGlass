@@ -1,0 +1,15 @@
+{
+    "file_format_version": "1.2.0",
+    "layer": {
+        "name": "VK_LAYER_APPGLASS_glass",
+        "type": "INSTANCE",
+        "library_path": "./libappglass-vk.so",
+        "api_version": "1.3.0",
+        "implementation_version": "1",
+        "description": "appglass: colour-key glass for opaque Vulkan swapchains (explicit layer, on only through the launch wrapper)",
+        "functions": {
+            "vkGetInstanceProcAddr": "vkGetInstanceProcAddr",
+            "vkGetDeviceProcAddr": "vkGetDeviceProcAddr"
+        }
+    }
+}
