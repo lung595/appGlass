@@ -5,9 +5,11 @@
 # --inspect-publish-uid=stderr: the inspector target is NOT listed over HTTP, so a client needs the
 # random session UUID printed on the app's stderr, which only this wrapper reads (a 0700 dir in a
 # private XDG_RUNTIME_DIR, else no inspector at all; the log is deleted after the injection attempt,
-# whatever its result). The port stays open while VSCodium runs (Electron cannot close it).
-# agl-inject.py requires agl-hook.js in the main process (clear window background + glass CSS from
-# AGL_CSS). CSS generated at launch from DMS colours + levels. The canvas-painted parts (minimap,
+# whatever its result). agl-inject.py requires agl-hook.js in the main process (clear window
+# background + glass CSS from AGL_CSS), then closes the inspector (Node's inspector.close() once its
+# session hung up, the port checked with a second connect); an Electron that cannot close it keeps
+# it on 127.0.0.1, random port, its target unlisted. A plain/ marker from the engine (appglass
+# verify, launch-check) starts the plain app. CSS generated at launch from DMS colours + levels. The canvas-painted parts (minimap,
 # overview ruler, current line, terminal) take their colours from the settings.json block appglass apply
 # wrote. Every start without glass logs its reason on stderr.
 # No flatpak override: the read-only --filesystem below is for this run only.
@@ -23,6 +25,9 @@ RUNARGS="--branch=stable --arch=x86_64 --command=$ID"
 # every start without glass says why on stderr (the journal of the launching session)
 say() { echo "appglass-vscodium: $*" >&2; }
 plain() { say "$1, running without glass"; shift; exec "$FP" run $RUNARGS "$ID" "$@"; }
+# the engine (appglass verify, launch-check): a plain/ marker means start the plain app
+AGKEY="$ID"
+[ -e "${XDG_STATE_HOME:-$HOME/.local/state}/appglass/plain/$AGKEY" ] && plain "glass paused by appglass" "$@"
 # a directory only we can write to (not a link): the inspector UUID is a secret
 private_dir() {
     [ -n "$1" ] && [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] || return 1
@@ -60,6 +65,9 @@ mkfifo -m 600 "$fifo" || plain "cannot make $fifo" "$@"
 "$FP" run $RUNARGS --filesystem="$LIB:ro" --env=AGL_CSS="$css" \
     "$ID" --verbose --inspect=127.0.0.1:0 --inspect-publish-uid=stderr "$@" >"$fifo" 2>&1 &
 pid=$!
+# two launches with no window on this app version: the engine pauses the glass
+command -v setsid >/dev/null 2>&1 && setsid -f "@APPGLASS@" launch-check "$AGKEY" $pid \
+    >/dev/null 2>&1 </dev/null
 i=0; url=''
 while [ $i -lt 150 ] && kill -0 $pid 2>/dev/null; do
     url=$(head -n 1 "$out" 2>/dev/null)

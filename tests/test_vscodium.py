@@ -174,6 +174,21 @@ exit 0
         r, calls = self.wrapper(rt)
         self.assertIn("appglass-vscodium: agl-hook.js or agl-inject.py missing", r.stderr)
 
+    def test_plain_marker_starts_it_plain(self):
+        # the engine's plain/ marker (verify failed, two launches with no window)
+        self.enable()
+        self.apply()
+        rt = self.w.sb.path("run")
+        os.makedirs(rt, mode=0o700)
+        m = os.path.join(self.w.sb.state, "appglass", "plain", self.KEY)
+        os.makedirs(os.path.dirname(m), exist_ok=True)
+        open(m, "w").close()
+        r, calls = self.wrapper(rt)
+        self.assertFalse(any("--inspect" in c for c in calls), calls)
+        self.assertTrue(any(c.startswith("run ") and "--command=com.vscodium.codium" in c
+                            for c in calls), calls)
+        self.assertIn("appglass-vscodium: glass paused by appglass", r.stderr)
+
     def test_injection_logged(self):
         self.enable()
         self.apply()

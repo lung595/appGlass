@@ -761,7 +761,7 @@
     },
     "vscodium": {
       "applied": [],
-      "enabled": false,
+      "enabled": true,
       "installed": false
     },
     "wezterm": {
