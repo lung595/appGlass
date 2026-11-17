@@ -11,7 +11,7 @@ Result follows the evidence: **needs adapter** = no family covers the app; **unt
 exists but was not verified on this app (the probe's or the expected result is in the notes);
 glass, partial or opaque only for rows tested here (a glass row needs a PASS) or earlier.
 
-51 rows (a row can name several apps): 10 tested here, 13 earlier, 26 probe, 2 documented. 15 glass, 6 partial, 0 opaque, 5 untested, 25 needs adapter.
+51 rows (a row can name several apps): 14 tested here, 13 earlier, 22 probe, 2 documented. 17 glass, 6 partial, 0 opaque, 3 untested, 25 needs adapter.
 
 | App | Toolkit | Family | Route | Tested | Result | Measured / reason | Evidence |
 |---|---|---|---|---|---|---|---|
@@ -41,7 +41,7 @@ glass, partial or opaque only for rows tested here (a glass row needs a PASS) or
 | kitty | own (OpenGL) | kitty | `background_opacity` + DMS theme include | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |
 | Ghostty | own (OpenGL/GTK4) | ghostty | `background-opacity` (+ cells) + DMS theme | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |
 | WezTerm | own (OpenGL/WebGPU) | wezterm | lua config: window_background_opacity, text_background_opacity 1.0, tab bar at the bar level | probe | untested | probe: partial. flathub build is on the end-of-life fdo 23.08 runtime and was not installed here; B5b: 204 with tab bar fills at their own level; writer unit-tested | b5b/results.json |
-| GIMP 3.2.8 (flatpak) | GTK3 | gimp | user gimp.css block over GIMP's own theme | probe | untested | probe: glass. not installed here (size); B5b measured 204 on menubar and docks, canvas opaque; writer unit-tested | b5b/results.json |
+| GIMP 3.2.8 (flatpak) | GTK3 | gimp | user gimp.css block over GIMP's own theme | here | glass | PASS: bg 153 (80%), text 255, popup 255 (99%). the canvas stays opaque by design; the File menu opaque; the first-start welcome dialog is glass too (gimp2.json measured that dialog: 153 on 47%, its banner image opaque) | shots/adapters/gimp3.json |
 | Ptyxis | GTK4 / libadwaita + VTE | - | gsettings profile opacity + gtk4 css | probe | needs adapter | probe: partial. popups follow the titlebar and profile alpha (not opaque); needs a Ptyxis profile writer | b5b/results.json |
 | Element | Electron | - | electron-hook (Feishin hook) | probe | needs adapter | probe: opaque. fuses deny the inspector and NODE_OPTIONS, so the hook cannot load; needs an electron-fuse adapter (user copy of the binary with the fuse flipped) | b5b/results.json |
 | Signal | Electron | - | electron-hook (Feishin hook) | probe | needs adapter | probe: opaque. fuses deny the inspector and NODE_OPTIONS; B5b reached 204 only with an app.asar loader shim (electron-loader route, not built) | b5b/results.json |
@@ -54,10 +54,10 @@ glass, partial or opaque only for rows tested here (a glass row needs a PASS) or
 | KeePassXC | Qt6 Widgets | - | qt-style + classic theme | probe | needs adapter | probe: partial. the dark theme paints opaque; glass with the classic theme only | b5b/results.json |
 | Krita | Qt5 Widgets | - | qt-style (Qt5 build) | probe | needs adapter | probe: glass. needs a Qt5 build of the style | b5b/results.json |
 | OBS Studio | Qt6 Widgets | - | qt-style | probe | needs adapter | probe: glass. previews stay opaque | b5b/results.json |
-| Celluloid | GTK4 / libadwaita + libmpv | - | gtk4 css | probe | needs adapter | probe: glass. video area stays 255 | b5b/results.json |
-| Resources | GTK4 / libadwaita | gtk4 | gtk.css delivered to the flatpak (FLATPAK_APPS) | probe | untested | probe: glass. not re-verified here | b5b/results.json |
-| Bottles | GTK4 / libadwaita | - | gtk4 css | probe | needs adapter | probe: partial. a modal AdwWindow is 204 with the generic css | b5b/results.json |
-| Rhythmbox | GTK3 | - | gtk3 theme | probe | needs adapter | probe: glass | b5b/results.json |
+| Celluloid 0.30 (flatpak) | GTK4 / libadwaita + libmpv | - | probe: the gtk4 css delivered to ~/.var/app/<id>/config/gtk-4.0 (Celluloid not in FLATPAK_APPS) | here | needs adapter | expected: partial. FAIL: bg 214, not 153. the generic gtk4 css stacks a second fill under the welcome view: bg 214 (two 0.60 layers), header menu 255; needs a Celluloid rule before it joins FLATPAK_APPS; B5b: the video area stays 255 | shots/adapters/celluloid.json |
+| Resources 1.10.2 (flatpak) | GTK4 / libadwaita | gtk4 | gtk.css delivered to the flatpak (FLATPAK_APPS) | here | glass | PASS: bg 153 (76%), text 255, no popup. no popup opened (its menu button has no key binding); sidebar graphs at their own alpha | shots/adapters/resources2.json |
+| Bottles | GTK4 / libadwaita | - | gtk4 css | probe | needs adapter | probe: partial. a modal AdwWindow is 204 with the generic css (B5b). Headless verify here blocked: without a Wine runner (a download) Bottles opens its onboarding dialog over the window (gtk4 css: dialog 255, the window under its dim 204; shots/adapters/bottles2.json) | b5b/results.json |
+| Rhythmbox 3.5.1 (flatpak) | GTK3 | - | probe: the gtk3 family's AppGlass theme copied by hand into the flatpak (~/.var/app/<id>/data/themes, dank-colors.css beside it) and GTK_THEME=AppGlass | here | needs adapter | expected: glass. PASS: bg 153 (84%), text 255, no popup. glass with the gtk3 theme, but the gtk3 family does not deliver to flatpaks yet (adapter work: theme copy plus GTK_THEME for the flatpak); toolbar and sidebar 166; no popup opened (no key opens its menu) | shots/adapters/rhythmbox3.json |
 | LibreOffice | VCL gtk3 | - | gtk3 theme | probe | needs adapter | probe: partial. VCL-painted surfaces (Start Center, toolbars, document) stay 255 | b5b/results.json |
 | Inkscape | GTK3 | - | gtk3 theme + ui/style.css | probe | needs adapter | probe: partial. canvas and rulers opaque by design | b5b/results.json |
 | Thunderbird | Gecko | - | userChrome.css | probe | needs adapter | probe: glass. needs a Gecko family | b5b/results.json |
