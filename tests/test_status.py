@@ -43,7 +43,10 @@ class Status(unittest.TestCase):
         self.assertEqual(routes["org.mozilla.firefox"]["effective"], "delegated")
         self.assertEqual(routes["Pinball"]["effective"], "opaque")
         self.assertEqual(routes["discord"]["tier"], "mod")
-        self.assertIs(routes["discord"]["enabled"], False)
+        # the gate in place of OPT_IN: on, but waiting for its check
+        self.assertIs(routes["discord"]["enabled"], True)
+        self.assertEqual(routes["discord"]["state"], "waiting")
+        self.assertEqual(routes["discord"]["effective"], "fallback")
         self.assertEqual(routes["solaar"]["family"], "gtk3")
         self.assertEqual(routes["vlc"]["adapter"], "qt-style")
         self.assertEqual(routes["vlc"]["family"], "qtstyle")

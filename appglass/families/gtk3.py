@@ -46,9 +46,23 @@ APPS = {
 }
 APP_IDS = [r"^(solaar|nvidia-settings)$"]
 TARGET = 2.25
+# the engine routes every other host GTK3 app here too (ctx.records())
+GENERIC = True
+# the route is an environment variable on the launcher: never for an app
+# that starts other apps (adapters.resolve)
+ENV_ROUTE = True
 
 ENV_PREFIX = "env GTK_THEME=%s " % THEME
 MARK = "# appglass: Exec runs with GTK_THEME=%s (GTK3 glass theme)" % THEME
+
+
+def accepts(rec):
+    """None when a GTK3 record can take the AppGlass theme, else why not."""
+    if rec.get("flatpak"):
+        return "GTK3 flatpak: the AppGlass theme is not visible inside the sandbox"
+    if rec.get("user_only"):
+        return "a launcher of yours with no system one: left as it is"
+    return None
 
 
 def installed_apps(env):
@@ -256,7 +270,7 @@ def undo(env, path, text):
     return "".join(out)
 
 
-def _override(ctx, dest, source):
+def _override(ctx, dest, source, plain=False):
     """A themed copy of source, or a minimal edit of an existing user file.
 
     Both go through edit_text, so the file stays the user's: a change made
@@ -264,7 +278,21 @@ def _override(ctx, dest, source):
     the next apply, and remove takes our part out of a changed copy (deleted
     when nothing of the user's is left). A symlinked dest
     (dotfiles) is left alone. Returns dest, or None when nothing is overridden.
+
+    plain: the engine holds the app opaque (S7): a launcher written before
+    goes back to the plain command (the system text, or the user's own
+    with our prefix out), until the next fingerprint brings the glass back.
+    An event (hook run) never takes over a launcher the user made: only a
+    typed apply edits one in place (backed up), as qtstyle and gtk4 refuse.
     """
+    if plain and not ctx.owns(dest):
+        return None                    # nothing of ours to take back
+    if (ctx.app.from_hook and not ctx.owns(dest) and os.path.lexists(dest)
+            and ctx.app.state.owner_of(os.path.abspath(dest)) is None):
+        ctx.warn_once("hand-made:" + dest,
+                      "%s is a launcher of yours: left as it is (a typed appglass apply "
+                      "edits it, backed up)" % ctx.env.tilde(dest))
+        return None
     if os.path.islink(dest):
         ctx.warn("%s is a symlink (user-managed); left untouched, no override"
                  % ctx.env.tilde(dest))
@@ -275,11 +303,19 @@ def _override(ctx, dest, source):
     src = None
     if source is not None:
         with open(source, "r", encoding="utf-8") as f:
-            src = themed(f.read(), mark=True)
+            src = f.read()
+        src = src if plain else themed(src, mark=True)
     elif not os.path.lexists(dest) or MARK in (ctx.read_text(dest) or ""):
         return None                    # nothing to copy, or our old copy: dropped
 
     changed = ctx.changed_since_apply(dest)
+    if plain:
+        def fn(text):
+            # our prefix out; the rest (the user's own edits) kept
+            return src if src is not None and not text.strip() else undo(ctx.env, dest, text)
+
+        ctx.edit_text(dest, fn, undo=lambda t: undo(ctx.env, dest, t))
+        return dest
     if changed and not ctx.deleted_since_apply(dest) and not has_theme(ctx.read_text(dest) or ""):
         ctx.warn_once("opt-out:" + dest,
                       "%s no longer runs with GTK_THEME=%s; kept (remove + apply "
@@ -311,19 +347,39 @@ def apply(ctx):
     paths.append(theme)
     apps = []
     ddirs, cdirs = data_dirs(env), config_dirs(env)
+    # held opaque by the engine (S7): their launchers run the plain app
+    plain = {r["desktop_id"]: r for r in ctx.records(plain=True)}
     for app in installed_apps(env):
         exe, desk, auto = APPS[app]
+        off = desk in plain
         source = find_system(ddirs, "applications", desk)
-        p = _override(ctx, ctx.data_path("applications", desk), source)
+        p = _override(ctx, ctx.data_path("applications", desk), source, plain=off)
         if p:
             paths.append(p)
-        elif source is None:
+        elif source is None and not off:
             ctx.warn("%s: no %s in XDG_DATA_DIRS; no launcher override" % (app, desk))
         if auto:
             p = _override(ctx, ctx.config_path("autostart", auto),
-                          find_system(cdirs, "autostart", auto))
+                          find_system(cdirs, "autostart", auto), plain=off)
             if p:
                 paths.append(p)
-        apps.append(app)
-    ctx.app_ids = ["^(%s)$" % "|".join(apps)] if apps else []
+        if not off:
+            apps.append(app)
+    ids = ["^(%s)$" % "|".join(apps)] if apps else []
+    # every other GTK3 app the engine routes here (launcher override only)
+    listed = {d for _, d, _ in APPS.values()}
+    for rec in ctx.records():
+        if rec["desktop_id"] in listed or rec["key"] in APPS:
+            continue
+        p = _override(ctx, ctx.data_path("applications", rec["desktop_id"]), rec["path"])
+        if p:
+            paths.append(p)
+            ids += [x for x in rec.get("app_ids") or () if x not in ids]
+    for did, rec in plain.items():
+        if did in listed or rec["key"] in APPS:
+            continue
+        p = _override(ctx, ctx.data_path("applications", did), rec["path"], plain=True)
+        if p:
+            paths.append(p)
+    ctx.app_ids = ids
     return paths

@@ -41,8 +41,9 @@ class Vencord(unittest.TestCase):
         return self.w.sb.read(os.path.join(self.w.sb.config, "niri", "appglass.kdl"))
 
     def test_off_by_default(self):
+        # the engine's gate (spec 1.4): the injected route waits for its check
         out, err = self.run_ok("apply", "--only", "vencord")
-        self.assertIn("vencord: off in settings", out + err)
+        self.assertIn("vencord: waiting, skipped", out + err)
         self.assertFalse(os.path.exists(self.w.user(THEME)))
 
     def test_apply_and_remove(self):

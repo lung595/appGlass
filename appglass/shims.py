@@ -19,6 +19,7 @@ Sources live in the repo under shims/<adapter>/. At apply time a family:
 """
 
 import hashlib
+import json
 import math
 import os
 import re
@@ -47,10 +48,12 @@ def bin_path(env, name):
     return env.home_path(".local", "bin", name)
 
 
-def appglass_cmd(env, p=APPGLASS):
+def appglass_cmd(env, p=None):
     """bin/appglass (or another repo path) as a wrapper writes it inside
     double quotes: $HOME/... when the repo is under HOME, else the absolute
-    path."""
+    path (verify.stage turns the $HOME form back into the absolute one for
+    the hidden session, whose HOME holds no repo)."""
+    p = APPGLASS if p is None else p
     if p.startswith(env.home + os.sep):
         p = "$HOME" + p[len(env.home):]
         return re.sub(r'(["\\`])', r"\\\1", p)
@@ -169,11 +172,54 @@ def _out(env, argv):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+PC_DIRS = ("/usr/lib64/pkgconfig", "/usr/lib/pkgconfig", "/usr/share/pkgconfig",
+           "/usr/local/lib64/pkgconfig", "/usr/local/lib/pkgconfig",
+           "/usr/local/share/pkgconfig", "/usr/lib/x86_64-linux-gnu/pkgconfig")
+
+
+def _versions_path(env):
+    return os.path.join(env.cache_home, "appglass", "toolchain.json")
+
+
+def _cached(env, argv, deps=(), keep=True):
+    """_out(env, argv), kept in $XDG_CACHE_HOME/appglass/toolchain.json while
+    the stat of the tool and of deps stays the same: the versions in a
+    build stamp, so a run that builds nothing starts no compiler (and the
+    hook run stays cacheable: inputs.py). keep: False in a dry run (it
+    writes nothing)."""
+    from . import inputs
+    from .core import _atomic_write, _load_json
+    deps = [os.path.realpath(argv[0])] + list(deps)
+    for d in deps:
+        inputs.full(d)
+    sig = [inputs.sig(d) for d in deps]
+    k = json.dumps([list(argv), sorted((n, v) for n, v in env.environ.items()
+                                       if n.startswith("PKG_CONFIG"))])
+    p = _versions_path(env)
+    doc = _load_json(p)
+    doc = doc if isinstance(doc, dict) and doc.get("v") == 1 else {"v": 1, "runs": {}}
+    hit = doc["runs"].get(k) if isinstance(doc.get("runs"), dict) else None
+    if isinstance(hit, dict) and hit.get("sig") == sig and isinstance(hit.get("out"), str):
+        return hit["out"]
+    with inputs.covered():
+        out = _out(env, argv)
+    if out and keep:
+        doc.setdefault("runs", {})[k] = {"sig": sig, "out": out}
+        try:
+            env.guard(p)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            _atomic_write(p, json.dumps(doc, indent=1, sort_keys=True).encode())
+        except OSError:
+            pass
+    return out
+
+
 class Toolchain:
     """The host compilers: cc, cxx, pkg-config, moc (any may be None)."""
 
-    def __init__(self, env):
+    def __init__(self, env, keep=True):
         self.env = env
+        self.keep = keep          # False: a dry run, the version cache untouched
         self.cc = _tool(env, "gcc") or _tool(env, "cc")
         self.cxx = _tool(env, "g++") or _tool(env, "c++")
         self.pkgconfig = _tool(env, "pkg-config") or _tool(env, "pkgconf")
@@ -182,10 +228,27 @@ class Toolchain:
     def pkg(self, *args):
         return _out(self.env, [self.pkgconfig] + list(args)) if self.pkgconfig else ""
 
+    def pc_dirs(self):
+        e = self.env.environ
+        extra = [d for d in (e.get("PKG_CONFIG_PATH") or "").split(os.pathsep) if d]
+        lib = [d for d in (e.get("PKG_CONFIG_LIBDIR") or "").split(os.pathsep) if d]
+        return extra + (lib or list(PC_DIRS))
+
+    def pkg_info(self, *args):
+        """pkg(*args) for a version or a variable: cached while pkg-config
+        and the .pc files of the modules named stay the same."""
+        if not self.pkgconfig:
+            return ""
+        deps = []
+        for d in self.pc_dirs():
+            deps.append(d)
+            deps += [os.path.join(d, m + ".pc") for m in args if not m.startswith("-")]
+        return _cached(self.env, [self.pkgconfig] + list(args), deps, self.keep)
+
     @property
     def moc(self):
         if self._moc is False:
-            d = self.pkg("--variable=libexecdir", "Qt6Core")
+            d = self.pkg_info("--variable=libexecdir", "Qt6Core")
             cands = [os.path.join(d, "moc")] if d else []
             cands += ["/usr/lib64/qt6/libexec/moc", "/usr/lib/qt6/libexec/moc"]
             self._moc = (next((c for c in cands if os.path.isfile(c) and os.access(c, os.X_OK)),
@@ -193,7 +256,8 @@ class Toolchain:
         return self._moc
 
     def version(self, tool):
-        return _out(self.env, [tool, "--version"]).splitlines()[0:1] if tool else []
+        return _cached(self.env, [tool, "--version"], keep=self.keep).splitlines()[0:1] \
+            if tool else []
 
 
 def stamp(sources, parts):
@@ -215,7 +279,7 @@ def build(ctx, adapter, dest, sources, steps, tools, qt=(), extra=(), mode=0o755
     extra: more stamp parts (a flatpak runtime the shim is loaded into).
     Raises Conflict (the family is skipped) when a tool is missing.
     """
-    tc = Toolchain(ctx.env)
+    tc = Toolchain(ctx.env, keep=not getattr(ctx.app, "dry_run", False))
     missing = [t for t in tools if not getattr(tc, t)]
     if missing:
         raise Conflict("cannot build %s: %s not found (gcc-c++ and qt6-qtbase-devel)"
@@ -225,7 +289,7 @@ def build(ctx, adapter, dest, sources, steps, tools, qt=(), extra=(), mode=0o755
         if t in ("cc", "cxx"):
             parts += tc.version(getattr(tc, t))
     for m in qt:
-        v = tc.pkg("--modversion", m)
+        v = tc.pkg_info("--modversion", m)
         if not v:
             raise Conflict("cannot build %s: pkg-config does not know %s"
                            % (os.path.basename(dest), m))

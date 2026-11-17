@@ -1,0 +1,16 @@
+[Unit]
+Description=appGlass: check the queued apps in a hidden headless session
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=50%
+# an Electron or WebKit app alone can take more than 512M; an OOM kill
+# there would end verify itself, the queue never done
+MemoryMax=2G
+# appglass verify stops starting checks after 25 min (verify.BUDGET); one
+# app takes 90 s at most. SIGTERM then kills the whole cgroup, the hidden
+# session included, and verify deletes its private dir
+TimeoutSec=30min
+KillMode=control-group
+ExecStart=%h/.local/bin/appglass-sync --verify

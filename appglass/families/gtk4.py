@@ -42,7 +42,9 @@ Flatpak GTK4 apps do not read the host gtk-4.0: their XDG_CONFIG_HOME is
 appglass writes the same three files there: dank-glass.css (owned), a copy
 of the host DMS dank-colors.css (owned, refreshed on every apply, so a DMS
 theme change reaches the app through the hook) and gtk.css (the same edit
-and merge as on the host). No flatpak override is needed.
+and merge as on the host). No flatpak override is needed. Any other GTK4
+flatpak the engine routes here (GENERIC) gets a launcher override instead
+that adds FLATPAK_ARG (the host gtk-4.0, read only) to `flatpak run`.
 
 Generic rules for apps B5b measured (docs/apps.md): the GtkSourceView text
 area (its style scheme paints the view opaque under the window fill: GNOME
@@ -91,6 +93,12 @@ GTK_CSS = DANK_IMPORT + "\n" + GLASS_IMPORT + "\n"
 # DMS gtk.sh DANK_IMPORT_RE
 _DANK_RE = re.compile(r"^@import url.*dank-colors\.css.*\);$")
 TARGET = 2.25
+# the engine routes every other GTK4 app here (ctx.records()): a host one
+# reads the global gtk.css already (niri rule only); a flatpak one gets
+# the gtk-4.0 config dir read-only for each launch, in its launcher
+# override (never a persistent flatpak override)
+GENERIC = True
+FLATPAK_ARG = "--filesystem=xdg-config/gtk-4.0:ro"
 
 BACKDROP_SELECTORS = """\
 headerbar:backdrop > windowhandle,
@@ -131,6 +139,22 @@ def _found(env, cmd):
         if os.path.isfile(p) and os.access(p, os.X_OK):
             return True
     return False
+
+
+def accepts(rec):
+    if rec.get("flatpak") and rec.get("user_only"):
+        return "a launcher of yours with no system one: left as it is"
+    return None
+
+
+def flatpak_launcher(text):
+    """Every `flatpak run` Exec= line gets the read-only gtk-4.0 dir."""
+    out = []
+    for line in text.splitlines(True):
+        if line.startswith("Exec=") and FLATPAK_ARG not in line:
+            line = re.sub(r"(^Exec=\S*flatpak run)(\s)", r"\1 %s\2" % FLATPAK_ARG, line, count=1)
+        out.append(line)
+    return "".join(out)
 
 
 def installed_apps(env):
@@ -273,9 +297,16 @@ def apply(ctx):
     paths = []
     host = ctx.config_path("gtk-4.0")
     apps = installed_apps(ctx.env)
-    if apps:
-        paths += apply_dir(ctx, host)
     flatpaks = installed_flatpaks(ctx.env)
+    ids = [a[0] for a in apps] + [a[0] for a in flatpaks]
+    # the apps the engine routes here that are not listed by hand
+    generic = [rec for rec in ctx.records()
+               if not any(re.search(rx, n) for rx in ids for n in rec.get("names") or ())]
+    plain = ctx.records(plain=True)
+    # the host gtk-4.0 serves the host apps and the engine's flatpaks (read
+    # only through their launchers); a hand-listed flatpak has its own dir
+    if apps or generic or plain:
+        paths += apply_dir(ctx, host)
     if flatpaks:
         dank = ctx.read_text(os.path.join(host, "dank-colors.css"))
         for _, app_id, _ in flatpaks:
@@ -283,7 +314,28 @@ def apply(ctx):
             if dank is not None:
                 paths.append(ctx.write_owned(os.path.join(d, "dank-colors.css"), dank))
             paths += apply_dir(ctx, d, warn=False)
-    ctx.app_ids = [a[0] for a in apps] + [a[0] for a in flatpaks]
+    # a flatpak held opaque by the engine (S7): its launcher goes back to the
+    # system text (no gtk-4.0 access) until the next fingerprint. A host
+    # GTK4 app reads the global gtk.css: it cannot be made plain on its own.
+    for rec in plain:
+        dest = ctx.data_path("applications", rec["desktop_id"])
+        if rec.get("flatpak") and ctx.owns(dest):
+            p = ctx.desktop_override(rec["desktop_id"], lambda t: t)
+            if p:
+                paths.append(p)
+    for rec in generic:
+        rid = [x for x in rec.get("app_ids") or () if x not in ids]
+        if rec.get("flatpak"):
+            try:
+                p = ctx.desktop_override(rec["desktop_id"], flatpak_launcher)
+            except Conflict as ex:
+                ctx.warn("%s: %s" % (rec["key"], ex))
+                continue
+            if not p:
+                continue
+            paths.append(p)
+        ids += rid
+    ctx.app_ids = ids
     return paths
 
 
@@ -291,7 +343,7 @@ def apply_dir(ctx, d, warn=True):
     glass = os.path.join(d, "dank-glass.css")
     gtk = os.path.join(d, "gtk.css")
     if warn and not os.path.isfile(os.path.join(d, "dank-colors.css")):
-        ctx.warn("%s/dank-colors.css not found: GTK4 keeps the stock Adwaita colours "
+        ctx.warn_once("dank-colors", "%s/dank-colors.css not found: GTK4 keeps the stock Adwaita colours "
                  "under the glass until DMS writes it" % ctx.env.tilde(d))
     if os.path.islink(gtk):
         raise Conflict("%s is a symlink (user-managed); left untouched" % gtk)

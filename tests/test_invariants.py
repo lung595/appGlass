@@ -513,6 +513,8 @@ DELETE_SITES = {
     ("core", "_atomic_write"),     # a write: its own temp file moved over the target
     ("core", "doctor_drift"),      # a dangling plugin link, snapshotted first
     ("shims", "build"),            # its own temporary build dir
+    ("engine", "Store.sync_markers"),  # its own plain/ markers (engine state, no
+                                   # owned file: what runs plain, never glass)
 }
 
 

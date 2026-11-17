@@ -75,7 +75,10 @@ var STATUS_LABELS = {
     "delegated": "Delegated",
     "opaque": "Opaque",
     "paused": "Paused",
-    "conflict": "Conflict"
+    "conflict": "Conflict",
+    "waiting": "Waiting for check",
+    "stale": "Stale",
+    "game": "Game: never touched"
 };
 
 function _bool(v, dflt) {
@@ -414,6 +417,9 @@ function appStatus(app, saved, glassOn, status) {
     var eff = a.effective;
     if (eff === "delegated" || eff === "excluded")
         return "delegated";
+    // the engine's gate (status "state"): a game is never touched
+    if (a.state === "excluded")
+        return "game";
     if (typeof a.enabled !== "boolean")
         return eff === "glass" ? "glass" : "opaque";
     if (glassOn === false)
@@ -426,6 +432,9 @@ function appStatus(app, saved, glassOn, status) {
     var on = typeof own.enabled === "boolean" ? own.enabled : a.enabled;
     if (!on)
         return needsConfirm(a.tier) ? "fallback" : "paused";
+    // an injected route waits for its check, a stale one for its re-check
+    if (a.state === "waiting" || a.state === "stale")
+        return a.state;
     if (eff === "glass" || eff === "opaque")
         return eff;
     return "fallback";

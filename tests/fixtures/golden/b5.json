@@ -1,0 +1,13 @@
+{
+ "home/.config/autostart/solaar.desktop": "18c3f90ddf5b2957507a8581ff3a0324bf497600a156e09eb4c6c20c824e3fe7",
+ "home/.config/gtk-4.0/dank-glass.css": "049713e887802e06748b6b5e2310901900772edbb412545fc8c9227e8dbe7a9e",
+ "home/.config/gtk-4.0/gtk.css": "eb1645478962ea60d0c90bdb0b7e885f60dd53734157d9a55a8bbb3ad269b772",
+ "home/.config/niri/appglass.kdl": "0fcf88faa96fe1b4d8addaa34e68bed47f6657c8d9c8a3c1e27bbb2e2c98bb3e",
+ "home/.config/niri/config.kdl": "b7277c7d4b5939725c447d407eb0c4306e7c4b9612436910a7127e753ee08993",
+ "home/.config/niri/dms/windowrules.kdl": "6fe7b35d9ed9eb1950422e7783723dd5bd5fb174ebe150b4cf566b3b1759e8cb",
+ "home/.local/lib/appglass/qt6/styles/libappglass.so": "built",
+ "home/.local/share/applications/nvidia-settings.desktop": "ff932f7635fc550c76c2877b1b61dd000165ec69fe353a6d78cc9d4b227acf94",
+ "home/.local/share/applications/solaar.desktop": "ec8728dbe80fd918a37c89d85a603e31c5ffd9062236e09d57299444aac7c580",
+ "home/.local/share/applications/vlc.desktop": "2893b857b751285db2430ce41095e605c26a97f4496c9eadd88abd72f1f78562",
+ "home/.local/share/themes/AppGlass/gtk-3.0/gtk.css": "f2bb7171126039ba08976000115301372fb8b81b0a0fa3e0bac6633f522ffb7c"
+}

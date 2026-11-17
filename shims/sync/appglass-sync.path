@@ -1,9 +1,23 @@
 [Unit]
-Description=appGlass: follow the DMS window rule opacity and the DMS colours
+Description=appGlass: follow the DMS window rule opacity, the DMS colours and app installs
 [Path]
 PathChanged=%h/.config/niri/dms/windowrules.kdl
 PathModified=%h/.config/niri/dms
 PathChanged=%h/.cache/dms/dms-colors.json
+# an app installed, updated or removed (rpm/dnf, flatpak system and user,
+# a hand-written launcher, an AppImage)
+PathChanged=/usr/share/applications
+PathChanged=/usr/lib/sysimage/rpm/rpmdb.sqlite
+PathChanged=/var/lib/flatpak/.changed
+PathChanged=%h/.local/share/flatpak/.changed
+PathChanged=%h/.local/share/applications
+PathChanged=%h/Applications
+# a dnf transaction (and appglass's own launcher writes) touch these many
+# times. A hit trigger limit would put this unit into a failure mode that
+# stops every watch here, the DMS follow too, until the next login
+# (systemd.path(5)): no limit. The service coalesces (one run at a time,
+# flock, a 1 s settle, the rpm db quiet wait)
+TriggerLimitBurst=0
 Unit=appglass-sync.service
 [Install]
 WantedBy=default.target

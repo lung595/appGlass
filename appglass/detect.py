@@ -64,6 +64,20 @@ _SONAMES = tuple((re.compile(r), t) for r, t in SONAMES)
 
 TERMINALS = ("alacritty", "kitty", "foot", "footclient", "ghostty", "wezterm",
              "wezterm-gui", "konsole", "gnome-terminal-server", "ptyxis")
+# apps whose children are other apps: an environment variable set for them
+# reaches every app they start (S3, S8). Categories first, then names.
+SPAWNER_CATEGORIES = (("TerminalEmulator", "terminal"), ("FileManager", "file manager"),
+                      ("IDE", "IDE"))
+SPAWNER_NAMES = (
+    (r"(?i)^(xfce4-terminal|qterminal|tilix|terminator|lxterminal|mate-terminal|sakura"
+     r"|terminology|xterm|uxterm|urxvt|rxvt|guake|tilda|yakuake|cool-retro-term|kgx"
+     r"|gnome-terminal|blackbox|contour|rio|st|%s)$" % "|".join(re.escape(t) for t in TERMINALS),
+     "terminal"),
+    (r"(?i)^(thunar|pcmanfm|pcmanfm-qt|nemo|caja|dolphin|nautilus|spacefm|doublecmd"
+     r"|krusader)$", "file manager"),
+    (r"(?i)^(ulauncher|albert|rofi|wofi|fuzzel|tofi|anyrun|walker|krunner|kupfer|synapse"
+     r"|cerebro)$", "app launcher"),
+)
 
 # next to the binary (or one level up)
 DIR_MARKERS = (
@@ -98,6 +112,107 @@ FLATPAK_BASES = (
 )
 
 MAX_SCAN = 512 << 20
+
+# classes (engine spec 1.3): root, game (sticky), sensitive, game-launcher
+ROOT_CMDS = ("pkexec", "sudo", "run0", "doas", "kdesu", "kdesudo", "lxqt-sudo", "lxsudo",
+             "gksu", "gksudo", "beesu", "su-to-root")
+# options of the elevators that take a value (the value is not the app);
+# sudo -E, -H and -P are flags, systemd-run -E (--setenv) and -H (--host) are not
+_ROOT_VALUED = {"-u", "--user", "-g", "--group", "-p", "--property", "--uid", "--gid",
+                "-m", "--message", "-D", "--description", "--unit", "--setenv",
+                "--slice", "-M", "--machine", "--host", "--working-directory",
+                "-C", "--chdir", "--prompt"}
+_SYSTEMD_RUN_VALUED = _ROOT_VALUED | {"-E", "-H"}
+_ROOT_SCRIPT = re.compile(r"(?m)(?:^|[\s;&|(`'\"])(?:exec\s+)?(?:/\S*/)?(%s)\s+\S"
+                          r"|(?:^|[\s;&|(`])(?:/\S*/)?su\s+(?:-c|-|-l|--login)(?:\s|$)"
+                          % "|".join(re.escape(c) for c in sorted(ROOT_CMDS, key=len, reverse=True)))
+_SYSTEMD_RUN = re.compile(r"(?m)(?:^|[\s;&|(`'\"])(?:exec\s+)?(?:/\S*/)?systemd-run(\s[^\n]*)$")
+GAME_DIRS = ("/steamapps/common/", "/compatdata/", "/Heroic/", "/lutris/", "/Games/")
+GAME_CMDS = ("wine", "wine64", "proton", "umu-run")
+_GAME_SCRIPT = re.compile(r"(?m)(?:^|[\s;&|(`'\"/])(wine|wine64|proton|umu-run)\s+\S")
+SENSITIVE = (r"(?i)keepassxc", r"(?i)bitwarden", r"(?i)1password", r"(?i)proton[ ._-]?pass",
+             r"(?i)seahorse", r"(?i)(^|\.)authenticator$", r"(?i)org\.gnome\.World\.Secrets",
+             r"(?i)^secrets$")
+GAME_LAUNCHERS = (r"(?i)^(steam|lutris|heroic|bottles|umu-run|prismlauncher|polymc|multimc"
+                  r"|atlauncher|itch|minigalaxy|gamehub|playonlinux|legendary-gl"
+                  r"|steamtinkerlaunch|gamescope|gamescope-session\S*)$",
+                  r"net\.lutris\.Lutris", r"com\.heroicgameslauncher\.",
+                  r"com\.usebottles\.bottles", r"com\.valvesoftware\.Steam",
+                  r"org\.prismlauncher\.", r"org\.polymc\.", r"org\.multimc\.",
+                  r"com\.atlauncher\.", r"io\.itch\.", r"io\.github\.sharkwouter\.Minigalaxy")
+# a Categories=Game app that draws through SDL, GL or Vulkan is a game,
+# whatever toolkit draws its menus
+_GFX = re.compile(r"^lib(SDL[23]|GL|GLX|OpenGL|EGL|vulkan)[-.]")
+
+
+def root_target(argv):
+    """(elevator, the app it runs) when argv runs something as root (or as
+    another user), else None. The app is None when not found."""
+    if not argv:
+        return None
+    b0 = os.path.basename(argv[0])
+    if b0 == "su":
+        if not set(argv[1:]) & {"-c", "-", "-l", "--login"}:
+            return None
+    elif b0 == "systemd-run":
+        opts = " ".join(argv[1:])
+        if "--user" in argv[1:] and not re.search(r"--uid\b|\bUser=", opts):
+            return None
+    elif b0 not in ROOT_CMDS:
+        return None
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "--":
+            i += 1
+            break
+        if a in ("-c", "--command"):
+            words = argv[i + 1].split() if i + 1 < len(argv) else []
+            return b0, (words[0] if words else None)
+        if not a.startswith("-"):
+            break
+        i += 2 if a in (_SYSTEMD_RUN_VALUED if b0 == "systemd-run" else _ROOT_VALUED) else 1
+    return b0, (argv[i] if i < len(argv) else None)
+
+
+def _root_in_script(txt):
+    m = _ROOT_SCRIPT.search(txt)
+    if m:
+        return (m.group(1) or "su").strip()
+    for m in _SYSTEMD_RUN.finditer(txt):
+        if root_target(["systemd-run"] + m.group(1).split()):
+            return "systemd-run"
+    return None
+
+
+APPIMAGE_MAGIC = b"AI\x02"
+# an AppImage is not opened (the squashfs reader is deferred): its toolkit is
+# guessed from its name, weak evidence only (opaque until learned)
+APPIMAGE_HINTS = (
+    (r"(?i)obsidian|discord|slack|signal|element|vscodium|visual.?studio|joplin|bitwarden"
+     r"|electron|feishin|heroic|logseq|notion", "electron"),
+    (r"(?i)krita|kdenlive|qt|kde", "qt-widgets"),
+    (r"(?i)gimp|inkscape|gtk|audacity", "gtk3"),
+)
+
+
+def is_appimage(path):
+    return _head(path, 16)[8:11] == APPIMAGE_MAGIC
+
+
+def game_argv(argv):
+    """Why argv starts a game (Wine, Proton, umu, Lutris, Heroic, a .exe), or None."""
+    for a in argv:
+        b = os.path.basename(a)
+        if b in GAME_CMDS:
+            return "runs %s" % b
+        if a.startswith(("lutris:", "heroic://")):
+            return "%s link" % a.split(":", 1)[0]
+        if a.lower().endswith(".exe"):
+            return "targets a Windows .exe"
+        if a.startswith("/") and any(d in a for d in GAME_DIRS):
+            return "game dir %s" % next(d for d in GAME_DIRS if d in a).strip("/")
+    return None
 
 
 # ---------------------------------------------------------------- small readers
@@ -296,6 +411,14 @@ def _which(name, env):
     return None
 
 
+def _candidates(name, env):
+    """Where a binary not found yet would appear (the fingerprint stats
+    them: a package may write the launcher before the binary)."""
+    if os.path.isabs(name):
+        return [name]
+    return [os.path.join(d, name) for d in env.environ.get("PATH", "/usr/bin").split(":") if d]
+
+
 # ---------------------------------------------------------------- .desktop
 
 def parse_desktop(path):
@@ -440,6 +563,12 @@ class Probe:
         self.seen = set()
         self.fuses = None
         self.exec = None
+        self.classes = {}      # class -> why (root, game)
+        self.appimage = None
+        self.gfx = None        # an SDL/GL/Vulkan library it links
+
+    def mark(self, cls, why):
+        self.classes.setdefault(cls, why)
 
     def add(self, tk, why, weak=False):
         self.ev.append((tk, why, weak))
@@ -461,6 +590,17 @@ class Probe:
         self.seen.add(real)
         if self.exec is None:
             self.exec = real
+        if any(d in real for d in GAME_DIRS):
+            self.mark("game", "exe under %s" % next(d for d in GAME_DIRS if d in real).strip("/"))
+        if is_appimage(real):
+            self.appimage = real
+            name = os.path.basename(real)
+            self.add("unknown", "AppImage %s (not opened)" % name, weak=True)
+            for rx, tk in APPIMAGE_HINTS:
+                if re.search(rx, name):
+                    self.add(tk, "AppImage name %s" % name, weak=True)
+                    break
+            return
         d = os.path.dirname(real)
         for dd in (d, os.path.dirname(d)):
             if "electron" in self.dir_markers(dd) and self.fuses is None:
@@ -491,6 +631,8 @@ class Probe:
                 self.fuses = fz
                 self.add("electron", "Electron %s fuse wire" % fz["electron"])
         for so in elf_needed(real):
+            if self.gfx is None and _GFX.search(so):
+                self.gfx = so
             for rx, tk in _SONAMES:
                 if rx.search(so):
                     self.add(tk, "links %s" % so)
@@ -525,6 +667,12 @@ class Probe:
                 self.add("qt-widgets", "python Qt import")
             elif re.search(r"\bGtk\b|\bgtk\b", txt):
                 self.add("gtk3", "python gtk import (GTK3 assumed)", weak=True)
+        el = _root_in_script(txt)
+        if el:
+            self.mark("root", "%s in %s" % (el, os.path.basename(real)))
+        m = _GAME_SCRIPT.search(txt)
+        if m:
+            self.mark("game", "runs %s (%s)" % (m.group(1), os.path.basename(real)))
         if "updates.discord.com" in txt:
             self.discord(txt, depth)
         for t in self.script_targets(txt, real, root):
@@ -636,6 +784,7 @@ def detect_desktop(env, desktop_id, paths):
         "key": key, "desktop_id": desktop_id, "path": path,
         "name": entry.get("Name") or key,
         "overridden_by": user[0] if user and system else None,
+        "user_only": not system,
         "nodisplay": entry.get("NoDisplay", "").lower() == "true",
     }
     if entry.get("Type", "Application") != "Application" or \
@@ -654,6 +803,7 @@ def detect_desktop(env, desktop_id, paths):
     if game:
         names = ["steam_app_%s" % game]
         pr.add("game", "Steam game %s (steam://rungameid)" % game)
+        pr.mark("game", "Steam game %s" % game)
     elif fid:
         info = flatpak_app(env, fid)
         if info:
@@ -668,10 +818,24 @@ def detect_desktop(env, desktop_id, paths):
             rec["installed"] = False
     elif argv:
         exe = argv[0]
-        if os.path.basename(exe) == "pkexec" and len(argv) > 1:
-            exe = argv[1]
+        if os.path.basename(exe) == "env":
+            i = 1
+            while i < len(argv) and ("=" in argv[i] and not argv[i].startswith("/")
+                                     or argv[i].startswith("-")):
+                i += 1
+            if i < len(argv):
+                argv = argv[i:]
+                exe = argv[0]
+        rt = root_target(argv)
+        if rt:
+            pr.mark("root", "%s in Exec" % rt[0])
+            if rt[1]:
+                exe = rt[1]
+        why = game_argv(argv)
+        if why:
+            pr.mark("game", why)
         p = exe if os.path.isabs(exe) else _which(exe, env)
-        if p:
+        if p and os.path.exists(p):
             if os.path.basename(exe) == "steam":
                 cef = _steam_client(env)
                 if cef:
@@ -679,13 +843,47 @@ def detect_desktop(env, desktop_id, paths):
             pr.binary(p)
         else:
             rec["installed"] = False
+            rec["missing"] = _candidates(exe, env)
+    # TryExec (desktop entry spec): the entry is not usable when it is missing
+    tx = entry.get("TryExec")
+    if tx and not (os.path.exists(tx) if os.path.isabs(tx) else _which(tx, env)):
+        rec["installed"] = False
+        rec["missing"] = sorted(set(rec.get("missing", []) + _candidates(tx, env)))
     rec.setdefault("installed", True)
     rec["names"] = names
     rec["app_ids"] = [_rx(n) for n in names[:1]]
     rec["exec"] = pr.exec
     rec["toolkit"] = pr.best()
+    rec["strong"] = any(t == rec["toolkit"] and not w for t, _, w in pr.ev)
     rec["evidence"] = pr.evidence()
     rec["fuses"] = pr.fuses
+    rec["seen"] = sorted(pr.seen)
+    rec["appimage"] = bool(pr.appimage)
+    if rec["toolkit"] == "sdl":
+        pr.mark("game", "SDL with no toolkit")
+    classes = dict(pr.classes)
+    allnames = names + [key, fid or ""]
+    if any(re.search(rx, n) for rx in SENSITIVE for n in allnames if n):
+        classes["sensitive"] = "password or secrets app"
+    if any(re.search(rx, n) for rx in GAME_LAUNCHERS for n in allnames + [
+            os.path.basename(argv[0]) if argv else ""] if n) and "game" not in classes:
+        classes["game-launcher"] = "game launcher (its children are games)"
+    cats = [c for c in entry.get("Categories", "").split(";") if c]
+    if "Game" in cats and pr.gfx and not {"game", "game-launcher"} & set(classes):
+        classes["game"] = "Categories=Game and links %s" % pr.gfx
+    elif "Game" in cats and not {"game", "game-launcher"} & set(classes):
+        # a game drawn by a toolkit: themed by its own files only (S3)
+        classes["game-category"] = "Categories=Game"
+    spawn = next((why for c, why in SPAWNER_CATEGORIES if c in cats), None) or next(
+        (why for rx, why in SPAWNER_NAMES for n in allnames + [
+            os.path.basename(pr.exec or ""), os.path.basename(argv[0]) if argv else ""]
+         if n and re.search(rx, n)), None)
+    if spawn:
+        classes["spawner"] = "%s (starts other apps)" % spawn
+    if "game" in classes and rec["toolkit"] != "game":
+        rec["toolkit"] = "game"
+        rec["evidence"] = ["%s -> game" % classes["game"]] + rec["evidence"]
+    rec["classes"] = classes
     if rec["toolkit"] == "electron" and pr.exec:
         rec["vencord"] = _vencord(pr) if "discord" in key.lower() else None
     return rec

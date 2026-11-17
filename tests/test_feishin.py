@@ -99,5 +99,108 @@ exit 0
         self.assertEqual(os.listdir(rt), [])
 
 
+INJECT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      "shims", "electron-hook", "agl-inject.py")
+
+
+class FakeInspector:
+    """A loopback WebSocket that answers Runtime.evaluate like Node's
+    inspector. close_on_arm: stop listening once the close is armed (Node's
+    inspector.close()), else keep the port open (it cannot close)."""
+
+    def __init__(self, close_on_arm):
+        import socket
+        import threading
+        self.close_on_arm = close_on_arm
+        self.exprs = []
+        self.srv = socket.socket()
+        self.srv.bind(("127.0.0.1", 0))
+        self.srv.listen(4)
+        self.port = self.srv.getsockname()[1]
+        self.url = "ws://127.0.0.1:%d/0000-aaaa" % self.port
+        self.t = threading.Thread(target=self.serve, daemon=True)
+        self.t.start()
+
+    def frame(self, c):
+        import struct
+        b0, b1 = c.recv(2)
+        n = b1 & 0x7f
+        if n == 126:
+            n = struct.unpack(">H", c.recv(2))[0]
+        elif n == 127:
+            n = struct.unpack(">Q", c.recv(8))[0]
+        m = c.recv(4)
+        data = b""
+        while len(data) < n:
+            data += c.recv(n - len(data))
+        return json.loads(bytes(b ^ m[i % 4] for i, b in enumerate(data)))
+
+    def send(self, c, obj):
+        import struct
+        d = json.dumps(obj).encode()
+        hdr = bytes([0x81]) + (bytes([len(d)]) if len(d) < 126 else bytes([126]) + struct.pack(">H", len(d)))
+        c.sendall(hdr + d)
+
+    def serve(self):
+        try:
+            c, _ = self.srv.accept()
+        except OSError:
+            return
+        self.session(c)
+        while True:             # still listening: later connects are taken and dropped
+            try:
+                self.srv.accept()[0].close()
+            except OSError:
+                return
+
+    def session(self, c):
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            buf += c.recv(4096)
+        c.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+        try:
+            while True:
+                msg = self.frame(c)
+                expr = msg["params"]["expression"]
+                self.exprs.append(expr)
+                self.send(c, {"id": msg["id"], "result": {"result": {"type": "string", "value": "ok"}}})
+                if "inspector" in expr and ".close()" in expr and self.close_on_arm:
+                    self.srv.close()
+        except (OSError, ValueError, KeyError):
+            pass
+        finally:
+            c.close()
+
+    def stop(self):
+        try:
+            self.srv.close()
+        except OSError:
+            pass
+
+
+class InspectorClosed(unittest.TestCase):
+    """User decision "Auto, port closed after": inject, then close the
+    inspector; when it cannot close, it stays loopback only, random port."""
+
+    def run_inject(self, close_on_arm):
+        fake = FakeInspector(close_on_arm)
+        self.addCleanup(fake.stop)
+        r = subprocess.run(["python3", "-I", INJECT, fake.url, "/x/agl-hook.js"],
+                           capture_output=True, text=True, timeout=20)
+        return fake, r
+
+    def test_port_closed_after_the_injection(self):
+        fake, r = self.run_inject(True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("/x/agl-hook.js", fake.exprs[0])
+        self.assertIn("require('inspector')", fake.exprs[-1])
+        self.assertIn("inspector closed", r.stdout)
+
+    def test_port_that_stays_open_is_said(self):
+        fake, r = self.run_inject(False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("inspector still open on 127.0.0.1:%d" % fake.port, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

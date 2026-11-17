@@ -22,6 +22,9 @@ NAME = "artcraft"
 ADAPTER = "ck-shim"
 OPT_IN = True
 KEYS = ("ai.storyteller.artcraft-launcher",)
+# the colour keys (the launcher is dark only), seeded into
+# ~/.cache/appglass/keys/<key>/<version>/dark.json (appglass keys)
+KEY_DEFAULTS = {"dark": (("121316", "content"), ("151517", "content"), ("060607", "bar"))}
 APP_IDS = [r"^ai\.storyteller\.artcraft-launcher$"]
 APP = "artcraft"
 COMMAND = "artcraft-launcher"

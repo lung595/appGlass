@@ -23,6 +23,10 @@ ADAPTER = "ck-shim"
 OPT_IN = True
 FLATPAK = "org.localsend.localsend_app"
 KEYS = (FLATPAK,)
+# the colour keys per mode (LocalSend's default palette), seeded into
+# ~/.cache/appglass/keys/<key>/<version>/<mode>.json (appglass keys)
+KEY_DEFAULTS = {"light": (("f4fbf8", "content"), ("e9efed", "bar")),
+                "dark": (("0e1513", "content"), ("1a2120", "bar"))}
 APP_IDS = [r"^org\.localsend\.localsend_app$"]
 APP = "localsend"
 WRAPPER = "appglass-localsend"

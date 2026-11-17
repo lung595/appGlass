@@ -40,6 +40,7 @@ inherit them.
 import os
 
 from .. import inactive, shims
+from ..core import Conflict
 from . import kate
 
 NAME = "qtstyle"
@@ -51,11 +52,31 @@ RUNTIME_PLUGINS = "/app/lib/plugins:/usr/share/runtime/lib/plugins"
 RUNTIME_XDG = "/app/etc/xdg:/etc/xdg"   # flatpak's XDG_CONFIG_DIRS
 MODULES = ("Qt6Widgets",)
 MARK = "--env=QT_STYLE_OVERRIDE=appglass"
+# the engine routes every other host Qt 6 Widgets app here (ctx.records())
+GENERIC = True
+# the route is an environment variable on the launcher: never for an app
+# that starts other apps (adapters.resolve)
+ENV_ROUTE = True
 
 
 def installed(env):
     return (any(env.which(cmd) for _, cmd in LAUNCHERS)
             or any(shims.installed_flatpak(env, app) for _, app in FLATPAKS))
+
+
+def accepts(rec):
+    """None for a host app that links Qt 6 Widgets (the style plugin is
+    built with the host Qt 6), else why not."""
+    if rec.get("flatpak"):
+        return "Qt flatpak: its runtime Qt is not the host Qt the style is built with (ABI)"
+    if rec.get("user_only"):
+        return "a launcher of yours with no system one: left as it is"
+    ev = " ".join(rec.get("evidence") or ())
+    if "libQt6Widgets" not in ev:
+        if "libQt5" in ev:
+            return "Qt 5 app: the style plugin is built for Qt 6 (ABI)"
+        return "no libQt6Widgets in its binary: the Qt 6 style does not load"
+    return None
 
 
 def plugin_dir(env):
@@ -118,6 +139,21 @@ def flatpak_launcher(env, text, levels, app=None, fade=None):
     return "".join(out)
 
 
+def launcher_any(env, text, content):
+    """launcher() for an app found by the engine: every Exec= line (its
+    first word may be a full path or a wrapper name)."""
+    pre = ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
+           "APPGLASS_CONTENT=%s " % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"),
+                                     shims.jq_raw(content)))
+    out = []
+    for line in text.splitlines(True):
+        if line.startswith("Exec=") and not line.startswith("Exec=env QT_PLUGIN_PATH=") \
+                and line[5:].strip():
+            line = "Exec=" + pre + line[5:]
+        out.append(line)
+    return "".join(out)
+
+
 def apply(ctx):
     env = ctx.env
     src = {n: shims.source(ADAPTER, n) for n in ("glassstyle.cpp", "appglass.json")}
@@ -125,14 +161,24 @@ def apply(ctx):
                          ("cxx", "moc", "pkgconfig"), qt=MODULES)]
     ids = []
     fade = inactive.fields(ctx.settings, ctx.levels.content)
+    # held opaque by the engine (S7): a launcher written before goes back to
+    # the system text (no style variables) until the next fingerprint
+    plain = {r["desktop_id"]: r for r in ctx.records(plain=True)}
+    for did in plain:
+        if ctx.owns(ctx.data_path("applications", did)):
+            p = ctx.desktop_override(did, lambda t: t)
+            if p:
+                paths.append(p)
     for desktop_id, cmd in LAUNCHERS:
+        if desktop_id in plain:
+            continue
         p = ctx.desktop_override(desktop_id,
                                  lambda t, c=cmd: launcher(env, t, c, ctx.levels.content, fade))
         if p:
             paths.append(p)
             ids.append(r"^%s$" % desktop_id[:-len(".desktop")])
     for desktop_id, app in FLATPAKS:
-        if not shims.installed_flatpak(env, app):
+        if desktop_id in plain or not shims.installed_flatpak(env, app):
             continue
         p = ctx.desktop_override(desktop_id, lambda t, a=app: flatpak_launcher(env, t, ctx.levels, a, fade))
         if p:
@@ -141,5 +187,18 @@ def apply(ctx):
     if not ids:
         ctx.warn("no system launcher for %s: nothing to start the style with"
                  % ", ".join(d for d, _ in LAUNCHERS + FLATPAKS))
+    listed = {d for d, _ in LAUNCHERS + FLATPAKS}
+    for rec in ctx.records():
+        if rec["desktop_id"] in listed:
+            continue
+        try:
+            p = ctx.desktop_override(rec["desktop_id"],
+                                     lambda t: launcher_any(env, t, ctx.levels.content))
+        except Conflict as ex:
+            ctx.warn("%s: %s" % (rec["key"], ex))
+            continue
+        if p:
+            paths.append(p)
+            ids += [x for x in rec.get("app_ids") or () if x not in ids]
     ctx.app_ids = ids
     return paths

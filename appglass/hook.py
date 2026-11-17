@@ -28,6 +28,15 @@ inactive fade, appglass/vibrancy.py). Then ``systemctl --user daemon-reload``,
 appglass-vibrancy.service (not in a sandbox, unless $APPGLASS_SYSTEMCTL names
 a stand-in). Hand-made units and script are Conflicts until ``appglass adopt``.
 
+The engine (docs/engine.md) adds: PathChanged lines on the application dirs
+(user, system, flatpak exports) and the rpm database, so a new or updated app
+is handled with no command run; no trigger or start limit (a hit limit
+would stop the path unit until the next login): one run at a time, and the
+script settles and waits for the rpm database to stay quiet; appglass-sync.timer (daily, enabled
+with the path units) for apps that update themselves; and
+appglass-verify.service (``appglass verify --queue``, idle priority, 60 s
+cap), started --no-block by a hook run that queued an app to check.
+
 ``appglass hook remove`` restores the matugen config byte-identical, drops
 the rendered colors.json, restores (or deletes) the units and the script and
 disables the path units and the vibrancy service again when they were not
@@ -49,14 +58,18 @@ _BLOCK = re.compile(r"(?ms)^\n?" + re.escape(BEGIN) + r".*?" + re.escape(END) + 
 
 
 UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service",
-         "appglass-discord.path", "appglass-discord.service")
+         "appglass-discord.path", "appglass-discord.service", "appglass-sync.timer",
+         "appglass-verify.service")
 PATH_UNIT = UNITS[0]
 VIBRANCY_UNIT = UNITS[2]
 DISCORD_UNIT = UNITS[3]
+TIMER_UNIT = UNITS[5]
+VERIFY_UNIT = UNITS[6]
 # (state key, unit, the systemctl calls of install); remove disables a unit
 # that was not enabled before install
 ENABLED = (("was_enabled", PATH_UNIT, (("enable", "--now"),)),
            ("discord_was_enabled", DISCORD_UNIT, (("enable", "--now"),)),
+           ("timer_was_enabled", TIMER_UNIT, (("enable", "--now"),)),
            # restart: a running daemon picks up new code from the repo
            ("vibrancy_was_enabled", VIBRANCY_UNIT, (("enable",), ("restart",))))
 
@@ -280,6 +293,15 @@ def install(app, dry_run=False, keep_optout=False):
     app.info("hook: matugen renders %s, then runs %s %s"
              % (output_path(env), bin_path(), HOOK_ARGS))
     return changed
+
+
+def start_verify(app):
+    """The hook run queued checks: start appglass-verify.service (never
+    enabled; it runs once, idle, and ends). Nothing without systemctl."""
+    if not installed(app) or not systemctl(app.env):
+        return False
+    r = _ctl(app, "start", "--no-block", VERIFY_UNIT)
+    return r is not None and r.returncode == 0
 
 
 def remove(app):

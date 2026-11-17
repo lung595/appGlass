@@ -41,7 +41,7 @@ PKG = textwrap.dedent("""\
     d=$(dirname "$0")
     echo "pkg-config $*" >> "$d/calls"
     case "$1" in
-    --modversion) cat "$d/qt-version";;
+    --modversion) [ -f "$d/pkgconfig/$2.pc" ] && sed -n 's/^Version: //p' "$d/pkgconfig/$2.pc";;
     --variable=libexecdir) echo "$d/libexec";;
     --cflags-only-I) echo "-I/fake/qt6";;
     --cflags) echo "-I/fake/qt6 -lQt6Fake";;
@@ -74,21 +74,28 @@ class Toolchain:
             if real:
                 os.symlink(real, os.path.join(self.dir, h))
         os.symlink(sys.executable, os.path.join(self.dir, "python3"))
+        os.makedirs(os.path.join(self.dir, "pkgconfig"))
         self.qt = "6.11.2"
         sb.env["PATH"] = os.pathsep.join(list(bins) + [self.dir])
+        # the .pc files pkg-config reads its versions from (appglass caches
+        # a version while they stay the same)
+        sb.env["PKG_CONFIG_LIBDIR"] = os.path.join(self.dir, "pkgconfig")
 
     def cleanup(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
+    QT_MODULES = ("Qt6Core", "Qt6Gui", "Qt6Widgets", "Qt6Qml", "Qt6Quick")
+
     @property
     def qt(self):
-        with open(os.path.join(self.dir, "qt-version")) as f:
-            return f.read().strip()
+        with open(os.path.join(self.dir, "pkgconfig", "Qt6Core.pc")) as f:
+            return f.read().split("Version: ")[1].split()[0]
 
     @qt.setter
     def qt(self, v):
-        with open(os.path.join(self.dir, "qt-version"), "w") as f:
-            f.write(v + "\n")
+        for m in self.QT_MODULES:
+            with open(os.path.join(self.dir, "pkgconfig", m + ".pc"), "w") as f:
+                f.write("Name: %s\nVersion: %s\n" % (m, v))
 
     def fail(self, on=True):
         p = os.path.join(self.dir, "fail")

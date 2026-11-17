@@ -2,9 +2,13 @@
 """agl-inject.py WS_URL HOOK_PATH
 
 Connects to the Node inspector of an Electron main process (ws://127.0.0.1:PORT/UUID),
-requires HOOK_PATH there (it clears the window background and injects the glass CSS),
+requires HOOK_PATH there (it clears the window background and injects the glass CSS).
 Retries while Node is still starting, then waits for the hook to install (it answers "ok true");
-exits 1 when it never does. Stdlib only, loopback only. The app is started with --inspect-publish-uid=stderr, so the
+exits 1 when it never does. Then it closes the inspector (user decision "Auto, port closed after"):
+Node's inspector.close(), armed on a timer so it runs after this client hangs up (also after a
+failed install). A second connect then checks the port.
+When it is still open (an Electron that cannot close it), it stays loopback only on its random
+port, and the target UUID stays unlisted. Stdlib only, loopback only. The app is started with --inspect-publish-uid=stderr, so the
 inspector does not list its target over HTTP: a client needs the random session UUID that only the
 wrapper reads from the app's stderr.
 """
@@ -91,7 +95,7 @@ def main():
     # node:internal (TypeError: testEnabled is not a function); try again from a clean cache
     again = ("(()=>{try{delete require.cache[require.resolve(%s)]}catch(e){}require(%s);return %s})()"
              % (h, h, done))
-    js, out = load, ''
+    js, out, ok = load, '', False
     for _ in range(TRIES):
         r = ws.call('Runtime.evaluate', {'expression': js, 'includeCommandLineAPI': True,
                                          'returnByValue': True})
@@ -101,19 +105,46 @@ def main():
         if 'error' in r or 'exceptionDetails' in res or val.get('subtype') == 'error':
             js = again if js != done else done
         elif val.get('value') == 'ok true':
+            ok = True
             break
         else:
             js = done          # loaded: the hook waits for electron.app by itself
         time.sleep(PAUSE)
-    else:
-        print(out)
-        return 1
     print(out)
+    # inspector.close() waits for every session to end: armed now, run once this one is gone
+    ws.call('Runtime.evaluate', {'expression': CLOSE, 'includeCommandLineAPI': True,
+                                 'returnByValue': True})
     try:
         ws.s.close()
     except OSError:
         pass
-    return 0
+    port = int(url[5:].split('/', 1)[0].split(':')[1])
+    if closed(port):
+        print('inspector closed')
+    else:
+        print('agl-inject: inspector still open on 127.0.0.1:%d (loopback only)' % port,
+              file=sys.stderr)
+    return 0 if ok else 1
+
+
+CLOSE = ("(()=>{const i=require('inspector');"
+         "setTimeout(()=>{try{i.close()}catch(e){}},200);return 'armed'})()")
+
+
+def closed(port, wait=3.0):
+    """True once 127.0.0.1:port refuses a connect (polled up to wait s)."""
+    import time
+    end = time.monotonic() + wait
+    while True:
+        try:
+            socket.create_connection(('127.0.0.1', port), timeout=0.5).close()
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            pass    # a timeout is not a closed port
+        if time.monotonic() >= end:
+            return False
+        time.sleep(0.2)
 
 
 sys.exit(main())

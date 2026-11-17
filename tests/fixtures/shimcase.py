@@ -75,8 +75,13 @@ class ShimCase:
 
     def test_off_by_default(self):
         out, err = self.apply()
-        self.assertIn("%s: off in settings, skipped" % self.FAMILY, out + err)
+        # the engine's gate (spec 1.4): an injected route waits for its check
+        self.assertIn("%s: waiting, skipped" % self.FAMILY, out + err)
         self.assertEqual(self.w.sb.tree_hash(), self.before)
+        self.assertEqual(self.w.tc.builds(), [])
+        self.settings({self.FAMILY: {"enabled": False}})
+        out, err = self.apply()
+        self.assertIn("%s: off in settings, skipped" % self.FAMILY, out + err)
         self.assertEqual(self.w.tc.builds(), [])
 
     def test_apply_and_remove(self):

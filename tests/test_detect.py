@@ -127,7 +127,10 @@ class Scan(unittest.TestCase):
     def test_cli_json(self):
         code, out, err = self.sb.run("detect", "--json")
         self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out), json.loads(json.dumps(self.recs)))
+        got = json.loads(out)
+        # the engine adds each launcher's fingerprint (engine.fingerprint)
+        self.assertTrue(all(len(r.pop("fp")) == 16 for r in got))
+        self.assertEqual(got, json.loads(json.dumps(self.recs)))
         code, out, err = self.sb.run("detect")
         self.assertIn("org.gnome.Nautilus", out)
         self.assertNotIn("org.example.Missing", out)

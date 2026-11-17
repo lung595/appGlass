@@ -16,6 +16,9 @@ BIN=/usr/bin/artcraft-launcher
 MESA=/usr/share/glvnd/egl_vendor.d/50_mesa.json
 COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
 plain() { exec "$BIN" "$@"; }
+# the engine (appglass verify, launch-check): a plain/ marker means start the plain app
+AGKEY=ai.storyteller.artcraft-launcher
+[ -e "${XDG_STATE_HOME:-$HOME/.local/state}/appglass/plain/$AGKEY" ] && plain "$@"
 [ "${APPGLASS_ARTCRAFT:-on}" = off ] && plain "$@"
 [ -f "$LIB/appglass-ck.so" ] && [ -f "$MESA" ] || plain "$@"
 case "$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" in
@@ -27,14 +30,19 @@ lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
 c=$(printf '%s' "$lv" | jq -r '.content')
 b=$(printf '%s' "$lv" | jq -r '.bar')
+# colour keys are data (~/.cache/appglass/keys/<app>/<version>/dark.json): none, no glass
+keys=$("@APPGLASS@" keys "$AGKEY" dark 2>/dev/null) && [ -n "$keys" ] || plain "$@"
 # only scrub what this wrapper adds: a value the user already set is passed on as before
 scrub=''
 [ -n "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" ] || scrub="$scrub __EGL_VENDOR_LIBRARY_FILENAMES"
 [ -n "${WGPU_BACKEND:-}" ] || scrub="$scrub WGPU_BACKEND"
 [ -n "${LP_NUM_THREADS:-}" ] || scrub="$scrub LP_NUM_THREADS"
 [ -n "${APPGLASS_MAXFPS:-}" ] || scrub="$scrub APPGLASS_MAXFPS"
+# two launches with no window on this app version: the engine pauses the glass
+command -v setsid >/dev/null 2>&1 && setsid -f "@APPGLASS@" launch-check "$AGKEY" $$ \
+    >/dev/null 2>&1 </dev/null
 exec env __EGL_VENDOR_LIBRARY_FILENAMES="$MESA" WGPU_BACKEND=gl LP_NUM_THREADS="${LP_NUM_THREADS:-4}" \
     LD_PRELOAD="$LIB/appglass-ck.so${LD_PRELOAD:+ $LD_PRELOAD}" \
-    APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 \
+    APPGLASS_KEYS="$keys" APPGLASS_SNAP=0.25 \
     APPGLASS_MAXFPS="${APPGLASS_MAXFPS:-60}" APPGLASS_SCRUB="${scrub# }" \
     "$BIN" "$@"

@@ -279,7 +279,7 @@ Item {
                     t.press(root.find(p, "rail-apps"));
                     const rows = root.findAll(p, "app:", []);
                     t.check("one row per app, all shown", [rows.length, rows.filter(x => x.visible).length], [14, 14]);
-                    t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => root.find(p, "status-" + k).text), ["Glass", "Conflict", "Opaque", "Delegated", "Fallback", "Fallback"]);
+                    t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => root.find(p, "status-" + k).text), ["Glass", "Conflict", "Game: never touched", "Delegated", "Fallback", "Waiting for check"]);
                     t.check("route shown", root.find(p, "route-Alacritty").text.indexOf("terminal · Native"), 0);
                     const toggles = root.findAll(p, "appToggle-", []);
                     t.check("one switch per switchable row", toggles.filter(x => x.visible).length, Logic.appRows(root.status, {}, true).filter(r => r.switchable).length);
@@ -297,19 +297,28 @@ Item {
                                 "enabled": true
                             }
                         }, true]);
-                    // discord: off, its route a mod -> asks
+                    // discord: on by default (the engine's gate), its route a mod
                     t.check("routes to pick from", [root.findAll(p, "route-discord-", []).map(x => [x.objectName, x.variant]), root.findAll(p, "route-steam-", []).filter(x => x.visible).length], [[["route-discord-electron-vencord", "tonal"], ["route-discord-electron-hook", "outlined"]], 0]);
                     const disc = root.find(p, "appToggle-discord");
-                    t.check("discord off", disc.checked, false);
+                    t.check("discord auto", disc.checked, true);
                     t.tap(disc);
-                    t.check("a mod route asks first", [root.shown("confirm-discord"), root.saved("apps").discord], [true, undefined]);
+                    t.check("off never asks", [root.shown("confirm-discord"), root.saved("apps").discord, disc.checked], [false, {
+                            "enabled": false
+                        }, false]);
+                    t.tap(disc);
+                    t.check("a mod route asks first", [root.shown("confirm-discord"), root.saved("apps").discord], [true, {
+                            "enabled": false
+                        }]);
                     t.ok("the sheet says what it is", root.find(p, "confirm-discord").title.indexOf("electron-vencord (a mod)") > 0 && root.find(p, "confirm-discord").risk !== "");
                     t.check("in sentences, the risk first", [root.find(p, "confirm-discord").text, root.find(p, "confirm-discord").risk], ["A Vencord theme with transparency (Discord).", "Medium. Client mods break Discord's terms of service."]);
                     t.press(root.find(p, "confirm-discord-no"));
-                    t.check("cancel: nothing saved", [root.shown("confirm-discord"), root.saved("apps").discord, disc.checked], [false, undefined, false]);
+                    t.check("cancel: nothing saved", [root.shown("confirm-discord"), root.saved("apps").discord, disc.checked], [false, {
+                            "enabled": false
+                        }, false]);
                     // a route picked while off: saved, no question
                     t.press(root.find(p, "route-discord-electron-hook"));
                     t.check("route saved while off", [root.saved("apps").discord, root.shown("confirm-discord")], [{
+                            "enabled": false,
                             "route": "electron-hook"
                         }, false]);
                     t.check("the chip follows", [root.find(p, "route-discord-electron-hook").variant, root.find(p, "route-discord").text.indexOf("electron-hook · Forced")], ["tonal", 0]);
@@ -435,6 +444,7 @@ Item {
                     root.find(p, "searchField").accepted();
                     t.check("still disarmed back on its page", [root.shown("page-advanced"), root.shown("confirmUninstall")], [true, false]);
                     t.press(root.find(p, "rail-apps"));
+                    t.tap(root.find(p, "appToggle-discord"));        // auto -> off: no question
                     t.tap(root.find(p, "appToggle-discord"));
                     t.check("discord asks", root.shown("confirm-discord"), true);
                     t.press(root.find(p, "rail-glass"));
