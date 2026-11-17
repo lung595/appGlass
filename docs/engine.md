@@ -4,7 +4,7 @@ This page explains what appGlass does on its own, what it never does, and what y
 
 ## The levels
 
-The levels come from DMS, never from appGlass settings:
+By default the levels follow DMS (`levels.content` and `levels.bar` in `~/.config/appglass/settings.json` override them):
 
 1. **Content** is the opacity of the DMS "Glass blur" window rule in `~/.config/niri/dms/windowrules.kdl`. If there is no such rule, it is the DMS `foregroundLayerTransparency` setting, and if that is unset too, 0.60.
 2. **Bars** are `max(content, 0.65)`.
@@ -26,12 +26,14 @@ Each app paints its own background with alpha, and its niri rule goes back to `o
 - app alpha without the `opacity 1.0` rule multiplies with the DMS 0.60: the background ends at 0.36 and text at 0.60;
 - the `opacity 1.0` rule without app alpha makes the window fully opaque.
 
-So appglass writes the rule only for the apps it really glasses, in one file, `~/.config/niri/appglass.kdl`, included right after `dms/windowrules.kdl` (the same pattern as `dms-browser-glass.kdl`). After every change it runs `niri validate`, and takes the rule out again if niri rejects it.
+So appglass writes the rule only for the apps it really glasses, in one file, `~/.config/niri/appglass.kdl`, included right after `dms/windowrules.kdl` (the same pattern as `dms-browser-glass.kdl`). After every change it runs `niri validate`. If niri rejects the file, a command you typed takes the rule out again; a hook or sync run leaves it and reports the error, and the next typed `appglass apply` validates again and takes it out.
 
 ## How an app gets its route
 
 1. **Detect.** `appglass detect` reads each launcher and the binary it starts, without running the app: the ELF libraries it links, Electron fuses, the flatpak runtime. The result is a toolkit (gtk4, gtk3, qt-widgets, electron, webkitgtk, flutter, ...). `appglass learn` adds the toolkit of windows that are open right now, for apps the static read cannot place.
-2. **Route.** Each toolkit has a list of routes, cleanest first. An app with its own family (Alacritty, Obsidian, Herdr, Dux, Feishin, Lian Li, LocalSend, ArtCraft, Jellyfin, VLC, Discord) takes that family first. The first route that is implemented and switched on wins. If none is left, the app gets the fallback.
+2. **Route.** An app that a family lists (Alacritty, GTK3, GTK4, Obsidian, Herdr, Dux, Feishin, Lian Li, LocalSend, ArtCraft, Jellyfin, VLC, Discord) takes that family, and that is final: glass when the family is on, the fallback look when it is off. A route you picked in Settings > Apps comes before it. Otherwise the app gets one route from the catalogue, by app id (Steam, Jellyfin, OBS) or by toolkit, but that route has no files in this version, so the app keeps the fallback look. With no route for its toolkit, the app gets the fallback.
+
+   TODO(engine): a ranked list of routes per toolkit, where the first route that is implemented and switched on wins.
 3. **Apply.** appglass plans every write first, then writes. Each file it creates or edits is recorded with a backup, so it can be undone byte for byte.
 
 `appglass status` shows, for each app, the route it got and the reason (for example "family gtk3", "no adapter for toolkit java", "forced adapter, off until enabled (risk medium)").
@@ -58,7 +60,7 @@ These are the status chips in Settings > Apps:
 |---|---|
 | Glass | The route is applied. |
 | Fallback | No route, the app's family is not installed, or a Forced or Mod route is off (its default). The window gets the fallback look. |
-| Paused | The glass is paused, or you switched this app off. |
+| Paused | The glass is paused, or you switched this app off. For a Native app the files stay until its family is off (see [guide.md](guide.md#per-app-switch)). |
 | Conflict | A hand-made file that appglass does not own is in the way. Settings > Advanced > Adopt hand-made files hands it over, backed up first. |
 | Opaque | Kept opaque on purpose. |
 | Delegated | Owned by browserGlass, or drawn by DMS. |
@@ -73,7 +75,7 @@ TODO(engine): the states `waiting` (an injected route waits for its hidden check
 - `appglass-vibrancy.service` is the only resident process: it fades unfocused Alacritty windows, which niri cannot do without fading the text.
 - The DMS plugin only writes settings and runs `appglass sync`. The units and the CLI do the work, so the glass stays the same when the plugin is off.
 
-TODO(engine): the sync unit will also watch `/usr/share/applications`, the rpm database, the flatpak `.changed` files, `~/.local/share/applications` and `~/Applications`, plus a daily timer. One short job then fingerprints the launchers with `stat` only and re-routes just the apps that changed. Measured on the design prototype: 86 launchers fingerprinted in 3.0 ms, about 25 ms per event, 1.7 s for the cold scan, once.
+TODO(engine): the sync unit will also watch `/usr/share/applications`, the rpm database, the flatpak `.changed` files, `~/.local/share/applications` and `~/Applications`, plus a daily timer. One short job then fingerprints the launchers with `stat` only and re-routes just the apps that changed. Measured on the design prototype: 86 fingerprint keys (46 launchers) in 3.0 ms, about 25 ms per event, 1.7 s for the cold scan, once.
 
 ## Never touched
 
@@ -94,7 +96,9 @@ TODO(engine): `root` GUIs (Timeshift through pkexec) and password managers will 
 - **No blind overwrite.** If state.json is lost but appglass files are still on disk, apply writes nothing and says how to get back: `appglass restore` puts back the newest saved state and files; without a saved one, `appglass adopt --rescue` records the appglass files again (`appglass doctor` lists them).
 - **Self-check.** `appglass doctor` compares appglass's own files (units, niri rule, owned files, plugin link) with what the repo would render. `appglass doctor --fix` re-renders what drifted, and the ring keeps what it overwrites.
 - **Opt-in for anything loaded into an app.** Forced and Mod routes stay off until you turn them on, one app at a time, and the plugin asks first.
-- **No event removes anything.** Disabling, reloading or re-enabling the plugin changes no file and no unit. Only a pause, an app switched off, `appglass remove` or the confirmed uninstall takes files out.
+- **No event removes anything.** Disabling, reloading or re-enabling the plugin changes no file and no unit. Only a pause, a family switched off, a Forced or Mod app switched off, `appglass remove` or the confirmed uninstall takes files out. Switching off a Native app in Settings > Apps takes nothing out yet: only its whole family can be switched off (`appglass set apps.<family>.enabled false --apply`).
+
+  TODO(engine): a per-app off for Native apps that takes their files out.
 
 TODO(engine): a route that loads code into an app will go live only after a hidden check passes: the app is started in a headless compositor (gamescope headless, nested niri, a private D-Bus, a throwaway home), never on your screen, and the window must show its background at the level and its text at 255. Measured on the prototype: 2.22 s for Alacritty, background alpha 153 everywhere.
 
@@ -104,7 +108,7 @@ Failure always ends opaque, never half-faded:
 
 - With the default fallback ("Opaque"), every window appglass does not glass gets `opacity 1.0`. A window with no route is opaque and sharp.
 - A shim that cannot be built (no compiler, no Qt headers) makes apply skip that family with a warning that names what is missing. The app keeps the fallback look.
-- If `niri validate` rejects the rule file, the change is rolled back.
+- If `niri validate` rejects the rule file, a typed command takes the rule out again (the ring keeps the files). A hook or sync run leaves it and reports the error; the next typed `appglass apply` validates again and takes it out.
 - A hand-made file in the way shows as Conflict. appglass does not write over it.
 
 TODO(engine): after an app update an injected route is shown opaque until it passes the hidden check again; an app that fails to open a window twice under its route goes back to the plain app, with one notification: "<App>: glass paused after an update".
@@ -123,3 +127,5 @@ TODO(engine): after an app update an injected route is shown opaque until it pas
 - **Light mode** is measured less than dark mode.
 - **Dark logos drawn by an app** can be hard to see on dark glass. CSS cannot reach them.
 - **Opaque by design:** Steam, Chrome and other Chromium browsers, games, Java, Tk and X11 apps that are not GTK, Qt from a flatpak KDE runtime, Electron apps with no CSS hook. See [routes.md](routes.md#opaque) for each reason.
+
+  TODO(adapters): `appglass status` still lists Steam with the old Forced route `steam-cdp` and a switch; that switch does nothing ("adapter steam-cdp not implemented yet") and Steam stays opaque.

@@ -7,7 +7,7 @@ A route is the way one kind of app is made to paint its own background with alph
 - popups at 1.0;
 - text at 255.
 
-Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by `appglass remove --only <family>`, or by switching the app off (Settings > Apps, or `appglass set apps.<key>.enabled false --apply`).
+Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by `appglass remove --only <family>`, or by switching its family off (`appglass set apps.<family>.enabled false --apply`, with the family name from the table below). The switch in Settings > Apps takes the files out only for a Forced or Mod app; for a Native app it shows Paused and the files stay (see [guide.md](guide.md#per-app-switch)).
 
 The "Measured" lines come from window screenshots taken in a nested niri session (or, where noted, on the real desktop), with the alpha read per pixel. "0.80" means the measurement was taken at a DMS level of 0.80, where the content target is alpha 204. The per-toolkit pages have the full results.
 
@@ -50,7 +50,7 @@ TODO(adapters): kitty, foot, Ghostty and WezTerm through their own opacity keys.
 
 ## GTK3
 
-- **Writes:** a per-app theme, `~/.local/share/themes/AppGlass/gtk-3.0/gtk.css` (Adwaita, then `dank-colors.css`, then the glass rules), and launcher overrides in `~/.local/share/applications/` that start the app with `GTK_THEME=AppGlass`. There is no global `gtk-3.0/gtk.css`, so other GTK3 apps are not affected.
+- **Writes:** a per-app theme, `~/.local/share/themes/AppGlass/gtk-3.0/gtk.css` (Adwaita, then `dank-colors.css`, then the glass rules), launcher overrides in `~/.local/share/applications/` that start the app with `GTK_THEME=AppGlass`, and `~/.config/autostart/solaar.desktop` with the same change, because Solaar is started at login from the system autostart file (an autostart file you already had is edited, backed up). There is no global `gtk-3.0/gtk.css`, so other GTK3 apps are not affected.
 - **Apps:** Solaar, nvidia-settings.
 - **Measured:** Solaar content 153 (0.600), header bar and bars 166 (0.651), menus 255, glyph cores 255. Source: [gtk3.md](gtk3.md).
 - **Reload:** restart the app (Solaar is a tray process: quit it first).
@@ -102,8 +102,8 @@ A Mod route: client mods are against Discord's terms. appglass never installs Ve
 Feishin has no CSS hook of its own. This version uses the Node inspector, which Feishin's Electron fuses allow. The wrapper starts Feishin through its normal flatpak command with the inspector on, injects a small hook into the main process, and the hook clears the window background and adds the glass CSS.
 
 - **Writes:** `~/.local/lib/appglass/feishin/` (the hook, the injector, the CSS), the wrapper `~/.local/bin/appglass-feishin`, and a launcher override `org.jeffvli.feishin.desktop` that starts the wrapper.
-- **The port:** the inspector listens on 127.0.0.1 only, on a random port. The port is not listed over HTTP: the session id is read only by the wrapper, from a private (0700) folder, and deleted after the injection. In this version the port stays open while Feishin runs, because Electron cannot close it. This is why the route is Forced and off by default.
-- **Measured:** on the real desktop at 0.80, background 204, text 255. Source: the B4 real-session check (`realshims/feishin-glass.png`, see the [issue draft](issue-dms.md#screenshots)).
+- **The port:** the inspector listens on 127.0.0.1 only, on a random port. The port is not listed over HTTP: the session id is read only by the wrapper, from a private (0700) folder, and deleted after the injection. In this version the port stays open while Feishin runs. This is why the route is Forced and off by default.
+- **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)).
 - **Turn on:** Settings > Apps (asks first), or `appglass set apps.feishin.enabled true --apply`.
 - **Undo:** `appglass remove --only feishin`. The next launch is the plain Feishin.
 
@@ -113,7 +113,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 ## Lian Li (WebKitGTK shim)
 
 - **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/lianli/`, the page CSS, the wrapper `~/.local/bin/appglass-lianli` and a launcher override. The shim is preloaded for that one launch: it clears the WebView background, gives the window an alpha visual and adds the CSS.
-- **Measured:** on the real desktop at 0.80, background 204, text 255. Source: `realshims/lianli-glass.png`.
+- **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)).
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
 - **Turn on:** `appglass set apps.lianli.enabled true --apply` or Settings > Apps.
 - **Undo:** `appglass remove --only lianli`.
@@ -121,8 +121,8 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 ## Jellyfin (Qt Quick shim)
 
 - **Writes:** `libjfglass.so` built with the host Qt 6 in `~/.local/lib/appglass/jellyfin/`, the CSS, the wrapper and a launcher override. The shim is preloaded into the main process only. It gives the window an alpha channel, clears the web view background and shows the video layer only while a video plays.
-- **Measured:** at 0.80, the home page background 204 and text 255; a playing video stays 255. Source: the Jellyfin probe shots (`universal/jf2/shots/02-home.png`, `04-playing.png`).
-- **Needs:** host Qt 6 at least as new as the flatpak runtime's Qt. A runtime update rebuilds the shim.
+- **Measured:** in an isolated session at 0.80, the home page background 204 and text 255; a playing, paused or OSD video stays 255, popups 255.
+- **Needs:** `g++` and host Qt 6.11 or newer (the shim is built with the host Qt and loaded into the flatpak). A runtime update rebuilds the shim.
 - **Turn on:** `appglass set apps.jellyfin.enabled true --apply` or Settings > Apps.
 - **Undo:** `appglass remove --only jellyfin`.
 
@@ -130,8 +130,8 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 
 Flutter and egui apps draw everything themselves into one surface. The shim replaces the app's own background colours (known keys) with the same colour at the glass level, and leaves every other pixel, text included, untouched.
 
-- **Writes:** `appglass-ck.so` built with `gcc`, the wrapper (`appglass-localsend`, `appglass-artcraft`) and a launcher override. For LocalSend (flatpak) the lib folder is passed read-only for that run only, with no `flatpak override`. ArtCraft is moved to Mesa EGL with the GL backend, and its swaps are capped at 60 fps.
-- **Measured:** LocalSend on the real desktop at 0.80: background 204, text 255 (`realshims/localsend-glass.png`). ArtCraft at 0.80: background 204, text 255 (`b1/after-new-shim.png`). See [flutter.md](flutter.md) and [gpu.md](gpu.md).
+- **Writes:** `appglass-ck.so` built with `gcc`, the wrapper (`appglass-localsend`, `appglass-artcraft`) and a launcher override. For LocalSend (flatpak) the lib folder is passed read-only for that run only, with no `flatpak override`. ArtCraft is moved to Mesa EGL with wgpu's GL backend, which renders on the CPU (software rendering, llvmpipe), and its swaps are capped at 60 fps.
+- **Measured:** LocalSend on the real desktop at 0.80: background 204, text 255. ArtCraft at 0.80: background 204, text 255. See [flutter.md](flutter.md), [gpu.md](gpu.md) and the [issue draft](issue-dms.md#screenshots).
 - **Limit:** the colour keys are per app and per light/dark theme. A colour that is not a key stays opaque: a miss fails safe, it never fades text.
 - **Turn on:** `appglass set apps.localsend.enabled true --apply` or `appglass set apps.artcraft.enabled true --apply`, or Settings > Apps.
 - **Undo:** `appglass remove --only localsend,artcraft`.
@@ -147,6 +147,8 @@ With the default fallback ("Opaque", Settings > Fallback), these windows get `op
   - Steam's GL composer option: the main window and menus always use Steam's system composer, which prints "transparent background not supported"; the GL composer is only used for toasts. With `-cef-disable-xcomposite-workaround` the window was still alpha 255 everywhere.
 
   Steam games are never touched either way.
+
+  TODO(adapters): `appglass status` still lists Steam with an old Forced route, `steam-cdp` ("forced adapter, off until enabled"), and Settings > Apps gives it a switch. That switch does nothing: turned on, the reason reads "adapter steam-cdp not implemented yet" and Steam stays opaque. The route is to be dropped from the catalogue.
 - **Chrome and Chromium browsers.** Web content has no window alpha: measured alpha 255 everywhere. See [electron.md](electron.md).
 - **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process.
 - **Electron apps without a CSS hook**, Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime: no route in this version.

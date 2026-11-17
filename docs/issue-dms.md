@@ -12,7 +12,7 @@ The usual way to get glass on niri + DMS is the "Glass blur" window rule in `dms
 
 ## Demo
 
-Same desktop, same DMS opacity (0.60), before and after:
+Same desktop, before and after. The nested-session pairs are at a DMS opacity of 0.60; the after shots of Lian Li, LocalSend and Feishin come from the real session at 0.80 (background 204), and ArtCraft's after shot is at 0.80 too:
 
 - *(attach)* Alacritty: before (window rule) / after (terminal opacity key, text at 255)
 - *(attach)* Nautilus (GTK4/libadwaita): before / after, plus an opaque popover
@@ -124,11 +124,13 @@ The screenshots are kept in the private probe folder (`<probe>` below), never in
 | LocalSend (Flutter) | `shots/flutter/ls-baseline.wp.png` | `realshims/localsend-glass.png` (real session) |
 | Feishin | (none) | `realshims/feishin-glass.png` (real session) |
 | Obsidian | (no clean before) | `shots/electron/x-obsidian-final.png` |
-| Dux Files | (none) | `shots/a3/dux/run4/dfiles-run4.png`, `shots/qtquick/dfiles-060.wp.png` |
+| Dux Files | (none) | `shots/a3/dux/run4/dfiles-run4.png` (config A, what appglass ships); not `shots/qtquick/dfiles-060.wp.png`, which is config B (0.86 panes) |
 | ArtCraft | `shots/gpu/artcraft-baseline.wp.png` | `shots/b1/after-new-shim.png` (`b1/before-old-shim.png` is the old shim, not a no-glass baseline) |
 | Real desktop | `shots/a4b/pre-<output>.png` (and a `-small` copy) | `shots/a4b/alacritty.png`, `a4b/nautilus.png`, `a4b/nvidia-settings.png`, `a4b/dfiles.png`, `a4b/herdr-new.png` |
 | Steam GL composer test | | `shots/steam-gl/main-xcompworkaround-off.png`: proof of the limit (alpha 255 everywhere), not a glass shot |
 
 Paths are relative to `<probe>`. Every file in this table exists there.
+
+Levels: every pair is at 0.60, except the after shots at 0.80 of Lian Li, LocalSend, Feishin (`realshims/*`, real session) and ArtCraft (`b1/after-new-shim.png`). Their before shots are at 0.60. Take those four again at 0.60 for the fresh set.
 
 **Privacy:** `a4b/*` and `realshims/*` come from the real session. Check them for file names, terminal history, account names and notifications, and crop them before attaching. A fresh set taken once the engine work lands (same apps, same level) would make a cleaner demo.

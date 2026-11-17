@@ -78,18 +78,24 @@ TODO(engine): `appglass pause` and `appglass resume` as CLI commands.
 
 In Settings > Apps, each app has its own switch, and a route choice when it has more than one. A Forced or Mod route asks before it turns on.
 
+Off takes the app's files out only for a Forced or Mod app (Feishin, Lian Li, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. To take them out, switch its family off from a terminal: `appglass set apps.<family>.enabled false --apply` (the family names are in [routes.md](routes.md)), or `appglass remove --only <family>`. That takes the whole family out: `gtk3` covers both Solaar and nvidia-settings.
+
+TODO(engine): a per-app off for Native apps (take out that app's files, launcher override and niri rule only).
+
 From a key binding: `dms ipc call appGlass app <key> on` or `dms ipc call appGlass app <key> off`.
 
 Without the plugin:
 
 ```sh
 appglass status                                # every app: status, route, reason
-appglass set apps.<key>.enabled false --apply  # off: that app's files are restored
+appglass set apps.<key>.enabled false --apply  # off (files out for a family name or a Forced/Mod app)
 appglass set apps.<key>.enabled true --apply   # on again (also how a Forced route is turned on)
 appglass set apps.<key>.route <name>           # pick a route, when the app lists several
 ```
 
-`<key>` is the family name (`alacritty`, `feishin`, ...) or the app id shown by `appglass status`. While the plugin is installed it owns the settings, and `appglass set` refuses with a hint: use the settings page or IPC then.
+`<key>` is the family name (`alacritty`, `gtk3`, `feishin`, ...), or the key `appglass status` shows for a Forced or Mod app, when it has no dots (`discord`). An app id with dots in it (`org.gnome.Nautilus`, every flatpak id) does not work here: `appglass set` reads each dot as a level of the key and refuses ("unknown key in apps.org"). Switch such an app from the settings page or with IPC (`dms ipc call appGlass app org.jeffvli.feishin off`). While the plugin is installed it owns the settings, and `appglass set` refuses with a hint: use the settings page or IPC then.
+
+TODO(engine): `appglass set` taking an app id with dots.
 
 TODO(engine): `appglass app <key> auto|off` as a short form.
 
