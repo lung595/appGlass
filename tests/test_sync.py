@@ -436,6 +436,26 @@ class GlassOffOn(unittest.TestCase):
         self.assertIn("adopted again", out)
         self.assertEqual(self.conflicts(), [])
 
+    def test_a_parked_file_changed_while_off_is_a_conflict(self):
+        # glass on would leave it as is (_adopt_parked): it is in the way
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        with open(self.desk, "a") as f:
+            f.write("# mine\n")
+        doc = self.json.loads(self.run_ok("status", "--json"))
+        st = {h["path"]: h["status"] for h in doc["hand_files"]}
+        tilde = lambda p: "~" + p[len(self.w.sb.home):]
+        self.assertEqual(st[tilde(self.desk)], "conflict")
+        self.assertEqual(st[tilde(self.so)], "parked")
+        self.assertIn(tilde(self.desk), [c for a in doc["apps"] for c in a["conflicts"]])
+        # a link in its place is changed too
+        os.remove(self.desk)
+        os.symlink(self.so, self.desk)
+        doc = self.json.loads(self.run_ok("status", "--json"))
+        st = {h["path"]: h["status"] for h in doc["hand_files"]}
+        self.assertEqual(st[tilde(self.desk)], "conflict")
+
     def test_remove_only_while_off_drops_its_parked_files(self):
         self.run_ok("apply", "--all", "--adopt")
         on = self.json.loads(self.run_ok("get"))

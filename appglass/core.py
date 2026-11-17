@@ -1564,6 +1564,13 @@ def _park_adopted(app, names):
         del app.state.data["parked"]
 
 
+def _parked_unchanged(p, rec):
+    """A parked file still holds the bytes glass off handed back (what glass
+    on needs to adopt it again)."""
+    return (os.path.isfile(p) and not os.path.islink(p)
+            and sha(_read(p)) == rec.get("sha256"))
+
+
 def _adopt_parked(app, dry_run):
     """Glass on again: the files glass off handed back are adopted again,
     per owner, when every one of them still holds the bytes it had then. An
@@ -1584,9 +1591,7 @@ def _adopt_parked(app, dry_run):
         held = [p for p in paths if app.state.owner_of(p) == owner]
         free = [p for p in paths if p not in held]
         changed = [p for p in free
-                   if not (app.state.owner_of(p) is None and os.path.isfile(p)
-                           and not os.path.islink(p)
-                           and sha(_read(p)) == parked[p]["sha256"])]
+                   if not (app.state.owner_of(p) is None and _parked_unchanged(p, parked[p]))]
         for p in free:
             t = app.env.tilde(p)
             if not changed:
@@ -1666,7 +1671,8 @@ def hand_files(app):
     """The hand-made files appglass knows: [{path, adapter, what, exists,
     status}] with status adopted | owned | parked | conflict | absent.
     parked: adopted, handed back by glass off; glass on adopts it again,
-    so it is not in the way."""
+    so it is not in the way. One changed since (glass on leaves it as is)
+    is a conflict."""
     from . import adapters
     env, st = app.env, app.state
     parked = st.data.get("parked") or {}
@@ -1679,7 +1685,7 @@ def hand_files(app):
             status = "adopted"
         elif owner:
             status = "owned"
-        elif p in parked and os.path.lexists(p):
+        elif p in parked and _parked_unchanged(p, parked[p]):
             status = "parked"
         elif os.path.lexists(p):
             status = "conflict"
