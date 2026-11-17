@@ -1,0 +1,38 @@
+#!/usr/bin/sh
+# appglass-artcraft-gpu: prototype of a GPU route for the ArtCraft Launcher glass window.
+# Not installed by any family yet: appglass-artcraft (Mesa EGL + llvmpipe + appglass-ck.so) stays
+# the live launcher. This one keeps wgpu on Vulkan (the NVIDIA GPU) and turns on the explicit layer
+# VK_LAYER_APPGLASS_glass from a private layer dir: the layer asks the WSI for a PRE_MULTIPLIED
+# swapchain and colour-keys the launcher's dark background colours to the DMS glass levels in one
+# GPU draw before each present. appglass-ck.so is still preloaded for the window's opaque region
+# (winit sets a full one for a window made without transparency) and for APPGLASS_SCRUB: no app the
+# launcher starts sees the layer, its path, the backend choice or the keys.
+# No global layer manifest is written: only this wrapper's env names the layer.
+# Plain start on demand: APPGLASS_ARTCRAFT=off appglass-artcraft-gpu
+set -u
+LIB="$HOME/.local/lib/appglass/artcraft"
+BIN=/usr/bin/artcraft-launcher
+COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
+plain() { exec "$BIN" "$@"; }
+[ "${APPGLASS_ARTCRAFT:-on}" = off ] && plain "$@"
+[ -f "$LIB/appglass-ck.so" ] && [ -f "$LIB/vk/libappglass-vk.so" ] && [ -f "$LIB/vk/appglass-vk.json" ] || plain "$@"
+case "$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" in
+    *prefer-light*) plain "$@" ;;
+    *prefer-dark*) ;;
+    *) [ "$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null)" = light ] && plain "$@" ;;
+esac
+lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
+[ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
+c=$(printf '%s' "$lv" | jq -r '.content')
+b=$(printf '%s' "$lv" | jq -r '.bar')
+# only scrub what this wrapper adds: a value the user already set is passed on as before
+scrub=''
+[ -n "${WGPU_BACKEND:-}" ] || scrub="$scrub WGPU_BACKEND"
+[ -n "${VK_ADD_LAYER_PATH:-}" ] || scrub="$scrub VK_ADD_LAYER_PATH"
+[ -n "${VK_INSTANCE_LAYERS:-}" ] || scrub="$scrub VK_INSTANCE_LAYERS"
+exec env WGPU_BACKEND=vulkan \
+    VK_ADD_LAYER_PATH="$LIB/vk${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}" \
+    VK_INSTANCE_LAYERS=VK_LAYER_APPGLASS_glass${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS} \
+    LD_PRELOAD="$LIB/appglass-ck.so${LD_PRELOAD:+ $LD_PRELOAD}" \
+    APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 APPGLASS_SCRUB="${scrub# }" \
+    "$BIN" "$@"
