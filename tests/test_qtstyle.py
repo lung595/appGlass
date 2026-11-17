@@ -27,12 +27,13 @@ class QtStyle(unittest.TestCase):
         code, out, err = self.w.run("apply", "--only", "qtstyle", *extra)
         return code, out, err
 
-    def expected(self, level="0.8"):
+    def expected(self, level="0.8", fade="APPGLASS_INACTIVE=0.72 APPGLASS_FADE_MS=180 "
+                 "APPGLASS_FADE_EASING=ease-out-cubic"):
         sb = self.w.sb
         pre = ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
-               "APPGLASS_CONTENT=%s " % (os.path.join(sb.home, ".local/lib/appglass/qt6"),
-                                         os.path.join(sb.cache, "dms", "dms-colors.json"),
-                                         level))
+               "APPGLASS_CONTENT=%s %s " % (os.path.join(sb.home, ".local/lib/appglass/qt6"),
+                                            os.path.join(sb.cache, "dms", "dms-colors.json"),
+                                            level, fade))
         return re.sub(r"(?m)^Exec=/usr/bin/vlc", lambda m: "Exec=" + pre + "/usr/bin/vlc",
                       self.system)
 
@@ -42,8 +43,11 @@ class QtStyle(unittest.TestCase):
         so = self.w.user(SO)
         self.assertTrue(self.w.sb.readb(so).startswith(b"FAKE-BUILD libappglass.so"))
         self.assertEqual(self.w.mode(so), 0o755)
-        level = repr(float(json.loads(self.w.run("levels")[1])["content"]))
-        self.assertEqual(self.w.sb.read(self.w.user(LAUNCHER)), self.expected(level))
+        lv = json.loads(self.w.run("levels")[1])
+        level = repr(float(lv["content"]))
+        fade = "APPGLASS_INACTIVE=%r APPGLASS_FADE_MS=%d APPGLASS_FADE_EASING=%s" % (
+            float(lv["inactive"]), lv["fade_ms"], lv["fade_easing"])
+        self.assertEqual(self.w.sb.read(self.w.user(LAUNCHER)), self.expected(level, fade))
         builds = self.w.tc.builds()
         self.assertEqual(len(builds), 1)
         self.assertIn("-o libappglass.so", builds[0])

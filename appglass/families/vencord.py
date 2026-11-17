@@ -83,6 +83,8 @@ def css(ctx):
     lv = shims.levels(ctx)
     text = text.replace("{{appglass.content_pct}}", shims.jq_pct(lv["content"]))
     text = text.replace("{{appglass.bar_over_pct}}", shims.jq_pct(lv["bar_over_content"]))
+    text = text.replace("{{appglass.inactive_pct}}", shims.jq_pct(lv["inactive"]))
+    text = text.replace("{{appglass.fade}}", lv["fade"])
     if "{{" in text:
         raise Conflict("unresolved colours in the Discord theme (%s)"
                        % ", ".join(sorted(set(re.findall(r"\{\{([^}]*)\}\}", text)))))

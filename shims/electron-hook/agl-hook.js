@@ -5,6 +5,7 @@
 //   - inspector:     Runtime.evaluate `require('/path/agl-hook.js')` over --inspect
 // Env: AGL_CSS=<css file> (re-read on every page load, so a DMS/matugen rewrite applies on reload)
 //      AGL_MATCH=<regex on page URL> (default: all), AGL_LOG=1
+//      the page root gets the class agl-inactive while the window is not focused (unfocused fade CSS)
 'use strict';
 const fs = require('fs');
 let electron;
@@ -46,6 +47,14 @@ function install() {
     const wc = w.webContents;
     wc.on('dom-ready', () => css(wc));
     if (!wc.isLoading() && wc.getURL()) css(wc);
+    // unfocused fade: html.agl-inactive while the window has no focus; the CSS transition eases it,
+    // nothing runs between focus changes
+    const focus = (on) => {
+      if (w.isDestroyed && w.isDestroyed()) return;
+      wc.executeJavaScript(`document.documentElement && document.documentElement.classList.toggle('agl-inactive', ${!on})`).catch(() => {});
+    };
+    w.on('focus', () => focus(true)); w.on('blur', () => focus(false));
+    wc.on('dom-ready', () => { try { focus(w.isFocused()); } catch (e) {} });
     // AGL_NOMENU=1: drop the native (GTK, always opaque) menubar of this window; app keyboard shortcuts in the
     // renderer keep working, menu-only accelerators are lost. autoHideMenuBar alone did NOT hide it (Signal).
     if (process.env.AGL_NOMENU) { const nm = () => { try { w.removeMenu(); } catch (e) {} }; nm(); w.once('show', nm); wc.once('did-finish-load', nm); }

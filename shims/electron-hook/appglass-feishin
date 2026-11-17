@@ -29,6 +29,9 @@ lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar_over_content":0.125}'
 c=$(printf '%s' "$lv" | jq -r '.content')
 b=$(printf '%s' "$lv" | jq -r '.bar_over_content')
+i=$(printf '%s' "$lv" | jq -r '.inactive // .content')
+f=$(printf '%s' "$lv" | jq -r '.fade // "0ms linear"')
+printf '%s' "$f" | grep -qxE '[0-9]+ms (linear|cubic-bezier\([0-9., ]+\))' || f='0ms linear'   # nothing else reaches sed
 mode=$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null) || mode=dark
 rgb() {  # DMS colour key -> "r, g, b"
     h=$(jq -r --arg m "$mode" --arg k "$1" '.colors[$m][$k] // empty' "$COLORS" 2>/dev/null | tr -d '#')
@@ -36,7 +39,7 @@ rgb() {  # DMS colour key -> "r, g, b"
     printf '%d, %d, %d' "0x$(echo $h | cut -c1-2)" "0x$(echo $h | cut -c3-4)" "0x$(echo $h | cut -c5-6)"
 }
 css="$LIB/feishin-glass.css"
-sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" \
+sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" -e "s/{{inactive}}/$i/g" -e "s/{{fade}}/$f/g" \
     -e "s/{{surface}}/$(rgb surface 101418)/g" -e "s/{{surface_container}}/$(rgb surface_container 1e2226)/g" \
     -e "s/{{surface_container_high}}/$(rgb surface_container_high 282c30)/g" \
     "$LIB/feishin-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css" || plain "$@"

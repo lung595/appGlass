@@ -3424,7 +3424,9 @@ def main(argv=None, environ=None, out=None, err=None):
             else:
                 cmd_status(app)
         elif args.cmd == "levels":
-            print(json.dumps(app.levels.as_dict()), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
+            from . import inactive
+            lv = dict(app.levels.as_dict(), **inactive.fields(app.settings, app.levels.content))
+            print(json.dumps(lv), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
         elif args.cmd == "detect":
             cmd_detect(app, as_json=args.json)
         elif args.cmd == "learn":

@@ -8,6 +8,8 @@
 //   1. webkit_web_view_set_background_color(view, rgba(0,0,0,0))  (and every later call is forced to alpha 0)
 //   2. toplevel: RGBA visual (if not yet realized) + app-paintable  (what tao does for transparent:true)
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
+//   4. with a stylesheet: a small script that sets html.agl-inactive while the page has no focus
+//      (the stylesheet fades the content background on it)
 // Everything is resolved with dlsym, so in processes without GTK/WebKit
 // (WebKitWebProcess, NetworkProcess, helpers) the shim is inert.
 // At load (a constructor) it keeps its APPGLASS_* settings and takes them and
@@ -77,6 +79,13 @@ void webkit_web_view_set_background_color(void *view, const GdkRGBA *c) {
     real_set_bg(view, &t);
 }
 
+// Top frame only (frames see their own focus); runs once per page at document end. The class follows
+// document.hasFocus() after each window focus/blur, so nothing runs between focus changes.
+static const char FOCUS_JS[] =
+    "(function(){if(window.top!==window||window.__aglFocus)return;window.__aglFocus=1;"
+    "var d=document.documentElement,f=function(){setTimeout(function(){d.classList.toggle('agl-inactive',!document.hasFocus())},0)};"
+    "window.addEventListener('focus',f);window.addEventListener('blur',f);f();})();";
+
 static void glassify(void *view) {
     static void *(*get_data)(void *, const char *); static void (*set_data)(void *, const char *, void *);
     if (!get_data) { get_data = sym("g_object_get_data"); set_data = sym("g_object_set_data"); }
@@ -114,7 +123,7 @@ static void glassify(void *view) {
     void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
     void *ucm = get_ucm ? get_ucm(view) : NULL;
     if (!ucm) { LOG("no user content manager"); return; }
-    char *css = slurp(g_css);
+    char *css = slurp(g_css); int had_css = css != NULL;
     if (css) {
         // webkit_user_style_sheet_new(src, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES=0, WEBKIT_USER_STYLE_LEVEL_USER=0, allow, block)
         void *(*ss_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_style_sheet_new");
@@ -123,15 +132,19 @@ static void glassify(void *view) {
         if (ss_new && add_ss) { void *s = ss_new(css, 0, 0, NULL, NULL); add_ss(ucm, s); if (ss_unref) ss_unref(s); LOG("css injected (%zu bytes)", strlen(css)); }
         free(css);
     }
+    // webkit_user_script_new(src, ALL_FRAMES=0, INJECT_AT_DOCUMENT_START=0 / END=1, allow, block)
+    void *(*sc_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_script_new");
+    void (*add_sc)(void *, void *) = sym("webkit_user_content_manager_add_script");
+    void (*sc_unref)(void *) = sym("webkit_user_script_unref");
+    if (!sc_new || !add_sc) return;
     for (int at = 0; at < 2; at++) {  // APPGLASS_JS_START: document start (0); APPGLASS_JS: document end (1)
         char *js = slurp(at ? g_js : g_js_start);
         if (!js) continue;
-        // webkit_user_script_new(src, ALL_FRAMES=0, INJECT_AT_DOCUMENT_START=0 / END=1, allow, block)
-        void *(*sc_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_script_new");
-        void (*add_sc)(void *, void *) = sym("webkit_user_content_manager_add_script");
-        void (*sc_unref)(void *) = sym("webkit_user_script_unref");
-        if (sc_new && add_sc) { void *s = sc_new(js, 0, at, NULL, NULL); add_sc(ucm, s); if (sc_unref) sc_unref(s); LOG("js injected at %s (%zu bytes)", at ? "end" : "start", strlen(js)); }
+        void *s = sc_new(js, 0, at, NULL, NULL); add_sc(ucm, s); if (sc_unref) sc_unref(s); LOG("js injected at %s (%zu bytes)", at ? "end" : "start", strlen(js));
         free(js);
+    }
+    if (had_css) {  // unfocused fade: html.agl-inactive while the page has no focus (the glass CSS eases it)
+        void *s = sc_new(FOCUS_JS, 0, 1, NULL, NULL); add_sc(ucm, s); if (sc_unref) sc_unref(s); LOG("focus script injected");
     }
 }
 
