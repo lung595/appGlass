@@ -21,7 +21,11 @@ Column {
     }
     StyledText {
         width: parent.width
+        objectName: "noResultsQuery"
         horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
         text: "Nothing matches \"" + none.query.trim() + "\""
         color: Theme.surfaceText
         font.pixelSize: Theme.fontSizeMedium
@@ -29,6 +33,7 @@ Column {
     StyledText {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
         text: "Try a setting's name, an app's name or a status such as glass or conflict"
         color: Theme.surfaceVariantText
         font.pixelSize: Theme.fontSizeSmall

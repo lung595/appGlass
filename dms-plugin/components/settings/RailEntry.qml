@@ -4,7 +4,10 @@ import qs.Widgets
 import qs.DCommon.Widgets
 
 // One category of the rail. The open one is tinted; while a search is typed
-// the categories with a match carry their count and the others fade.
+// the categories with a match carry their count and the others fade. The
+// arrow keys open the next or previous category and take the focus there
+// (stepped: the rail moves it); narrow, the name shows beside the icon on
+// hover or focus.
 Item {
     id: entry
 
@@ -16,6 +19,7 @@ Item {
     readonly property bool dim: entry.view.filtering && entry.count === 0
 
     signal clicked
+    signal stepped(int by)
 
     objectName: "rail-" + entry.modelData.id
     width: parent ? parent.width : 0
@@ -33,8 +37,8 @@ Item {
     Keys.onReturnPressed: entry.clicked()
     Keys.onEnterPressed: entry.clicked()
     Keys.onSpacePressed: entry.clicked()
-    Keys.onUpPressed: entry.view.step(-1)
-    Keys.onDownPressed: entry.view.step(1)
+    Keys.onUpPressed: entry.stepped(-1)
+    Keys.onDownPressed: entry.stepped(1)
 
     HoverHandler {
         id: hover
@@ -76,14 +80,15 @@ Item {
         color: entry.on ? Theme.primary : Theme.surfaceText
     }
 
+    // Wide: at the row's end; narrow: on the icon's upper-right corner.
+    // Placed by x/y: switching anchors between top and verticalCenter left
+    // both set for a moment, which stretched it to the row's height.
     StyledRect {
         id: badge
         objectName: "railCount-" + entry.modelData.id
         visible: entry.view.filtering && entry.count > 0
-        anchors.right: parent.right
-        anchors.rightMargin: entry.view.compact ? 0 : Theme.spacingS
-        anchors.top: entry.view.compact ? parent.top : undefined
-        anchors.verticalCenter: entry.view.compact ? undefined : parent.verticalCenter
+        x: entry.view.compact ? Math.min(entry.width - width, icon.x + icon.size - 6) : entry.width - width - Theme.spacingS
+        y: entry.view.compact ? 0 : (entry.height - height) / 2
         width: Math.max(20, countText.implicitWidth + 10)
         height: 20
         radius: 10
@@ -94,6 +99,31 @@ Item {
             anchors.centerIn: parent
             text: entry.count
             color: Theme.primaryText
+            font.pixelSize: Theme.fontSizeSmall
+            wrapMode: Text.NoWrap
+        }
+    }
+
+    // Narrow: the name beside the icon on hover or focus
+    StyledRect {
+        objectName: "railTip-" + entry.modelData.id
+        readonly property string text: entry.modelData.name
+        visible: entry.view.compact && (hover.hovered || entry.activeFocus)
+        z: 10
+        x: entry.width + Theme.spacingXS
+        anchors.verticalCenter: parent.verticalCenter
+        width: tipText.implicitWidth + Theme.spacingS * 2
+        height: 28
+        radius: 8
+        color: Theme.surfaceContainerHigh
+        border.width: 1
+        border.color: Theme.outline
+
+        StyledText {
+            id: tipText
+            anchors.centerIn: parent
+            text: entry.modelData.name
+            color: Theme.surfaceText
             font.pixelSize: Theme.fontSizeSmall
             wrapMode: Text.NoWrap
         }

@@ -208,8 +208,10 @@ def routes(rec, families):
     if a:
         out.append(a.NAME)
     out += [ad for rx, ad in APP_ROUTES if _any([rx], names)]
+    # a toolkit adapter that serves families only works for an app its
+    # families list (resolve gives the others the fallback)
     out += [x.NAME for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
-            and x.TIER in (NATIVE, FORCED, MOD)]
+            and x.TIER in (NATIVE, FORCED, MOD) and (not x.FAMILIES or fam in x.FAMILIES)]
     seen = set()
     return [n for n in out if not (n in seen or seen.add(n))]
 

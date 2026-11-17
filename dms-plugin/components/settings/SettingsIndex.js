@@ -125,7 +125,7 @@ var ENTRIES = [
     {
         "id": "fallbackValue",
         "category": "fallback",
-        "label": "Their opacity",
+        "label": "Fallback opacity",
         "help": "The opacity of the translucent fallback (text fades too)",
         "keywords": ["fallback", "opacity", "value", "percent", "translucent"]
     },

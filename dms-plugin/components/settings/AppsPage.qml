@@ -11,7 +11,7 @@ CategoryPage {
     StyledText {
         width: parent.width
         visible: !page.view.filtering
-        text: page.view.help("appList") + ". Mod and Forced routes ask before they turn on."
+        text: "Mod and Forced routes ask before they turn on."
         color: Theme.surfaceVariantText
         font.pixelSize: Theme.fontSizeSmall
     }

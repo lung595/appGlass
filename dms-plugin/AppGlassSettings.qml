@@ -8,7 +8,8 @@ import "components/settings"
 import "components/settings/SettingsIndex.js" as Index
 import "components/logic.js" as Logic
 
-// The settings page: a search field on top, the categories on the left
+// The settings page: a search field on top, then the glass state with the
+// global Pause, the categories on the left
 // (Glass, Apps, Fade, Fallback, Advanced, About), one category at a time on
 // the right; typing shows every matching setting across them, editable in
 // place. The setting widgets save into the plugin data (keys at the top of
@@ -133,13 +134,27 @@ PluginSettings {
                 event.accepted = true;
             }
         }
+        // A click on the page gives it the keys ("/", Esc); the controls
+        // keep their own clicks
+        TapHandler {
+            gesturePolicy: TapHandler.ReleaseWithinBounds
+            grabPermissions: PointerHandler.ApprovesTakeOverByAnything
+            onTapped: page.forceActiveFocus()
+        }
 
         Column {
             id: column
             width: parent.width
             spacing: Theme.spacingM
 
-            // --- the header: state, pause, the last error -----------------
+            SearchField {
+                id: search
+                width: parent.width
+                view: view
+                onReleased: page.forceActiveFocus()
+            }
+
+            // --- the state, pause, the last error -------------------------
             Item {
                 width: parent.width
                 height: Math.max(headerText.implicitHeight, pauseButton.implicitHeight)
@@ -192,19 +207,14 @@ PluginSettings {
                 font.pixelSize: Theme.fontSizeSmall
             }
 
-            SearchField {
-                id: search
-                width: parent.width
-                view: view
-                onReleased: page.forceActiveFocus()
-            }
-
             Row {
                 width: parent.width
                 spacing: Theme.spacingM
 
                 CategoryRail {
                     id: rail
+                    // above the content, so a narrow rail's name tips overlap it
+                    z: 1
                     view: view
                 }
 

@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Common
 import qs.Widgets
+import qs.DCommon.Widgets
 import "SettingsIndex.js" as Index
 
 // One category's settings under its name. It shows when it is the open
@@ -26,9 +27,15 @@ Column {
     }
     default property alias content: body.data
 
+    // A widget reloaded after a save of its key (the page's Pause, the
+    // CLI) sets the value it was given and saves it back: the same value
+    // is not written twice
     function saveValue(key, value) {
-        if (page.host && page.host.ready)
-            page.host.saveValue(key, value);
+        if (!page.host || !page.host.ready)
+            return;
+        if (JSON.stringify(page.loadValue(key, undefined)) === JSON.stringify(value))
+            return;
+        page.host.saveValue(key, value);
     }
     function loadValue(key, defaultValue) {
         return page.host ? page.host.loadValue(key, defaultValue) : defaultValue;
@@ -40,23 +47,44 @@ Column {
     visible: page.view.filtering ? (page.view.counts[page.category] || 0) > 0 : page.view.current === page.category
     bottomPadding: Theme.spacingL
 
-    Column {
+    // The title: the category's icon, its name in bold, then "· what it
+    // is" on the same line (elided; left out on a narrow page)
+    Item {
         width: parent.width
-        spacing: 2
+        height: 28
 
+        DIcon {
+            id: titleIcon
+            objectName: "pageIcon-" + page.category
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            name: page.meta.icon || ""
+            size: 20
+            color: Theme.primary
+        }
         StyledText {
-            width: parent.width
+            id: titleText
+            objectName: "pageTitle-" + page.category
+            anchors.left: titleIcon.right
+            anchors.leftMargin: Theme.spacingS
+            anchors.verticalCenter: parent.verticalCenter
             text: page.meta.name
             color: Theme.surfaceText
             font.pixelSize: Theme.fontSizeLarge
-            font.weight: Theme.fontWeightMedium
+            font.weight: Font.Bold
+            wrapMode: Text.NoWrap
         }
         StyledText {
-            width: parent.width
-            visible: !page.view.filtering
-            text: page.meta.help
+            anchors.left: titleText.right
+            anchors.leftMargin: Theme.spacingS
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: !page.view.compact && page.meta.help !== ""
+            text: "· " + page.meta.help
             color: Theme.surfaceVariantText
             font.pixelSize: Theme.fontSizeSmall
+            elide: Text.ElideRight
+            wrapMode: Text.NoWrap
         }
     }
 

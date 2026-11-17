@@ -130,7 +130,12 @@ Item {
     }
 
     Component.onCompleted: {
-        root.statusText = t.readFile("contract/status.json");
+        const doc = JSON.parse(t.readFile("contract/status.json"));
+        // discord with two routes (the fixture world leaves out the routes
+        // that cannot work, so it offers one): a world where a forced
+        // adapter lists the Vencord family too
+        doc.apps.find(a => a.key === "discord").routes = ["electron-vencord", "electron-hook"];
+        root.statusText = JSON.stringify(doc);
         t.steps([
             {
                 "run": () => root.fresh()

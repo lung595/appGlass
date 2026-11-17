@@ -3,7 +3,9 @@ import qs.Common
 import qs.Widgets
 
 // Advanced: the CLI's learn, adopt, report and uninstall, run by the daemon.
-// Adopt and Uninstall ask first; one action runs at a time.
+// Adopt and Uninstall ask first; one action runs at a time. A question
+// left open is dropped as soon as the page changes (another category, a
+// search), so it never waits armed for a later visit.
 CategoryPage {
     id: page
 
@@ -12,6 +14,16 @@ CategoryPage {
     readonly property bool idle: page.host.action === ""
 
     category: "advanced"
+
+    Connections {
+        target: page.view
+        function onCurrentChanged() {
+            page.asking = "";
+        }
+        function onQueryChanged() {
+            page.asking = "";
+        }
+    }
 
     function run(name) {
         page.asking = "";

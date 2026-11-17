@@ -167,9 +167,23 @@ appglass plugin install        # ~/.config/dms/plugins/appGlass -> <repo>/dms-pl
 appglass hook install          # the sync units and the vibrancy daemon, if not done yet
 ```
 
-Then enable App Glass in DMS Settings > Plugins. On its first start the plugin copies the current `appglass get` settings into its own data, and from then on owns them (`appglass set` is refused while it is enabled). Each change on its settings page is written to `$XDG_RUNTIME_DIR/appglass-plugin-settings.json` and passed to `appglass sync`, debounced, one run at a time.
+Then enable App Glass in DMS Settings > Plugins, and add the App Glass pill to a bar if you want it. On its first start the plugin copies the current `appglass get` settings into its own data, and from then on owns them (`appglass set` is refused while it is enabled). Each change on its settings page is written to `$XDG_RUNTIME_DIR/appglass-plugin-settings.json` and passed to `appglass sync`, debounced, one run at a time.
 
-The settings page has the glass switch (off runs `remove` for every glass file but the hook), the glass level as information (it follows the DMS window rule opacity), the unfocused-window controls (on/off, how much more transparent, animation length and curve, instant fallback), the fallback for apps appglass cannot glass, the app list from `appglass status --json` with each app's tier and a switch, and Re-apply. Disabling, re-enabling or reloading the plugin in DMS changes no file and no unit; `appglass remove` is the uninstall. Glass off then on adopts again the hand files that glass off gave back (when their bytes did not change meanwhile). IPC: `dms ipc call appGlass sync|status|toggle|app <key> on|off`.
+The plugin has three parts (`plugin.json`, type `composite`):
+
+- **The daemon** (`AppGlassDaemon.qml`) runs every `appglass` call: the debounced `sync`, `status --json` (shared with the page and the pill), and the Advanced actions. Disabling, re-enabling or reloading the plugin in DMS changes no file and no unit.
+- **The bar pill** (`AppGlassWidget.qml`): the glass icon (crossed out while paused) and how many apps are on glass. A click opens the settings, a right click pauses or resumes the glass.
+- **The settings page** (`AppGlassSettings.qml`, with its parts in `components/settings/`): a search field on top (Ctrl+F or `/`; Enter opens the best match, Esc clears), the glass state with a global Pause, and a category rail (Glass, Apps, Fade, Fallback, Advanced, About; icons only on a narrow page, the name on hover or focus; the arrow keys move between categories).
+  - **Glass**: the glass switch (off runs `remove` for every glass file but the hook), the glass level as information (it follows the DMS window rule opacity), Re-apply.
+  - **Apps**: the app list from `appglass status --json`, with each app's tier, a switch, and a route choice when more than one adapter can take the app. Mod and Forced routes ask before they turn on.
+  - **Fade**: the unfocused-window controls (on/off, how much more transparent, animation length and curve, instant fallback).
+  - **Fallback**: the opacity for apps appglass cannot glass.
+  - **Advanced**: Learn open windows, Adopt hand-made files, Copy report, and Uninstall. Adopt and Uninstall ask first (the question is dropped when the page changes); one action runs at a time. Uninstall stops pending syncs, waits for a running one, runs `appglass remove`, then `appglass plugin remove`; the plugin then stays inert until it is linked again.
+  - **About**: the version, what appglass never touches, and the same actions from a terminal.
+
+Glass off then on adopts again the hand files that glass off gave back (when their bytes did not change meanwhile); while glass is off they show as `parked`, not as conflicts.
+
+IPC: `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> on|off`. `pause` and `resume` turn the glass off and on, like the pill; `sync` answers `uninstalling` or `uninstalled` once Uninstall has started.
 
 `appglass plugin remove` takes the link out again (only a link to this repository's plugin); the glass files stay until `appglass remove`. Tests: `sh dms-plugin/tests/qml/run.sh [filter]` (Qt 6 `qml`, run by the unittest suite too).
 

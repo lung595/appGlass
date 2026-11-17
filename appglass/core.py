@@ -1569,9 +1569,12 @@ def app_routes(app, records=None):
 
 def hand_files(app):
     """The hand-made files appglass knows: [{path, adapter, what, exists,
-    status}] with status adopted | owned | conflict | absent."""
+    status}] with status adopted | owned | parked | conflict | absent.
+    parked: adopted, handed back by glass off; glass on adopts it again,
+    so it is not in the way."""
     from . import adapters
     env, st = app.env, app.state
+    parked = st.data.get("parked") or {}
     out = []
     for rel, adapter, what in adapters.HAND_FILES:
         p = os.path.join(env.home, rel)
@@ -1581,6 +1584,8 @@ def hand_files(app):
             status = "adopted"
         elif owner:
             status = "owned"
+        elif p in parked and os.path.lexists(p):
+            status = "parked"
         elif os.path.lexists(p):
             status = "conflict"
         else:

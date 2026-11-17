@@ -72,6 +72,14 @@ Item {
         return root.d;
     }
 
+    // Ends a scenario: the old daemon's teardown releases the shared Proc
+    // ids, so it must be gone before the next fresh() in a later step
+    function drop() {
+        if (root.d)
+            root.d.destroy();
+        root.d = null;
+    }
+
     function syncs() {
         return Proc.launched.filter(l => l.id === Logic.SYNC_ID);
     }
@@ -288,10 +296,14 @@ Item {
                     Quickshell.reset();
                     // --- uninstall: everything out, then no sync
                     root.mark = root.syncs().length;
-                    Proc.setResult(Logic.ACTION_IDS.uninstall, "settings: removed\nplugin: removed ~/.config/DankMaterialShell/plugins/appGlass\n", 0);
+                    Proc.setResult(Logic.ACTION_IDS.uninstall, "settings: removed\n", 0);
+                    Proc.setResult(Logic.UNLINK_ID, "plugin: removed ~/.config/DankMaterialShell/plugins/appGlass\n", 0);
                     root.d.runAction("uninstall");
                     Proc.flush();
                     t.check("uninstall argv", Proc.lastCommand(Logic.ACTION_IDS.uninstall), Logic.uninstallArgv(root.bin));
+                    t.check("then the plugin link", [Proc.pendingIds(), root.d.uninstalled], [[Logic.UNLINK_ID], true]);
+                    Proc.flush();
+                    t.check("unlink argv", Proc.lastCommand(Logic.UNLINK_ID), Logic.unlinkArgv(root.bin));
                     t.check("seed again on a new install", root.pdata().seeded, false);
                     t.check("uninstall toast", ToastService.ofLevel("info").map(x => x.message).slice(-1), ["appGlass: uninstalled, every file restored"]);
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 5);
@@ -303,6 +315,111 @@ Item {
                 "wait": 700,
                 "run": () => {
                     t.check("no sync after an uninstall", [Proc.pendingIds(), root.syncs().length - root.mark], [[], 0]);
+                }
+            },
+            {
+                "run": () => root.drop()
+            },
+            {
+                // --- uninstall while a change waits for its debounce: the
+                // change is dropped, no sync runs beside or after `remove`
+                "run": () => {
+                    root.fresh(true);
+                    Proc.flush();
+                    Proc.flush();
+                    root.mark = root.syncs().length;
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 5);
+                    t.check("a sync waits", root.vars().syncing, true);
+                    t.check("uninstall starts", root.d.runAction("uninstall"), true);
+                    t.check("the waiting sync dropped", [Proc.pendingIds(), root.vars().syncing], [[Logic.ACTION_IDS.uninstall], false]);
+                    // the page stays editable while it runs
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 7);
+                    t.check("IPC sync while it runs", IpcRegistry.call("appGlass", "sync"), "uninstalling");
+                    t.check("no second action", root.d.runAction("learn"), false);
+                }
+            },
+            {
+                "wait": 700,
+                "run": () => {
+                    t.check("nothing beside the uninstall", Proc.pendingIds(), [Logic.ACTION_IDS.uninstall]);
+                    Proc.flush();
+                    Proc.flush();
+                    t.check("no sync launched with it", root.syncs().length - root.mark, 0);
+                    t.check("uninstalled", [root.d.uninstalled, Proc.pendingIds()], [true, []]);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- uninstall while a sync runs, one more queued: held
+                    // until that sync ends, the queued one dropped
+                    root.fresh(true);
+                    root.mark = root.syncs().length;
+                    t.check("a sync running", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 6);
+                    t.check("uninstall accepted", root.d.runAction("uninstall"), true);
+                    t.check("held: not launched beside the sync", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    t.check("the action shows at once", root.vars().action, "uninstall");
+                    Proc.flush();
+                    t.check("the sync ended: the uninstall runs, the queued sync does not", Proc.pendingIds(), [Logic.ACTION_IDS.uninstall]);
+                    Proc.flush();
+                    Proc.flush();
+                    t.check("only the sync that ran already", [root.syncs().length - root.mark, root.d.uninstalled, Proc.pendingIds()], [1, true, []]);
+                }
+            },
+            {
+                "wait": 700,
+                "run": () => {
+                    t.check("still no sync", [Proc.pendingIds(), root.syncs().length - root.mark], [[], 1]);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- `remove` worked, the plugin link did not: still
+                    // uninstalled (no sync brings the glass back)
+                    root.fresh(true);
+                    Proc.flush();
+                    Proc.flush();
+                    root.mark = root.syncs().length;
+                    Proc.setResult(Logic.UNLINK_ID, "appglass: plugin remove: ~/.config/DankMaterialShell/plugins/appGlass is not a link to this repository\n", 1);
+                    root.d.runAction("uninstall");
+                    Proc.flush();
+                    Proc.flush();
+                    t.check("uninstalled all the same", [root.d.uninstalled, root.vars().action], [true, ""]);
+                    t.ok("the link error said", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("not a link") > 0);
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 9);
+                    t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
+                }
+            },
+            {
+                "wait": 700,
+                "run": () => {
+                    t.check("no sync after a half uninstall", [Proc.pendingIds(), root.syncs().length - root.mark], [[], 0]);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- `remove` failed: nothing was removed, syncing goes on
+                    root.fresh(true);
+                    Proc.flush();
+                    Proc.flush();
+                    root.mark = root.syncs().length;
+                    Proc.setResult(Logic.ACTION_IDS.uninstall, "appglass: remove: boom\n", 1);
+                    root.d.runAction("uninstall");
+                    Proc.flush();
+                    t.check("a failed remove: not uninstalled, no unlink", [root.d.uninstalled, Proc.pendingIds()], [false, [Logic.STATUS_ID]]);
+                    Proc.flush();
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 11);
+                }
+            },
+            {
+                "wait": 700,
+                "run": () => {
+                    t.check("syncs again after a failed remove", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    Proc.flush();
+                    Proc.flush();
                 }
             },
             {

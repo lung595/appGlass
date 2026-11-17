@@ -19,6 +19,8 @@ Item {
     property var page: null
     property var daemon: null
     property var status: ({})
+    property real searchHeight: 0
+    property int saveMark: 0
 
     Component {
         id: pageComponent
@@ -124,6 +126,10 @@ Item {
 
     Component.onCompleted: {
         root.status = JSON.parse(t.readFile("contract/status.json"));
+        // discord with two routes to pick from (the fixture world leaves out
+        // the routes that cannot work, so it offers one): a world where a
+        // forced adapter lists the Vencord family too
+        root.status.apps.find(a => a.key === "discord").routes = ["electron-vencord", "electron-hook"];
         t.steps([
             {
                 "run": () => root.fresh()
@@ -370,6 +376,117 @@ Item {
                     t.check("no daemon: a warning toast", ToastService.ofLevel("warning").map(x => x.message), ["appGlass: the plugin daemon is not running", "appGlass: the plugin daemon is not running"]);
                     root.page.width = 380;
                     t.check("narrow: the rail keeps its icons", root.find(p, "rail").width, 48);
+                    root.fresh();
+                }
+            },
+            {
+                "wait": 20,
+                "run": () => {
+                    const p = root.page;
+                    // --- the layout: the search first, as in the DMS hubs
+                    const y = n => root.find(p, n).mapToItem(p, 0, 0).y;
+                    t.ok("the search field above the status and Pause", y("searchField") < y("headerStatus") && y("searchField") < y("pauseButton"));
+                    t.check("the key hint at rest", root.find(p, "searchHint").text, "Ctrl+F or /");
+                    root.searchHeight = root.find(p, "search").height;
+                    t.check("the category title: icon and name", [root.find(p, "pageIcon-glass").name, root.find(p, "pageTitle-glass").text], ["blur_on", "Glass"]);
+                    t.check("About says it once", root.find(p, "neverInfo").text.indexOf("Never touched"), -1);
+                    t.check("the fallback opacity says what it is", root.find(p, "fallbackValue").label, "Fallback opacity");
+                    root.type("fade");
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.check("the key hint while typing", root.find(p, "searchHint").text, "Esc clears");
+                    t.check("typing does not move the page", root.find(p, "search").height, root.searchHeight);
+                    root.type("");
+                    // --- the confirm sheets close when the page changes
+                    t.press(root.find(p, "rail-advanced"));
+                    t.press(root.find(p, "adoptButton"));
+                    t.check("adopt armed", root.shown("confirmAdopt"), true);
+                    t.press(root.find(p, "rail-apps"));
+                    t.press(root.find(p, "rail-advanced"));
+                    t.check("left and back: adopt no longer armed", root.shown("confirmAdopt"), false);
+                    t.press(root.find(p, "uninstallButton"));
+                    t.check("uninstall armed", root.shown("confirmUninstall"), true);
+                    root.type("uninst");
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.check("a search disarms it", [root.shown("uninstallButton"), root.shown("confirmUninstall")], [true, false]);
+                    root.find(p, "searchField").accepted();
+                    t.check("still disarmed back on its page", [root.shown("page-advanced"), root.shown("confirmUninstall")], [true, false]);
+                    t.press(root.find(p, "rail-apps"));
+                    t.tap(root.find(p, "appToggle-discord"));
+                    t.check("discord asks", root.shown("confirm-discord"), true);
+                    t.press(root.find(p, "rail-glass"));
+                    t.press(root.find(p, "rail-apps"));
+                    t.check("left and back: the app question is gone", root.shown("confirm-discord"), false);
+                    t.tap(root.find(p, "appToggle-discord"));
+                    root.type("discord");
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.check("a search drops the app question too", [root.shown("app:discord"), root.shown("confirm-discord")], [true, false]);
+                    root.type("");
+                    t.press(root.find(p, "rail-apps"));
+                    // an app with no route to pick from: its tier still asks
+                    t.check("no routes listed", root.findAll(p, "route-md.example.Electron-", []).length, 0);
+                    t.tap(root.find(p, "appToggle-md.example.Electron"));
+                    t.ok("a forced app with no route list asks first", root.shown("confirm-md.example.Electron") === true && root.find(p, "confirm-md.example.Electron").title.indexOf("(forced)") > 0);
+                    t.press(root.find(p, "confirm-md.example.Electron-no"));
+                    // --- Pause: one write
+                    root.saveMark = PluginService.saves.length;
+                    t.press(root.find(p, "pauseButton"));
+                }
+            },
+            {
+                "wait": 20,
+                "run": () => {
+                    const p = root.page;
+                    t.check("Pause writes glassEnabled once", PluginService.saves.slice(root.saveMark), [["appGlass", "glassEnabled", false]]);
+                    t.press(root.find(p, "pauseButton"));
+                    // --- the rail by keyboard: the focus moves with the arrows
+                    t.press(root.find(p, "rail-glass"));
+                    root.find(p, "rail-glass").forceActiveFocus();
+                    root.find(p, "rail-glass").Keys.downPressed(null);
+                    root.find(p, "rail-apps").Keys.downPressed(null);
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.check("two downs: Fade open and focused", [root.shown("page-fade"), root.find(p, "rail-fade").activeFocus], [true, true]);
+                    root.find(p, "rail-fade").Keys.returnPressed(null);
+                    t.check("Enter keeps Fade", [root.shown("page-fade"), root.shown("page-glass")], [true, false]);
+                    root.find(p, "rail-fade").Keys.upPressed(null);
+                    t.check("up: Apps focused", [root.shown("page-apps"), root.find(p, "rail-apps").activeFocus], [true, true]);
+                    // --- the narrow rail: the badge stays a dot, the name shows on focus
+                    root.page.width = 380;
+                    root.type("fade");
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    const badge = root.find(p, "railCount-fade");
+                    const entry = root.find(p, "rail-fade");
+                    t.check("narrow badge size", [badge.visible, badge.width, badge.height], [true, 20, 20]);
+                    t.ok("narrow badge inside its entry", badge.y >= 0 && badge.y + badge.height <= entry.height && badge.x + badge.width <= entry.width);
+                    t.check("no name tip at rest", root.find(p, "railTip-fade").visible, false);
+                    entry.forceActiveFocus();
+                    t.check("the name beside a focused icon", [root.find(p, "railTip-fade").visible, root.find(p, "railTip-fade").text], [true, "Fade"]);
+                    root.type("xyz");
+                }
+            },
+            {
+                "run": () => {
+                    const q = root.find(root.page, "noResultsQuery");
+                    t.check("a long query wraps, then elides", [q.wrapMode, q.elide, q.maximumLineCount], [Text.Wrap, Text.ElideRight, 2]);
                 }
             }
         ]);

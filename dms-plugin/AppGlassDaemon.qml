@@ -45,8 +45,13 @@ PluginComponent {
     property string lastSettingsText: ""
     // Re-apply asked: a toast when that sync ends
     property bool announce: false
-    // Settings > Advanced > Uninstall ran: nothing is synced any more (the
-    // plugin link is gone; DMS drops the plugin)
+    // Settings > Advanced > Uninstall asked: from then on no sync starts (a
+    // sync beside `appglass remove` would write the glass back after it).
+    // holding: it waits for the sync that runs to end.
+    property bool sweeping: false
+    property bool holding: false
+    // `appglass remove` worked: nothing is synced any more (DMS drops the
+    // plugin once its link is gone)
     property bool uninstalled: false
 
     PluginGlobalVar {
@@ -91,7 +96,7 @@ PluginComponent {
     // Asks for a sync: changes close together collapse into one (debounce),
     // and one that comes while a sync runs gets one more after it
     function requestSync(reason, waitMs) {
-        if (root.uninstalled)
+        if (root.uninstalled || root.sweeping)
             return false;
         if (!root.ready) {
             if (!root.seeding && root.bin)
@@ -119,6 +124,10 @@ PluginComponent {
     }
 
     function launchSync() {
+        if (root.uninstalled || root.sweeping) {
+            root.publish(syncingVar, false);
+            return;
+        }
         if (!root.settingsFile) {
             root.publish(syncingVar, false);
             root.fail("no XDG_RUNTIME_DIR: the settings cannot be handed to appglass");
@@ -142,8 +151,12 @@ PluginComponent {
 
     function syncDone(output, exitCode) {
         root.busy = false;
-        if (root.uninstalled) {
+        if (root.uninstalled || root.sweeping) {
+            root.again = false;
+            root.announce = false;
             root.publish(syncingVar, false);
+            if (root.holding)
+                root.launchRemove();
             return;
         }
         if (exitCode === 0) {
@@ -222,13 +235,60 @@ PluginComponent {
     // learn | adopt | uninstall: false when another one runs, the name is
     // unknown, or appglass was uninstalled. learn and adopt end with a sync
     // (what they found gets its glass), uninstall with none.
+    //
+    // Uninstall: no sync may run beside or after `appglass remove` (the
+    // core lock only queues it: it would write the glass back). A sync
+    // waiting for its debounce or queued is dropped, one running is waited
+    // for, and none starts again (sweeping). Then `appglass remove`; once
+    // it worked, the plugin link (`appglass plugin remove`).
     function runAction(name) {
         const argv = root.bin ? Logic.actionArgv(name, root.bin) : null;
-        if (!argv || root.uninstalled || actionVar.value)
+        if (!argv || root.uninstalled || root.sweeping || actionVar.value)
             return false;
         root.publish(actionVar, name);
+        if (name === "uninstall") {
+            root.sweeping = true;
+            debounce.stop();
+            root.again = false;
+            root.announce = false;
+            if (root.busy) {
+                root.holding = true;
+            } else {
+                root.publish(syncingVar, false);
+                root.launchRemove();
+            }
+            return true;
+        }
         Proc.runCommand(Logic.ACTION_IDS[name], argv, (out, code) => root.actionDone(name, out, code), 0, Logic.ACTION_TIMEOUT_MS, root);
         return true;
+    }
+
+    function launchRemove() {
+        root.holding = false;
+        Proc.runCommand(Logic.ACTION_IDS.uninstall, Logic.uninstallArgv(root.bin), (out, code) => root.removeDone(out, code), 0, Logic.ACTION_TIMEOUT_MS, root);
+    }
+
+    function removeDone(output, exitCode) {
+        if (exitCode !== 0) {
+            // nothing was taken out: the glass and the syncs go on
+            root.sweeping = false;
+            root.actionDone("uninstall", output, exitCode);
+            return;
+        }
+        // the files are back: whatever the link step does, no sync again
+        root.uninstalled = true;
+        root.ready = false;
+        // a later install starts again from `appglass get`
+        root.save("seeded", false);
+        root.publish(lastErrorVar, "");
+        Proc.runCommand(Logic.UNLINK_ID, Logic.unlinkArgv(root.bin), (out, code) => {
+            root.publish(actionVar, "");
+            if (code === 0) {
+                ToastService.showInfo("appGlass: uninstalled, every file restored");
+            } else {
+                root.fail("every file restored, but the plugin link stays: " + Logic.errorText(out, code));
+            }
+        }, 0, Logic.ACTION_TIMEOUT_MS, root);
     }
 
     function actionDone(name, output, exitCode) {
@@ -239,15 +299,6 @@ PluginComponent {
             return;
         }
         root.publish(lastErrorVar, "");
-        if (name === "uninstall") {
-            debounce.stop();
-            root.uninstalled = true;
-            root.ready = false;
-            // a later install starts again from `appglass get`
-            root.save("seeded", false);
-            ToastService.showInfo("appGlass: uninstalled, every file restored");
-            return;
-        }
         ToastService.showInfo("appGlass: " + (Logic.lastLine(output) || name + " done"));
         if (!root.requestSync(name, 0))
             root.refreshStatus();
@@ -305,6 +356,8 @@ PluginComponent {
         function sync(): string {
             if (root.uninstalled)
                 return "uninstalled";
+            if (root.sweeping)
+                return "uninstalling";
             return root.requestSync("reapply", 0) ? "OK" : "not ready";
         }
         function status(): string {
@@ -351,7 +404,7 @@ PluginComponent {
     Component.onDestruction: {
         // nothing else: a plugin disable then enable must not tear down the
         // adopted files and the hook (the enable's sync does not adopt)
-        for (const id of [Logic.SYNC_ID, Logic.STATUS_ID, Logic.SEED_ID])
+        for (const id of [Logic.SYNC_ID, Logic.STATUS_ID, Logic.SEED_ID, Logic.UNLINK_ID])
             Proc.release(id);
         // an action not launched yet is dropped; one already running finishes
         for (const name of Object.keys(Logic.ACTION_IDS))

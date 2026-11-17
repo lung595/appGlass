@@ -17,7 +17,7 @@ CategoryPage {
     InfoRow {
         view: page.view
         key: "neverInfo"
-        text: "Never touched: games, the windows DMS and Quickshell draw themselves, and the browsers browserGlass owns (shown as Delegated). It only writes under your home folder, never needs root, and backs up every file it changes; Uninstall puts each one back."
+        text: "Games, the windows DMS and Quickshell draw themselves, and the browsers browserGlass owns (shown as Delegated). It only writes under your home folder, never needs root, and backs up every file it changes; Uninstall puts each one back."
     }
     InfoRow {
         view: page.view

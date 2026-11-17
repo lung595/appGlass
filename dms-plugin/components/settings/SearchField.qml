@@ -4,7 +4,9 @@ import qs.Widgets
 import qs.DCommon.Widgets
 
 // The search over every setting: typing filters the page, Enter opens the
-// best match's category, Esc gives the page back.
+// best match's category, Esc gives the page back. The key hint sits in the
+// field (how to come here at rest, how to get out while typing), so typing
+// does not move the page.
 Item {
     id: search
 
@@ -12,7 +14,8 @@ Item {
 
     signal released
 
-    implicitHeight: field.implicitHeight + (hint.visible ? hint.implicitHeight + 2 : 0)
+    objectName: "search"
+    implicitHeight: field.implicitHeight
 
     function focusField() {
         field.forceActiveFocus();
@@ -30,6 +33,25 @@ Item {
         placeholderText: "Search settings and apps"
         leftIconName: "search"
         showClearButton: true
+        trailingContent: Component {
+            StyledRect {
+                objectName: "searchHintChip"
+                width: hintText.implicitWidth + 16
+                height: 24
+                radius: 12
+                color: Theme.withAlpha(Theme.surfaceText, 0.07)
+
+                StyledText {
+                    id: hintText
+                    objectName: "searchHint"
+                    anchors.centerIn: parent
+                    text: search.view.filtering ? "Esc clears" : (search.view.compact ? "/" : "Ctrl+F or /")
+                    color: Theme.surfaceVariantText
+                    font.pixelSize: Theme.fontSizeSmall
+                    wrapMode: Text.NoWrap
+                }
+            }
+        }
         onTextChanged: {
             if (search.view.query !== text)
                 search.view.query = text;
@@ -45,17 +67,5 @@ Item {
             if (field.text !== search.view.query)
                 field.text = search.view.query;
         }
-    }
-
-    StyledText {
-        id: hint
-        objectName: "searchHint"
-        anchors.top: field.bottom
-        anchors.topMargin: 2
-        width: parent.width
-        visible: search.view.filtering && search.view.hasResults
-        text: search.view.found.length + (search.view.found.length === 1 ? " match" : " matches") + "; Enter opens the first, Esc clears"
-        color: Theme.surfaceVariantText
-        font.pixelSize: Theme.fontSizeSmall
     }
 }

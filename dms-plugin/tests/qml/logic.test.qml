@@ -11,6 +11,10 @@ Item {
     Component.onCompleted: {
         const defaults = JSON.parse(t.readFile("contract/defaults.json"));
         const status = JSON.parse(t.readFile("contract/status.json"));
+        // discord with two routes (the fixture world leaves out the routes
+        // that cannot work, so it offers one): a world where a forced
+        // adapter lists the Vencord family too
+        status.apps.find(a => a.key === "discord").routes = ["electron-vencord", "electron-hook"];
 
         // --- settings
         t.check("empty plugin data = the appglass defaults", Logic.settingsFromPluginData({}), defaults);
@@ -218,7 +222,8 @@ Item {
         // the actions: the CLI's own commands, its messages on stdout
         t.check("learn argv", Logic.learnArgv("/b/appglass"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "learn"]);
         t.check("adopt argv", Logic.adoptArgv("/b/appglass"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "adopt"]);
-        t.check("uninstall argv", Logic.uninstallArgv("/b/appglass"), ["sh", "-c", "exec 2>&1; \"$0\" remove && \"$0\" plugin remove", "/b/appglass"]);
+        t.check("uninstall argv", Logic.uninstallArgv("/b/appglass"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "remove"]);
+        t.check("unlink argv", Logic.unlinkArgv("/b/appglass"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "plugin", "remove"]);
         t.check("action argv by name", [Logic.actionArgv("learn", "b"), Logic.actionArgv("rm -rf", "b")], [Logic.learnArgv("b"), null]);
         t.check("withApp", Logic.withApp({
             "steam": {

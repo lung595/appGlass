@@ -38,6 +38,8 @@ var ACTION_IDS = {
     "adopt": "appGlass.adopt",
     "uninstall": "appGlass.uninstall"
 };
+// The second step of the uninstall (unlinkArgv)
+var UNLINK_ID = "appGlass.unlink";
 
 var FALLBACK_MODES = ["opaque", "value", "off"];
 var EASINGS = ["ease-out-cubic", "ease-in-out", "linear"];
@@ -239,10 +241,16 @@ function adoptArgv(bin) {
     return cliArgv(bin, ["adopt"]);
 }
 
-// Every file appglass touched restored, the hook and units out, then the
-// plugin link (DMS drops the plugin)
+// Uninstall, step one: every file appglass touched restored, the hook and
+// units out
 function uninstallArgv(bin) {
-    return ["sh", "-c", "exec 2>&1; \"$0\" remove && \"$0\" plugin remove", bin];
+    return cliArgv(bin, ["remove"]);
+}
+
+// Uninstall, step two (after `remove` worked): the plugin link (DMS drops
+// the plugin)
+function unlinkArgv(bin) {
+    return cliArgv(bin, ["plugin", "remove"]);
 }
 
 // The argv of a Settings > Advanced action, null for any other name

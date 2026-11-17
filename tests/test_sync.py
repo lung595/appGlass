@@ -417,6 +417,25 @@ class GlassOffOn(unittest.TestCase):
         self.assertNotIn("libappglass.so changed", out)
         self.assertEqual(self.read(self.so), self.hand[self.so])
 
+    def test_parked_files_are_not_conflicts_while_off(self):
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.assertEqual(self.conflicts(), [])
+        self.sync(dict(on, enabled=False))
+        # glass on adopts them again by itself: not "in the way"
+        self.assertEqual(self.conflicts(), [])
+        doc = self.json.loads(self.run_ok("status", "--json"))
+        st = {h["path"]: h["status"] for h in doc["hand_files"]}
+        for p in (self.so, self.desk):
+            self.assertEqual(st["~" + p[len(self.w.sb.home):]], "parked", p)
+        self.assertEqual({a["key"]: a["conflicts"] for a in doc["apps"] if a["conflicts"]}, {})
+        # nor does a bare adopt take them while off; glass on does
+        out = self.run_ok("adopt")
+        self.assertNotIn("qtstyle", self.w.state()["owners"])
+        out = self.sync(on)
+        self.assertIn("adopted again", out)
+        self.assertEqual(self.conflicts(), [])
+
     def test_remove_only_while_off_drops_its_parked_files(self):
         self.run_ok("apply", "--all", "--adopt")
         on = self.json.loads(self.run_ok("get"))

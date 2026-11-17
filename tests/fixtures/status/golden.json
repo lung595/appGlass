@@ -362,8 +362,7 @@
       "risk": "medium",
       "route": null,
       "routes": [
-        "electron-vencord",
-        "electron-hook"
+        "electron-vencord"
       ],
       "source": "desktop",
       "tier": "mod",
@@ -406,9 +405,7 @@
       "reason": "family feishin does not list this app",
       "risk": "medium",
       "route": null,
-      "routes": [
-        "electron-hook"
-      ],
+      "routes": [],
       "source": "desktop",
       "tier": "forced",
       "toolkit": "electron"
@@ -450,9 +447,7 @@
       "reason": "family localsend does not list this app",
       "risk": "high",
       "route": null,
-      "routes": [
-        "ck-shim"
-      ],
+      "routes": [],
       "source": "desktop",
       "tier": "forced",
       "toolkit": "flutter"

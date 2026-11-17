@@ -66,7 +66,11 @@ class Status(unittest.TestCase):
     def test_route_choices(self):
         apps = {a["key"]: a for a in self.doc()["apps"]}
         # the family's adapter first, then the app-id route, then the toolkit's
-        self.assertEqual(apps["discord"]["routes"], ["electron-vencord", "electron-hook"])
+        # a toolkit adapter whose families do not list the app is left out:
+        # picked, it would only give the fallback
+        self.assertEqual(apps["discord"]["routes"], ["electron-vencord"])
+        self.assertEqual(apps["md.example.Electron"]["routes"], [])
+        self.assertEqual(apps["org.example.Flutter"]["routes"], [])
         self.assertEqual(apps["steam"]["routes"], ["steam-cdp"])
         self.assertEqual(apps["vlc"]["routes"], ["qt-style"])
         self.assertEqual(apps["Alacritty"]["routes"], ["terminal"])
@@ -77,7 +81,24 @@ class Status(unittest.TestCase):
         apps = {a["key"]: a for a in self.doc()["apps"]}
         self.assertEqual(apps["discord"]["route"], "electron-hook")
         self.assertEqual(apps["discord"]["adapter"], "electron-hook")
-        self.assertEqual(apps["discord"]["routes"], ["electron-vencord", "electron-hook"])
+        self.assertEqual(apps["discord"]["routes"], ["electron-vencord"])
+
+    def test_every_route_offered_is_the_route_taken(self):
+        """Each route an app offers, once picked, is the adapter resolve
+        gives it (never the fallback of a family that does not list it)."""
+        from appglass import settings
+        path = settings.path(core.Env(self.sb.env))
+        base = json.loads(self.sb.run("get")[1])
+        doc = self.doc()
+        for a in doc["apps"]:
+            for r in a["routes"]:
+                # written as the plugin hands it over (app keys may hold dots)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as f:
+                    json.dump(dict(base, apps={a["key"]: {"route": r}}), f)
+                got = {x["key"]: x for x in self.doc()["apps"]}[a["key"]]
+                self.assertEqual(got["adapter"], r, (a["key"], r))
+                self.assertNotIn("does not list this app", got["reason"], (a["key"], r))
 
     def test_conflicts(self):
         apps = {a["key"]: a for a in self.doc()["apps"]}

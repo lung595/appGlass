@@ -14,11 +14,23 @@ Column {
 
     Accessible.role: Accessible.PageTabList
 
+    // The arrow keys: the next or previous category opens and the focus
+    // follows it, so Enter or Space acts on the one shown
+    function step(by) {
+        rail.view.step(by);
+        const at = Index.CATEGORIES.findIndex(c => c.id === rail.view.current);
+        const item = entries.itemAt(at);
+        if (item)
+            item.forceActiveFocus();
+    }
+
     Repeater {
+        id: entries
         model: Index.CATEGORIES
 
         delegate: RailEntry {
             view: rail.view
+            onStepped: by => rail.step(by)
         }
     }
 }

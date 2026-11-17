@@ -37,8 +37,19 @@ Column {
             "statusLabel": "",
             "conflicts": []
         })
-    // The question open: {key, route, tier}, or null
+    // The question open: {key, route, tier}, or null; dropped as soon as
+    // the page changes (another category, a search)
     property var pending: null
+
+    Connections {
+        target: list.view
+        function onCurrentChanged() {
+            list.pending = null;
+        }
+        function onQueryChanged() {
+            list.pending = null;
+        }
+    }
 
     spacing: Theme.spacingS
 
@@ -75,9 +86,10 @@ Column {
         return Theme.surfaceVariantText;
     }
 
+    // From the status catalogue: a row with no route list still has its tier
     function tierOf(row, name) {
         const r = row.routes.find(x => x.name === name);
-        return r ? r.tier : "";
+        return r && r.tier ? r.tier : Logic.routeInfo(list.host.status, name).tier;
     }
 
     // The switch: on with a mod or forced route asks first
