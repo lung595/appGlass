@@ -24,6 +24,12 @@ dir out of XDG_CONFIG_DIRS once Kate runs (its terminal and tools never see
 it). The user's katerc is not touched. A native Kate has no glass launcher:
 it only gets the theme file (selectable by hand together with the style).
 
+Known limits: the minimap scrollbar is a tint, not clear (alpha about 197
+over the 153 glass in the headless verify: KTextEditor blends its own
+background into it) and its text lines are drawn opaque; the icon border
+icons look dimmer on the glass than on the opaque theme. Neither comes from
+a theme key.
+
 niri: ``^org\\.kde\\.kate$`` gets opacity 1.0 (the style paints the alpha).
 """
 

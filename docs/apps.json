@@ -41,14 +41,15 @@
    "route": "KSyntaxHighlighting theme with a clear editor background + qt-style (WA_OpaquePaintEvent cleared)",
    "tested": "here",
    "result": "glass",
-   "evidence": "shots/adapters/kate.json",
+   "evidence": "shots/adapters/kfix-glass.json",
    "measured": {
     "bg": 153,
-    "share": 0.789,
-    "text": 2924,
+    "share": 0.729,
+    "text": 5863,
     "popup": 1.0,
     "result": "PASS"
-   }
+   },
+   "reason": "the glass theme only in the glass start (plain flatpak run stays Breeze: kfix-plain.json). Minimap a tint (about 197), its lines and the icon border icons not clear (no theme key)"
   },
   {
    "app": "mpv 0.42.0 (flatpak)",
@@ -106,13 +107,14 @@
    "route": "electron-hook (the Feishin hook) with workbench CSS; opt-in",
    "tested": "here",
    "result": "glass",
-   "reason": "breadcrumb strip about 185 (stacked bar)",
-   "evidence": "shots/adapters/vscodium.json",
+   "reason": "breadcrumb strip and terminal panel checked as regions (opaque share 4% and 0%); the terminal uses the DOM renderer (gpuAcceleration off). Fresh-HOME starts vsf1-13: 2 of 5 without glass before the injector retried while Node starts, 8 of 8 glass after",
+   "evidence": "shots/adapters/vsf6.json",
    "measured": {
     "bg": 153,
-    "share": 0.669,
-    "text": 8665,
-    "popup": 0.83,
+    "share": 0.755,
+    "text": 4018,
+    "popup": null,
+    "regions": 3,
     "result": "PASS"
    }
   },

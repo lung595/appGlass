@@ -11,7 +11,10 @@ far it was tested and the result. ``tested`` is one of:
   no       documented only
 
 ``result`` is glass, partial or opaque; partial and opaque rows carry a
-``reason``.
+``reason``. It is the hand-entered result (or, for a probe row, what the
+probe saw). The table's Result column is derived from the evidence
+(``shown``): a row with no family "needs adapter", a family not verified
+(probe, no) is "untested", and a glass row tested here needs a PASS.
 
     python3 -m appglass.appstable --collect <verify dir>   # refresh measured
     python3 -m appglass.appstable --write                  # docs/apps.md
@@ -25,9 +28,11 @@ import sys
 DOCS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
 TESTED = ("here", "earlier", "probe", "no")
 RESULTS = ("glass", "partial", "opaque")
+SHOWN = RESULTS + ("untested", "needs adapter")
 BG_TOL = 4
 MIN_SHARE = 0.6
 MIN_POPUP = 0.5
+MAX_REGION_OPAQUE = 0.5   # a region expected glass (vrun --region NAME:BOX:glass)
 
 
 def verdict(rep):
@@ -49,6 +54,12 @@ def verdict(rep):
         why.append("no text at 255")
     if pop is not None and (out["popup"] or 0) < MIN_POPUP:
         why.append("popup not opaque")
+    glass = {k: v for k, v in sorted((rep.get("regions") or {}).items()) if v.get("glass")}
+    for k, v in glass.items():
+        if v.get("opaque_share", 1) > MAX_REGION_OPAQUE:
+            why.append("%s opaque (%d%%)" % (k, round(100 * v.get("opaque_share", 1))))
+    if glass:
+        out["regions"] = len(glass)
     out["result"] = "FAIL" if why else "PASS"
     if why:
         out["why"] = "; ".join(why)
@@ -70,11 +81,24 @@ def collect(rows, verify_dir):
     return rows
 
 
+def shown(r):
+    """The Result column: what the evidence supports."""
+    if r.get("family") in (None, "", "-"):
+        return "needs adapter"
+    if r.get("tested") in ("probe", "no"):
+        return "untested"
+    m = r.get("measured")
+    if r.get("result") == "glass" and m and m.get("result") != "PASS":
+        return "partial"
+    return r["result"]
+
+
 def _measured(m):
     if m["result"] != "PASS":
         return "FAIL: " + m.get("why", "")
     pop = "no popup" if m.get("popup") is None else "popup 255 (%d%%)" % round(100 * m["popup"])
-    return "PASS: bg %d (%d%%), text 255, %s" % (m["bg"], round(100 * m["share"]), pop)
+    reg = ", %d glass regions clear" % m["regions"] if m.get("regions") else ""
+    return "PASS: bg %d (%d%%), text 255, %s%s" % (m["bg"], round(100 * m["share"]), pop, reg)
 
 
 def _cell(s):
@@ -97,7 +121,7 @@ def render(rows):
     for r in rows:
         _check(r)
     n = {t: sum(1 for r in rows if r["tested"] == t) for t in TESTED}
-    g = {t: sum(1 for r in rows if r["result"] == t) for t in RESULTS}
+    g = {t: sum(1 for r in rows if shown(r) == t) for t in SHOWN}
     out = [
         "# App table",
         "",
@@ -108,21 +132,30 @@ def render(rows):
         "earlier step (README, the family's doc or commit); **probe** = the B5b research probe at level 0.80",
         "(204), not this family; **no** = documented only.",
         "",
-        "%d apps: %d tested here, %d earlier, %d probe, %d documented. %d glass, %d partial, %d opaque." % (
-            len(rows), n["here"], n["earlier"], n["probe"], n["no"], g["glass"], g["partial"], g["opaque"]),
+        "Result follows the evidence: **needs adapter** = no family covers the app; **untested** = a family",
+        "exists but was not verified on this app (the probe's or the expected result is in the notes);",
+        "glass, partial or opaque only for rows tested here (a glass row needs a PASS) or earlier.",
+        "",
+        "%d rows (a row can name several apps): %d tested here, %d earlier, %d probe, %d documented. "
+        "%d glass, %d partial, %d opaque, %d untested, %d needs adapter." % (
+            len(rows), n["here"], n["earlier"], n["probe"], n["no"],
+            *(g[t] for t in SHOWN)),
         "",
         "| App | Toolkit | Family | Route | Tested | Result | Measured / reason | Evidence |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         notes = []
+        res = shown(r)
+        if res in ("untested", "needs adapter"):
+            notes.append("%s: %s" % ("probe" if r["tested"] == "probe" else "expected", r["result"]))
         if r.get("measured"):
             notes.append(_measured(r["measured"]))
         if r.get("reason"):
             notes.append(r["reason"])
         out.append("| %s |" % " | ".join(_cell(x) for x in (
             r["app"], r.get("toolkit"), r.get("family") or "-", r.get("route"), r["tested"],
-            r["result"], ". ".join(notes), r.get("evidence") or "-")))
+            res, ". ".join(notes), r.get("evidence") or "-")))
     return "\n".join(out) + "\n"
 
 

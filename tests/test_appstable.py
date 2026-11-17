@@ -10,10 +10,13 @@ from appglass import appstable
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def shot(mode=153, share=0.9, text=5000, popup=None, error=None):
-    return {"level": 153, "window": {"alpha_mode": mode, "share_at_level": share,
-                                     "light_text_px_255": text},
-            "popup": popup, "error": error}
+def shot(mode=153, share=0.9, text=5000, popup=None, error=None, regions=None):
+    rep = {"level": 153, "window": {"alpha_mode": mode, "share_at_level": share,
+                                    "light_text_px_255": text},
+           "popup": popup, "error": error}
+    if regions:
+        rep["regions"] = regions
+    return rep
 
 
 class Verdict(unittest.TestCase):
@@ -40,12 +43,58 @@ class Verdict(unittest.TestCase):
     def test_run_error_fails(self):
         self.assertEqual(appstable.verdict(shot(error="no window"))["result"], "FAIL")
 
+    def test_opaque_glass_region_fails(self):
+        # a large bg share can hide an opaque strip (a terminal panel, a breadcrumb bar)
+        v = appstable.verdict(shot(regions={
+            "terminal": {"glass": True, "opaque_share": 0.97},
+            "editor": {"glass": True, "opaque_share": 0.02}}))
+        self.assertEqual(v["result"], "FAIL")
+        self.assertIn("terminal opaque (97%)", v["why"])
+        self.assertNotIn("editor", v["why"])
+
+    def test_region_not_expected_glass_may_be_opaque(self):
+        v = appstable.verdict(shot(regions={"menu": {"glass": False, "opaque_share": 1.0},
+                                            "editor": {"glass": True, "opaque_share": 0.1}}))
+        self.assertEqual((v["result"], v["regions"]), ("PASS", 1))
+
 
 ROW = {"app": "foot", "toolkit": "own", "family": "foot", "route": "alpha",
        "tested": "here", "result": "glass", "evidence": "adapters/foot.json"}
 
 
+class Shown(unittest.TestCase):
+    """The Result column is derived from the evidence, never taken from a hope."""
+
+    def test_no_family_needs_an_adapter(self):
+        for fam in (None, "", "-"):     # apps.json writes "-" for none
+            self.assertEqual(appstable.shown(dict(ROW, family=fam, tested="probe", reason="x")),
+                             "needs adapter")
+
+    def test_family_not_verified_is_untested(self):
+        for t in ("probe", "no"):
+            self.assertEqual(appstable.shown(dict(ROW, tested=t)), "untested")
+
+    def test_verified_rows_keep_their_result(self):
+        self.assertEqual(appstable.shown(dict(ROW, tested="earlier", result="partial")), "partial")
+        self.assertEqual(appstable.shown(dict(ROW, measured={"result": "PASS"})), "glass")
+
+    def test_failed_measurement_is_not_glass(self):
+        self.assertEqual(appstable.shown(dict(ROW, measured={"result": "FAIL", "why": "x"},
+                                              reason="y")), "partial")
+
+
 class Render(unittest.TestCase):
+    def test_counts_rows_and_derived_results(self):
+        rows = [dict(ROW, app="Solaar, nvidia-settings", measured={"result": "PASS", "bg": 153,
+                                                                    "share": 0.9, "popup": None}),
+                dict(ROW, app="Ptyxis", family=None, tested="probe", evidence="b5b"),
+                dict(ROW, app="kitty", family="kitty", tested="no", evidence=None)]
+        md = appstable.render(rows)
+        self.assertIn("3 rows (a row can name several apps)", md)
+        self.assertIn("1 glass, 0 partial, 0 opaque, 1 untested, 1 needs adapter", md)
+        self.assertIn("| Ptyxis | own | - | alpha | probe | needs adapter | probe: glass |", md)
+        self.assertIn("| kitty | own | kitty | alpha | no | untested | expected: glass |", md)
+
     def test_measured_row(self):
         row = dict(ROW, measured={"result": "PASS", "bg": 153, "share": 0.99, "text": 900,
                                   "popup": None})
@@ -94,6 +143,12 @@ class Docs(unittest.TestCase):
             m = r.get("measured")
             if m and r["result"] == "glass":
                 self.assertEqual(m["result"], "PASS", r["app"])
+
+    def test_glass_only_with_evidence(self):
+        for r in self.rows:
+            if appstable.shown(r) == "glass":
+                self.assertIn(r["tested"], ("here", "earlier"), r["app"])
+                self.assertTrue(r.get("family"), r["app"])
 
 
 if __name__ == "__main__":
