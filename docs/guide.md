@@ -22,7 +22,7 @@ Requirements:
 
 - niri and DMS;
 - Python 3;
-- for the apps that need a shim (see [routes.md](routes.md)): `gcc`, plus `g++` and the Qt 6 headers for the Qt shims.
+- `gcc` for the C shims, and `g++` with the Qt 6 headers for VLC (its style plugin is built from source and is on by default) and the Qt shims; Jellyfin needs host Qt 6.11 or newer (see [routes.md](routes.md)).
 
 ```sh
 git clone <repo> ~/.local/share/appglass
@@ -43,7 +43,7 @@ TODO(engine): `appglass setup` will do the four steps above in one command, and 
 
 - `apply` writes the glass files for the apps it finds, and one niri rule file, `~/.config/niri/appglass.kdl`, included right after `dms/windowrules.kdl`. That rule sets `opacity 1.0` for every app that paints its own glass, and blur stays on.
 - Every other window also gets `opacity 1.0` by default: opaque and sharp, never faded. You can change this in Settings > Fallback.
-- Apps on a native route are glass the next time they start. Alacritty, Herdr, Dux Files and the Obsidian snippet reload live. GTK apps and Dux Calendar need a restart.
+- Apps on a native route are glass the next time they start. Alacritty, Herdr and Dux Files reload live. GTK apps and Dux Calendar need a restart. Obsidian needs a restart on the first enable (or the snippet toggled off and on in Obsidian), and reloads live after that.
 - Apps on a Forced or Mod route (a shim, a hook or a client mod) stay off until you turn them on. See [Per-app switch](#per-app-switch).
 - Games are never touched. They get opaque windows with no blur behind them.
 
@@ -78,7 +78,13 @@ TODO(engine): `appglass pause` and `appglass resume` as CLI commands.
 
 In Settings > Apps, each app has its own switch, and a route choice when it has more than one. A Forced or Mod route asks before it turns on.
 
-Off takes the app's files out only for a Forced or Mod app (Feishin, Lian Li, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. To take them out, switch its family off from a terminal: `appglass set apps.<family>.enabled false --apply` (the family names are in [routes.md](routes.md)), or `appglass remove --only <family>`. That takes the whole family out: `gtk3` covers both Solaar and nvidia-settings.
+Off takes the app's files out only for a Forced or Mod app (Feishin, Lian Li, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. To take them out, switch its whole family off with its family name (in [routes.md](routes.md)): `gtk3` covers both Solaar and nvidia-settings.
+
+- With the plugin: `dms ipc call appGlass app gtk3 off` (the settings page has no family switch yet). `dms ipc call appGlass app gtk3 on` brings it back.
+- Without the plugin: `appglass set apps.gtk3.enabled false --apply`. `appglass set` works only without the plugin: while the plugin is installed it refuses ("settings are managed by the DMS plugin").
+- `appglass remove --only gtk3` takes the files out too, but it lasts only until the next sync (plugin load, Re-apply, any switch) or `appglass apply --all`, because the family is still on in settings.
+
+`appglass status` and Copy report show such a Native app as fallback with the reason "off in settings", even though it keeps its glass until its family is off.
 
 TODO(engine): a per-app off for Native apps (take out that app's files, launcher override and niri rule only).
 
@@ -101,10 +107,16 @@ TODO(engine): `appglass app <key> auto|off` as a short form.
 
 ## Undo
 
-Every file appglass writes or edits is recorded. Files it created are deleted, files it edited are restored byte for byte from a backup, and the JSON keys it merged are put back. If you edited one of those files after appglass, only appglass's part is taken out and your edit stays.
+Every file appglass writes or edits is recorded. Files it created are deleted, files it edited are restored byte for byte from a backup, and the JSON keys it merged are put back. If you edited a file after appglass:
+
+- in a file appglass edited or merged into (your `alacritty.toml`, `gtk.css`, a GTK3 launcher override, a JSON settings file), only appglass's part is taken out and your edit stays;
+- a file appglass created whole (`appglass.toml`, `dank-glass.css`, the AppGlass GTK3 theme, `appglass.kdl`, the VLC launcher, the shims and wrappers) is deleted, with any edit you made inside it;
+- a file you handed over with Adopt is restored as it was before, and your edited version is saved next to it as `<file>.appglass-changed`.
+
+`appglass remove --only <family>` lasts only until the next sync or `appglass apply --all` while the family is still on in settings. To keep a family out, switch it off (see [Per-app switch](#per-app-switch)).
 
 ```sh
-appglass remove --only gtk3,feishin   # undo some families
+appglass remove --only gtk3,feishin   # undo some families, until the next sync or apply --all
 appglass remove                       # undo everything, the hook and units too
 appglass restore --list               # the backup ring: one entry per apply that changed files, last 5 kept
 appglass restore                      # put the newest ring entry back (files and state)

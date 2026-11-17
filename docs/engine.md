@@ -38,6 +38,8 @@ So appglass writes the rule only for the apps it really glasses, in one file, `~
 
 `appglass status` shows, for each app, the route it got and the reason (for example "family gtk3", "no adapter for toolkit java", "forced adapter, off until enabled (risk medium)").
 
+A Native app switched off in Settings > Apps shows as fallback with the reason "off in settings", even though it keeps its glass until its family is off (see [Safety](#safety)).
+
 ### Route kinds
 
 | Badge | What it means | On by default |
@@ -96,11 +98,11 @@ TODO(engine): `root` GUIs (Timeshift through pkexec) and password managers will 
 - **No blind overwrite.** If state.json is lost but appglass files are still on disk, apply writes nothing and says how to get back: `appglass restore` puts back the newest saved state and files; without a saved one, `appglass adopt --rescue` records the appglass files again (`appglass doctor` lists them).
 - **Self-check.** `appglass doctor` compares appglass's own files (units, niri rule, owned files, plugin link) with what the repo would render. `appglass doctor --fix` re-renders what drifted, and the ring keeps what it overwrites.
 - **Opt-in for anything loaded into an app.** Forced and Mod routes stay off until you turn them on, one app at a time, and the plugin asks first.
-- **No event removes anything.** Disabling, reloading or re-enabling the plugin changes no file and no unit. Only a pause, a family switched off, a Forced or Mod app switched off, `appglass remove` or the confirmed uninstall takes files out. Switching off a Native app in Settings > Apps takes nothing out yet: only its whole family can be switched off (`appglass set apps.<family>.enabled false --apply`).
+- **No event removes anything.** Disabling, reloading or re-enabling the plugin changes no file and no unit. Only a pause, a family switched off, a Forced or Mod app switched off, `appglass remove` or the confirmed uninstall takes files out. Switching off a Native app in Settings > Apps takes nothing out yet: only its whole family can be switched off, with `dms ipc call appGlass app <family> off` while the plugin is installed (for example `dms ipc call appGlass app gtk3 off`), or `appglass set apps.<family>.enabled false --apply` without it.
 
   TODO(engine): a per-app off for Native apps that takes their files out.
 
-TODO(engine): a route that loads code into an app will go live only after a hidden check passes: the app is started in a headless compositor (gamescope headless, nested niri, a private D-Bus, a throwaway home), never on your screen, and the window must show its background at the level and its text at 255. Measured on the prototype: 2.22 s for Alacritty, background alpha 153 everywhere.
+TODO(engine): a route that loads code into an app will go live only after a hidden check passes: the app is started in a headless compositor (gamescope headless, nested niri, a private D-Bus, a throwaway home), never on your screen, and the window must show its background at the level and its text at 255. The prototype measured only the background: Alacritty at alpha 153 in 2.22 s. The text check has not been shown yet.
 
 ## When something fails
 
@@ -123,7 +125,7 @@ TODO(engine): after an app update an injected route is shown opaque until it pas
 ## Limits
 
 - **Apps started outside their launcher** (from a shell, or by D-Bus activation) do not get launcher-based routes (GTK3 theme, Qt style, shims). They keep the fallback look: opaque and sharp. GTK4 uses the global CSS, so it is not affected.
-- **Restart needed** after a theme change for GTK apps and Dux Calendar. Alacritty, Herdr, Dux Files and the Obsidian snippet reload live.
+- **Restart needed** after a theme change for GTK apps and Dux Calendar. Alacritty, Herdr and Dux Files reload live. Obsidian needs a restart on the first enable (or the snippet toggled off and on), and reloads live after that.
 - **Light mode** is measured less than dark mode.
 - **Dark logos drawn by an app** can be hard to see on dark glass. CSS cannot reach them.
 - **Opaque by design:** Steam, Chrome and other Chromium browsers, games, Java, Tk and X11 apps that are not GTK, Qt from a flatpak KDE runtime, Electron apps with no CSS hook. See [routes.md](routes.md#opaque) for each reason.

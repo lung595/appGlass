@@ -326,6 +326,155 @@ class PerAppSwitch(unittest.TestCase):
         self.assertIn("Forced or Mod app", intro)
 
 
+class PluginOwnsTheSettings(unittest.TestCase):
+    """With the plugin installed, `appglass set` refuses and a typed
+    `remove --only` lasts only until the next sync: the documented way to
+    take a Native family out is the IPC family key."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        self.sb.seed_dms()
+        self.sb.seed_niri()
+        self.sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+        self.launcher = os.path.join(self.sb.data, "applications", "solaar.desktop")
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def sync(self, apps):
+        """The plugin's sync with its data: `dms ipc call appGlass app
+        <key> off` saves apps.<key>.enabled false (Logic.withApp)."""
+        s = dict(settings.DEFAULTS, apps=apps)
+        path = os.path.join(self.sb.root, "plugin-settings.json")
+        with open(path, "w") as f:
+            json.dump(s, f)
+        code, out, err = self.sb.run("sync", "--settings-file", path, assume="alacritty")
+        self.assertEqual(code, 0, err)
+
+    def test_the_documented_way_takes_a_native_family_out(self):
+        for argv in (("plugin", "install"), ("apply", "--all")):
+            code, out, err = self.sb.run(*argv, assume="alacritty")
+            self.assertEqual(code, 0, (argv, err))
+        self.assertTrue(os.path.exists(self.launcher))
+        code, out, err = self.sb.run("set", "apps.gtk3.enabled", "false", "--apply",
+                                     assume="alacritty")
+        self.assertNotEqual(code, 0)
+        self.assertIn("managed by the DMS plugin", err)
+        self.assertTrue(os.path.exists(self.launcher))
+        # remove --only: back with the next sync, and with a typed apply --all
+        code, out, err = self.sb.run("remove", "--only", "gtk3", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(self.launcher))
+        self.sync({})
+        self.assertTrue(os.path.exists(self.launcher))
+        self.sb.run("remove", "--only", "gtk3", assume="alacritty")
+        code, out, err = self.sb.run("apply", "--all", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(self.launcher))
+        # the family key through IPC: out, and it stays out
+        self.sync({"gtk3": {"enabled": False}})
+        self.assertFalse(os.path.exists(self.launcher))
+        self.sync({"gtk3": {"enabled": False}})
+        self.assertFalse(os.path.exists(self.launcher))
+        # the docs say so
+        ipc = "dms ipc call appGlass app gtk3 off"
+        g = section(doc("guide.md"), "Per-app switch")
+        self.assertIn(ipc, g)
+        self.assertRegex(g, r"`appglass set`[^\n]*only without the plugin")
+        self.assertRegex(g, r"remove --only[^\n]*until the next sync")
+        undo = section(doc("guide.md"), "Undo")
+        self.assertRegex(undo, r"until the next sync")
+        self.assertIn(ipc, section(doc("plugin.md"), "Apps"))
+        self.assertIn(ipc, section(doc("engine.md"), "Safety"))
+        intro = doc("routes.md").split("\n## ")[0]
+        self.assertIn(ipc, intro)
+        self.assertRegex(intro, r"until the next sync")
+
+    def test_status_says_off_for_a_native_app_that_keeps_its_glass(self):
+        code, out, err = self.sb.run("apply", "--all", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        kdl = os.path.join(self.sb.config, "niri", "appglass.kdl")
+        before = self.sb.readb(kdl)
+        self.sync({"Alacritty": {"enabled": False}})
+        self.assertEqual(self.sb.readb(kdl), before)
+        self.assertIn(b"Alacritty", before)
+        code, out, err = self.sb.run("status", "--json", assume="alacritty")
+        row = [r for r in json.loads(out)["apps"] if r["key"] == "Alacritty"][0]
+        self.assertEqual((row["effective"], row["reason"]), ("fallback", "off in settings"))
+        for name, sec in (("guide.md", "Per-app switch"), ("engine.md", "How an app gets its route")):
+            self.assertRegex(section(doc(name), sec), r"off in settings[^\n]*keeps its glass",
+                             name)
+
+
+class DocsRound2(unittest.TestCase):
+    """Claims checked in the second review round."""
+
+    def test_obsidian_needs_a_restart_on_the_first_enable(self):
+        first = section(doc("guide.md"), "First run")
+        self.assertNotIn("and the Obsidian snippet reload live", first)
+        self.assertRegex(first, r"Obsidian[^\n]*restart[^\n]*first enable")
+        lim = section(doc("issue-dms.md"), "Limits")
+        self.assertNotIn("Dux Files and Obsidian reload live", lim)
+        self.assertRegex(lim, r"Obsidian[^\n]*first enable")
+        self.assertNotIn("Dux Files and the Obsidian snippet reload live", doc("engine.md"))
+
+    def test_undo_says_what_happens_to_an_edited_file(self):
+        u = section(doc("guide.md"), "Undo")
+        self.assertNotIn("If you edited one of those files after appglass, only "
+                         "appglass's part is taken out and your edit stays.", u)
+        self.assertIn("created whole", u)
+        self.assertIn(".appglass-changed", u)
+
+    def test_an_edited_file_appglass_created_whole_goes_on_remove(self):
+        sb = Sandbox()
+        try:
+            sb.seed_dms()
+            sb.seed_niri()
+            code, out, err = sb.run("apply", "--all", assume="alacritty")
+            self.assertEqual(code, 0, err)
+            theme = os.path.join(sb.data, "themes", "AppGlass", "gtk-3.0", "gtk.css")
+            launcher = os.path.join(sb.data, "applications", "solaar.desktop")
+            for p in (theme, launcher):
+                with open(p, "a") as f:
+                    f.write("# mine\n")
+            code, out, err = sb.run("remove", "--only", "gtk3", assume="alacritty")
+            self.assertEqual(code, 0, err)
+            self.assertFalse(os.path.exists(theme))           # created whole: gone
+            self.assertIn(b"# mine", sb.readb(launcher))      # edited into: kept
+            self.assertNotIn(b"AppGlass", sb.readb(launcher))
+        finally:
+            sb.cleanup()
+
+    def test_screenshot_paths_are_written_in_full(self):
+        shots = section(doc("issue-dms.md"), "Screenshots")
+        rows = [l for l in shots.splitlines() if l.startswith("| ") and "---" not in l][1:]
+        self.assertTrue(rows)
+        for row in rows:
+            for p in re.findall(r"`([^`]+\.png)`", row):
+                self.assertRegex(p, r"^(shots|realshims)/", row)
+        self.assertRegex(shots, r"shots/a4b[^\n]*real session")
+        self.assertNotRegex(shots, r"`<probe>/shots/\.\.\.` are window screenshots from nested")
+
+    def test_the_demo_levels_are_right(self):
+        demo = section(doc("issue-dms.md"), "Demo")
+        self.assertIn("bars at 166 at 0.60", demo)
+        self.assertNotRegex(demo, r"Measured in nested niri[^\n]*204 at 0\.80")
+        bullets = "\n".join(l for l in demo.splitlines() if l.startswith("- "))
+        for app in ("Feishin", "ArtCraft"):
+            self.assertIn(app, bullets)
+
+    def test_install_lists_what_vlc_and_jellyfin_need(self):
+        i = section(doc("guide.md"), "Install")
+        self.assertRegex(i, r"VLC[^\n]*on by default")
+        self.assertIn("Qt 6.11", i)
+
+    def test_no_step_labels_and_the_hidden_check_is_honest(self):
+        self.assertNotIn("A1 probe", doc("README.md"))
+        s = section(doc("engine.md"), "Safety")
+        self.assertNotIn("background alpha 153 everywhere", s)
+        self.assertRegex(s, r"text check has not been shown")
+
+
 def uninstall_block():
     """The commands of the fenced block under '## Uninstall' in guide.md."""
     t = doc("guide.md")

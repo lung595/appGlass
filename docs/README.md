@@ -54,7 +54,7 @@ The category docs use separate example file names for the rules (`appglass-gtk4.
 
 Tested: run in a nested niri session, with the window alpha measured from window screenshots. Documented: from docs and sources only, not run. Window screenshots are premultiplied RGBA: the alpha values are reliable, but contrast ratios from the early composites (which treated them as straight alpha) are too pessimistic, light themes most of all. The docs quote a contrast ratio only where a premultiplied-correct composite was used, and say "to re-measure" otherwise.
 
-TODO(adapters): this table is the A1 probe result. Several rows are out of date (Discord, Feishin, Lian Li, VLC, Jellyfin, LocalSend now have routes, see [routes.md](routes.md)); it will be rebuilt with the generic routes.
+TODO(adapters): this table is from the first per-app tests. Several rows are out of date (Discord, Feishin, Lian Li, VLC, Jellyfin, LocalSend now have routes, see [routes.md](routes.md)); it will be rebuilt with the generic routes.
 
 | App | Category | Installed | Tested | Works | Method | Doc |
 |---|---|---|---|---|---|---|

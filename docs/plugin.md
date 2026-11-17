@@ -37,7 +37,7 @@ TODO(engine): an "Automatic for new apps" switch, once new apps are routed on th
 - **App list**: one row per app, with its name, a status chip, the route and its badge, the reason, and a switch.
   - Status chips: Glass, Fallback, Paused, Conflict, Opaque, Delegated. What each one means: [engine.md](engine.md#states-you-see).
   - Badges: Native, Forced, Mod, Fallback, Opaque, Delegated, Excluded. What each route does: [routes.md](routes.md).
-  - **Per-app switch.** For a Forced or Mod app, off takes that app's files out and the app gets the fallback look. For a Native app the row shows Paused, but its files and its niri rule stay, and the app still opens with glass: `appglass set apps.<family>.enabled false --apply` takes the whole family out (see [guide.md](guide.md#per-app-switch)). Rows for games, browserGlass browsers and DMS windows have no switch.
+  - **Per-app switch.** For a Forced or Mod app, off takes that app's files out and the app gets the fallback look. For a Native app the row shows Paused, but its files and its niri rule stay, and the app still opens with glass. This page has no family switch yet: `dms ipc call appGlass app <family> off` (for example `dms ipc call appGlass app gtk3 off`) takes the whole family out and keeps it out. `appglass set` refuses while the plugin is installed, and `appglass remove --only <family>` lasts only until the next sync (see [guide.md](guide.md#per-app-switch)). Rows for games, browserGlass browsers and DMS windows have no switch.
 
     TODO(engine): a per-app off for Native apps that takes their files out.
   - **Route choice.** When an app has more than one route, the row lists them to pick from.

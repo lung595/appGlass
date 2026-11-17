@@ -12,7 +12,7 @@ The usual way to get glass on niri + DMS is the "Glass blur" window rule in `dms
 
 ## Demo
 
-Same desktop, before and after. The nested-session pairs are at a DMS opacity of 0.60; the after shots of Lian Li, LocalSend and Feishin come from the real session at 0.80 (background 204), and ArtCraft's after shot is at 0.80 too:
+Same desktop, before and after. The nested-session pairs are at a DMS opacity of 0.60; the after shots of Lian Li, LocalSend, Feishin and ArtCraft come from the real session at 0.80 (background 204):
 
 - *(attach)* Alacritty: before (window rule) / after (terminal opacity key, text at 255)
 - *(attach)* Nautilus (GTK4/libadwaita): before / after, plus an opaque popover
@@ -20,9 +20,11 @@ Same desktop, before and after. The nested-session pairs are at a DMS opacity of
 - *(attach)* VLC (Qt Widgets): before / after
 - *(attach)* Herdr (gpui): before / after
 - *(attach)* Lian Li (Tauri/WebKitGTK) and LocalSend (Flutter): before / after
+- *(attach)* Feishin (Electron): after
+- *(attach)* ArtCraft (wgpu): before / after
 - *(attach)* a full-screen shot of the real desktop
 
-Measured in nested niri from window screenshots, composited over black and white: background alpha at the level (153 at 0.60, 204 at 0.80), bars at 166, text and icons 255, popups 255. The generated text colours target 2.25:1 over any backdrop, and the end-to-end checks fail under 2:1.
+Measured from window screenshots composited over black and white, in nested niri at 0.60: background alpha 153 at the level, bars at 166 at 0.60 (Dux Files uses one level everywhere), text and icons 255, popups 255. The 0.80 after shots are from the real session, with the background at 204 and the bars at `max(content, 0.65)`, so 204 too. The generated text colours target 2.25:1 over any backdrop, and the end-to-end checks fail under 2:1.
 
 ## How it works
 
@@ -79,7 +81,7 @@ Measured in nested niri from window screenshots, composited over black and white
 
   TODO(adapters): close the inspector right after the injection when Electron allows it.
 - **Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime, Electron apps with no hook:** opaque.
-- GTK apps and Dux Calendar need a restart after a theme change. Alacritty, Herdr, Dux Files and Obsidian reload live.
+- GTK apps and Dux Calendar need a restart after a theme change. Alacritty, Herdr and Dux Files reload live. Obsidian needs a restart on the first enable (or the snippet toggled off and on), and reloads live after that.
 - Apps started outside their launcher (shell, D-Bus activation) do not get launcher-based routes. They stay opaque and sharp.
 - Tested on Fedora + niri + NVIDIA, dark scheme first. Light mode has been measured less.
 - Dark logos drawn by the app itself can be hard to see on dark glass. CSS cannot reach them.
@@ -111,26 +113,26 @@ POC: <!-- link to the appGlass repo -->
 
 ## Screenshots
 
-The screenshots are kept in the private probe folder (`<probe>` below), never in this repo. `<probe>/shots/...` are window screenshots from nested niri sessions; `.black`/`.white` variants prove the alpha, `.wp.png` is the composite over the blurred wallpaper and looks like the real desktop. Look at each one before attaching.
+The screenshots are kept in the private probe folder (`<probe>` below), never in this repo. Every path below is written in full from `<probe>`. `shots/...` are window screenshots from nested niri sessions, except `shots/a4b/*` (screen captures from the real session) and `shots/b1/*`, which come from the real session like `realshims/*`; `.black`/`.white` variants prove the alpha, `.wp.png` is the composite over the blurred wallpaper and looks like the real desktop. Look at each one before attaching.
 
 | Pair | Before | After |
 |---|---|---|
-| Alacritty | `shots/terminal/C-screen-niri060.png` (`terminal/C.wp.png`) | `shots/terminal/E-op060-palettefix.png` (`terminal/E.pm.wp.png`); or `terminal/D-screen-niri100rule.png` / `D.wp.png` |
-| Nautilus GTK4 | `shots/gtk4/verify-1/plain-noenv.wp.png` | `shots/gtk4/naut-final.wp.png` + `gtk4/naut-final-popover.wp.png` |
-| GTK3 (Solaar) | `shots/gtk3/00-baseline-csd.png` | `shots/gtk3/08-theme-v5-focused.wp.png`, unfocused `gtk3/08-theme-v5-backdrop.wp.png` |
+| Alacritty | `shots/terminal/C-screen-niri060.png` (`shots/terminal/C.wp.png`) | `shots/terminal/E-op060-palettefix.png` (`shots/terminal/E.pm.wp.png`); or `shots/terminal/D-screen-niri100rule.png` / `shots/terminal/D.wp.png` |
+| Nautilus GTK4 | `shots/gtk4/verify-1/plain-noenv.wp.png` | `shots/gtk4/naut-final.wp.png` + `shots/gtk4/naut-final-popover.wp.png` |
+| GTK3 (Solaar) | `shots/gtk3/00-baseline-csd.png` | `shots/gtk3/08-theme-v5-focused.wp.png`, unfocused `shots/gtk3/08-theme-v5-backdrop.wp.png` |
 | VLC Qt | `shots/qt/vlc-baseline.wp.png` | `shots/qt/verify-0/glass.wp.png` |
 | Herdr | `shots/gpu/herdr-baseline.png` | `shots/gpu/herdr-glass3.wp.png` |
-| Lian Li (WebKit) | `shots/webkit/lianli-niri-opacity060.wp.png` (or `webkit/lianli-default.wp.png`) | `realshims/lianli-glass.png` (real session) |
+| Lian Li (WebKit) | `shots/webkit/lianli-niri-opacity060.wp.png` (or `shots/webkit/lianli-default.wp.png`) | `realshims/lianli-glass.png` (real session) |
 | LocalSend (Flutter) | `shots/flutter/ls-baseline.wp.png` | `realshims/localsend-glass.png` (real session) |
 | Feishin | (none) | `realshims/feishin-glass.png` (real session) |
 | Obsidian | (no clean before) | `shots/electron/x-obsidian-final.png` |
 | Dux Files | (none) | `shots/a3/dux/run4/dfiles-run4.png` (config A, what appglass ships); not `shots/qtquick/dfiles-060.wp.png`, which is config B (0.86 panes) |
-| ArtCraft | `shots/gpu/artcraft-baseline.wp.png` | `shots/b1/after-new-shim.png` (`b1/before-old-shim.png` is the old shim, not a no-glass baseline) |
-| Real desktop | `shots/a4b/pre-<output>.png` (and a `-small` copy) | `shots/a4b/alacritty.png`, `a4b/nautilus.png`, `a4b/nvidia-settings.png`, `a4b/dfiles.png`, `a4b/herdr-new.png` |
+| ArtCraft | `shots/gpu/artcraft-baseline.wp.png` | `shots/b1/after-new-shim.png` (`shots/b1/before-old-shim.png` is the old shim, not a no-glass baseline) |
+| Real desktop | `shots/a4b/pre-<output>.png` (and a `-small` copy) | `shots/a4b/alacritty.png`, `shots/a4b/nautilus.png`, `shots/a4b/nvidia-settings.png`, `shots/a4b/dfiles.png`, `shots/a4b/herdr-new.png` |
 | Steam GL composer test | | `shots/steam-gl/main-xcompworkaround-off.png`: proof of the limit (alpha 255 everywhere), not a glass shot |
 
 Paths are relative to `<probe>`. Every file in this table exists there.
 
-Levels: every pair is at 0.60, except the after shots at 0.80 of Lian Li, LocalSend, Feishin (`realshims/*`, real session) and ArtCraft (`b1/after-new-shim.png`). Their before shots are at 0.60. Take those four again at 0.60 for the fresh set.
+Levels: every pair is at 0.60, except the after shots at 0.80 of Lian Li, LocalSend, Feishin (`realshims/*`, real session) and ArtCraft (`shots/b1/after-new-shim.png`, real session). Their before shots are at 0.60. Take those four again at 0.60 for the fresh set.
 
-**Privacy:** `a4b/*` and `realshims/*` come from the real session. Check them for file names, terminal history, account names and notifications, and crop them before attaching. A fresh set taken once the engine work lands (same apps, same level) would make a cleaner demo.
+**Privacy:** `shots/a4b/*`, `shots/b1/*` and `realshims/*` come from the real session. Check them for file names, terminal history, account names and notifications, and crop them before attaching. A fresh set taken once the engine work lands (same apps, same level) would make a cleaner demo.
