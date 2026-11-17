@@ -351,7 +351,10 @@ def reach(graph, roots, cut=()):
 # file's revert to its original, the state dir's removal
 PY_SINKS = {("core", "cmd_remove"), ("hook", "remove"), ("plugin", "remove"),
             ("core", "App.remove_owner"), ("core", "App._revert"), ("core", "App._revert_stale"),
-            ("core", "State.destroy")}
+            ("core", "State.destroy"),
+            # typed only: restore puts an entry back (files the entry says were
+            # absent deleted), adopt --rescue moves originals no file names
+            ("core", "cmd_restore"), ("core", "cmd_rescue")}
 # event entry points: the matugen post_hook and the sync units (apply
 # --from-hook), the plugin's sync and status runs (its start too), the
 # vibrancy daemon, and doctor (it repairs, it never takes anything out); the
@@ -373,7 +376,7 @@ PY_ROOTS = [("core", "cmd_apply"), ("core", "cmd_apply_all"), ("core", "cmd_sync
 #    rejects (S7, every failure ends opaque), never in an event run (the
 #    owner is marked, the next typed command validates again);
 #  - main: the remove commands the user typed (appglass remove, hook remove,
-#    plugin remove);
+#    plugin remove, restore, adopt --rescue);
 #  - _unlock: the state dir of a run, not an event, that ended with nothing
 #    owned.
 # A guard is a regex or a tuple of regexes that each match one guard term.
@@ -387,6 +390,8 @@ GUARDED = {
         r"args\.cmd == 'hook'", r"not \(args\.action == 'install'\)", r"not \(args\.dry_run\)"),
     (("core", "main"), ("plugin", "remove")): (
         r"args\.cmd == 'plugin'", r"not \(args\.action == 'install'\)"),
+    (("core", "main"), ("core", "cmd_restore")): r"args\.cmd == 'restore'",
+    (("core", "main"), ("core", "cmd_rescue")): (r"args\.cmd == 'adopt'", r"args\.rescue"),
     (("core", "_unlock"), ("core", "State.destroy")): (
         r"not \(st\.owners or st\.data\.get\('parked'\) or app\.keep_state_dir\)",
         r"not app\.event"),
@@ -458,62 +463,178 @@ RUNNERS = re.compile(r"system|popen|Popen|run|call|check_call|check_output|getou
 PARSER_CALLS = ("add_parser", "add_argument")
 
 
-def _str_value(node):
+def _str_value(node, names=None):
     """The string an expression of literals builds ("re" + "move",
-    "".join(["re", "move"])), else None."""
+    "".join(["re", "move"])), else None; names: {name: string} of the
+    function's variables that hold one (w = "re"; w + "move")."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if isinstance(node, ast.Name) and names:
+        return names.get(node.id)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        a, b = _str_value(node.left), _str_value(node.right)
+        a, b = _str_value(node.left, names), _str_value(node.right, names)
         return None if a is None or b is None else a + b
     if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
             and node.func.attr == "join" and len(node.args) == 1
             and isinstance(node.args[0], (ast.List, ast.Tuple))):
-        sep = _str_value(node.func.value)
-        parts = [_str_value(e) for e in node.args[0].elts]
+        sep = _str_value(node.func.value, names)
+        parts = [_str_value(e, names) for e in node.args[0].elts]
         if sep is not None and None not in parts:
             return sep.join(parts)
     return None
 
 
-# what deletes a file or a dir by hand, not through a sink
+def _str_names(fn):
+    """{name: string} of the variables fn sets to a string of literals."""
+    out = {}
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            v = _str_value(node.value, out)
+            if v is not None:
+                out[node.targets[0].id] = v
+    return out
+
+
+# what deletes (or moves away) a file or a dir by hand, not through a sink
 DELETES = {("shutil", "rmtree"), ("os", "remove"), ("os", "unlink"), ("os", "rmdir"),
-           ("os", "removedirs")}
+           ("os", "removedirs"), ("os", "rename"), ("os", "renames"), ("os", "replace"),
+           ("shutil", "move")}
+# pathlib.Path methods that delete or move (on any receiver: no str method
+# has these names) and the ones that do on a Path(..) receiver only
+PATH_DELETES = {"unlink", "rmdir", "rename"}
+PATH_ONLY = {"replace"}
 # the event-path functions allowed to delete, each for its own files only:
 DELETE_SITES = {
     ("core", "App._retire_file"),  # a retired hand file (adopted, its backup kept)
     ("core", "App._drop_backup"),  # a backup no record names (after a user's revert)
     ("core", "App._ring_entry"),   # ring entries past RING_KEEP, half-written ones
     ("core", "_unlock"),           # its own lock and the dirs the lock made
-    ("core", "cmd_restore"),       # restore (typed): files the entry says were absent
-    ("core", "cmd_rescue"),        # adopt --rescue (typed): originals no file names,
-                                   # saved in its ring entry first
+    ("core", "_atomic_write"),     # a write: its own temp file moved over the target
     ("core", "doctor_drift"),      # a dangling plugin link, snapshotted first
     ("shims", "build"),            # its own temporary build dir
 }
 
 
+def _module_aliases(tree):
+    """{name: module} for the names a module binds to os, shutil or pathlib
+    (import os as _o, _o = os)."""
+    mods = ("os", "shutil", "pathlib")
+    out = {m: m for m in mods}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name in mods:
+                    out[a.asname or a.name] = a.name
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Name) \
+                and node.value.id in out:
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    out[t.id] = out[node.value.id]
+    return out
+
+
+def _is_path_call(node):
+    f = getattr(node, "func", None) if isinstance(node, ast.Call) else None
+    return ((isinstance(f, ast.Name) and f.id in ("Path", "PurePath"))
+            or (isinstance(f, ast.Attribute) and f.attr in ("Path", "PurePath")))
+
+
 def deletes(mods, nodes):
-    """Deletions by hand (os.remove, shutil.rmtree ..) in a function of
-    nodes outside DELETE_SITES: [(node, text)]."""
+    """Deletions by hand (os.remove, shutil.rmtree, os.rename, shutil.move,
+    Path.unlink .., through an alias of os too) in a function of nodes
+    outside DELETE_SITES: [(node, text)]."""
     out = []
     for m, q in sorted(nodes):
         if m not in mods or (m, q) in DELETE_SITES:
             continue
+        alias = _module_aliases(mods[m])
         for node in ast.walk(_function(mods, m, q)):
             f = getattr(node, "func", None)
-            if (isinstance(node, ast.Call) and isinstance(f, ast.Attribute)
-                    and isinstance(f.value, ast.Name) and (f.value.id, f.attr) in DELETES):
+            if not (isinstance(node, ast.Call) and isinstance(f, ast.Attribute)):
+                continue
+            if (isinstance(f.value, ast.Name) and f.value.id in alias
+                    and (alias[f.value.id], f.attr) in DELETES):
+                out.append(((m, q), ast.unparse(node)))
+            elif f.attr in PATH_DELETES or (f.attr in PATH_ONLY and _is_path_call(f.value)):
                 out.append(((m, q), ast.unparse(node)))
     return out
 
 
-def _files_subscript(node):
-    """node is X["files"] or X.get("files", ..) (an owner's records)."""
+# the only functions that run the user's own switch inside an event run
+USER_ACTION_SITES = {("core", "cmd_apply"), ("core", "cmd_sync")}
+
+
+def user_actions(mods):
+    """Every reference to user_action outside USER_ACTION_SITES (and its
+    own definition), in any function: [(node, text)]."""
+    out = []
+    for m, tree in sorted(mods.items()):
+        for q, fn in _functions(tree):
+            if (m, q) in USER_ACTION_SITES or q == "App.user_action":
+                continue
+            for node in ast.walk(fn):
+                if (isinstance(node, ast.Attribute) and node.attr == "user_action") or (
+                        isinstance(node, ast.Name) and node.id == "user_action"):
+                    out.append(((m, q), ast.unparse(node)))
+    return out
+
+
+# what writes bytes to a file
+WRITERS = {"_inplace_write", "_atomic_write", "write", "write_bytes", "write_text"}
+
+
+def restores(mods, nodes):
+    """An original written back by hand (a revert outside the sinks): a
+    write whose data is backup_bytes(..), directly or through a variable.
+    [(node, text)]"""
+    def reads_backup(e):
+        return any(isinstance(c, ast.Call) and (
+            getattr(c.func, "attr", None) == "backup_bytes"
+            or getattr(c.func, "id", None) == "backup_bytes") for c in ast.walk(e))
+    out = []
+    for m, q in sorted(nodes):
+        if m not in mods:
+            continue
+        fn = _function(mods, m, q)
+        tainted = set()
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign) and reads_backup(node.value):
+                tainted.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            if name not in WRITERS:
+                continue
+            for a in list(node.args) + [k.value for k in node.keywords]:
+                if reads_backup(a) or any(isinstance(c, ast.Name) and c.id in tainted
+                                          for c in ast.walk(a)):
+                    out.append(((m, q), ast.unparse(node)))
+                    break
+    return out
+
+
+def _files_subscript(node, keys=("files",)):
+    """node is X["files"] or X.get("files", ..) (an owner's records); with
+    keys ("files", "owners"), the owners too (X["owners"], X.owners)."""
     if isinstance(node, ast.Subscript):
-        return _str_value(node.slice) == "files"
+        return _str_value(node.slice) in keys
+    if isinstance(node, ast.Attribute) and "owners" in keys:
+        return node.attr == "owners"
     return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "get" and node.args and _str_value(node.args[0]) == "files")
+            and node.func.attr == "get" and bool(node.args) and _str_value(node.args[0]) in keys)
+
+
+RECORDS = ("files", "owners")
+
+
+def _empty_owner(node):
+    """A dict literal of an owner with no file: {"files": {}}."""
+    return isinstance(node, ast.Dict) and any(
+        _str_value(k) == "files" and isinstance(v, ast.Dict) and not v.keys
+        for k, v in zip(node.keys, node.values) if k is not None)
 
 
 # the event-path functions allowed to forget a record: none (remove_owner,
@@ -522,8 +643,11 @@ FORGET_SITES = set()
 
 
 def forgets(mods, nodes):
-    """Records forgotten in a function of nodes: X["files"].pop(..),
-    .clear(), .popitem(), del X["files"][..]. [(node, text)]"""
+    """Records forgotten in a function of nodes: a file's or a whole
+    owner's: X["files"].pop(..), .clear(), .popitem(), del X["files"][..],
+    the same on X.owners / X["owners"], X["files"] = .., X["owners"] = ..,
+    X.owners = .., X.data = .. and an owner made again empty
+    (o = {"files": {}}). [(node, text)]"""
     out = []
     for m, q in sorted(nodes):
         if m not in mods or (m, q) in FORGET_SITES:
@@ -531,12 +655,19 @@ def forgets(mods, nodes):
         for node in ast.walk(_function(mods, m, q)):
             f = getattr(node, "func", None)
             if (isinstance(node, ast.Call) and isinstance(f, ast.Attribute)
-                    and f.attr in ("pop", "clear", "popitem") and _files_subscript(f.value)):
+                    and f.attr in ("pop", "clear", "popitem")
+                    and _files_subscript(f.value, RECORDS)):
                 out.append(((m, q), ast.unparse(node)))
             elif isinstance(node, ast.Delete) and any(
-                    isinstance(t, ast.Subscript) and _files_subscript(t.value)
+                    isinstance(t, ast.Subscript) and _files_subscript(t.value, RECORDS)
                     for t in node.targets):
                 out.append(((m, q), ast.unparse(node)))
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any((isinstance(t, ast.Subscript) and _str_value(t.slice) in RECORDS)
+                       or (isinstance(t, ast.Attribute) and t.attr in ("owners", "data"))
+                       for t in targets) or _empty_owner(node.value):
+                    out.append(((m, q), ast.unparse(node)))
     return out
 
 
@@ -552,6 +683,7 @@ def remove_argv(mods, nodes):
         if m not in mods:
             continue
         fn = _function(mods, m, q)
+        names = _str_names(fn)
         skip = set()
         for node in ast.walk(fn):
             if isinstance(node, ast.Compare):
@@ -570,11 +702,11 @@ def remove_argv(mods, nodes):
             if id(node) in skip:
                 continue
             if isinstance(node, (ast.List, ast.Tuple)) and any(
-                    _str_value(e) == "remove" for e in node.elts):
+                    _str_value(e, names) == "remove" for e in node.elts):
                 out.append(((m, q), ast.unparse(node)))
             elif (isinstance(node, (ast.Constant, ast.BinOp, ast.Call))
-                    and _str_value(node) in SINK_NAMES):
-                out.append(((m, q), repr(_str_value(node))))
+                    and _str_value(node, names) in SINK_NAMES):
+                out.append(((m, q), repr(_str_value(node, names))))
             elif isinstance(node, ast.Call):
                 f = node.func
                 name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
@@ -596,7 +728,8 @@ def py_violations(sources=None):
     graph = call_graph(mods)
     seen = reach(graph, PY_ROOTS, allowed_edges(mods, graph))
     return sorted(seen & PY_SINKS), (remove_argv(mods, seen) + deletes(mods, seen)
-                                     + forgets(mods, seen))
+                                     + forgets(mods, seen) + restores(mods, seen)
+                                     + user_actions(mods))
 
 
 def pause_calls_ok(mods):
@@ -827,6 +960,28 @@ class PythonInvariant(unittest.TestCase):
              "self.state.owners[ctx.owner]['files'].pop(next(iter(ctx.ops)))"),
             ("core", "App.commit", "del self.state.owners[ctx.owner]['files'][ctx.order[0]]"),
             ("core", "cmd_sync", "app.state.owners['niri'].get('files', {}).clear()"),
+            # a whole owner forgotten
+            ("core", "cmd_apply_all", "app.state.owners.pop('obsidian', None)"),
+            ("core", "cmd_apply_all", "del app.state.owners['obsidian']"),
+            ("core", "cmd_apply_all", "app.state.data['owners'] = {}"),
+            ("core", "App.commit", "self.state.owners[ctx.owner]['files'] = {}"),
+            ("core", "App.commit", "owner = {'files': {}}"),
+            # deleted by a move, a rename, a Path or an alias of os
+            ("core", "cmd_apply_all", "os.rename(app.state.path, app.state.path + '.x')"),
+            ("core", "cmd_apply_all", "os.replace(app.state.path, '/dev/null')"),
+            ("core", "cmd_apply_all", "shutil.move(app.state.path, '/tmp')"),
+            ("core", "cmd_apply_all", "pathlib.Path(app.state.path).unlink()"),
+            ("core", "cmd_apply_all", "_o = os; _o.remove(app.state.path)"),
+            # the user's own switch taken outside its two sites
+            ("core", "cmd_apply_all", "with app.user_action(): app._drop_backup({})"),
+            # a remove word built from a variable
+            ("vibrancy", "run", "w = 're'; subprocess.run([sys.argv[0], w + 'move'])"),
+            # a revert done by writing an original back
+            ("core", "App.commit", "_inplace_write(next(iter(ctx.ops)), self.backup_bytes({}))"),
+            ("core", "App.commit", "orig = self.backup_bytes({}); _atomic_write('x', orig)"),
+            # the typed restore and rescue
+            ("core", "cmd_apply_all", "cmd_rescue(app)"),
+            ("core", "cmd_apply_all", "cmd_restore(app)"),
         ]
         for mod, func, line in plants:
             with self.subTest(line=line):

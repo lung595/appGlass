@@ -454,6 +454,15 @@ class State:
         self.dry = False      # a dry run put records in memory: never saved
         self.save_guard = None  # raises before a save over a lost state
         self.event_guard = None  # raises in an event run (App.no_event)
+        self.saved = self.records()  # what the last save (or the load) held
+
+    def records(self):
+        """{(owner, path)} of every file record, and (owner, None) of every owner."""
+        out = set()
+        for name, o in self.owners.items():
+            out.add((name, None))
+            out.update((name, p) for p in (o.get("files") or {}))
+        return out
 
     @property
     def owners(self):
@@ -476,6 +485,12 @@ class State:
                                 % (self.path, UNREADABLE_HINT))
         if self.save_guard is not None:
             self.save_guard()
+        # S6: an event run never forgets a record the last save held
+        now = self.records()
+        dropped = self.saved - now
+        if dropped and self.event_guard is not None:
+            self.event_guard("forget %s" % ", ".join(sorted(
+                p or "the %s owner" % o for o, p in dropped)))
         env = self.env
         d = env.state_dir
         env.guard(self.path)
@@ -488,6 +503,7 @@ class State:
                 self.data["state_parents"] = created
         data = (json.dumps(self.data, indent=2, sort_keys=True) + "\n").encode()
         _atomic_write(self.path, data)
+        self.saved = now
 
     def unnamed_backups(self):
         """The originals in backup/ that no record names (a state.json lost
@@ -2753,6 +2769,7 @@ def cmd_rescue(app, dry_run=False):
     back, a retired one too), a json file it merged into with its original
     from backup/, the files it edited with the original that is the file
     without appglass's lines."""
+    app.no_event("rescue a lost state")
     env = app.env
     t = env.tilde
     lost = app.state_unreadable or (app.state_missing and bool(
@@ -2933,6 +2950,7 @@ def cmd_restore(app, ident=None, list_only=False):
             app.info("%s  %d file%s%s" % (n, len(files), "" if len(files) == 1 else "s",
                                          ", state.json" if m.get("state") else ""))
         return
+    app.no_event("restore a ring entry")
     if not names:
         raise AppglassError("restore: the ring is empty (%s): nothing saved to put back"
                             % env.tilde(ring_dir(env)))
@@ -3088,6 +3106,14 @@ def doctor_drift(app):
             changed, ctx = [], None
             out.append(("hook: %s" % ex, None))
         owned = [p for p in changed if ctx is not None and ctx.ops[p].kind == "owned"]
+        cfg = hook.config_path(env)
+        rec = st.owners["hook"].get("files", {}).get(cfg) or {}
+        if cfg in changed and os.path.isfile(cfg) and not hook.opted_out(app) \
+                and sha(_read(cfg)) != rec.get("sha256"):
+            # the section changed since hook install (an edit inside it, a
+            # flag added to post_hook): re-rendered, the user's text saved
+            # aside first, like a unit
+            owned.append(cfg)
         if hook.opted_out(app):
             # the user took the section out: matugen no longer re-applies;
             # theirs to decide, like the niri include (spec 1.10)

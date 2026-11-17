@@ -767,6 +767,21 @@ class DoctorRound2(Base):
         self.assertIn("yours to decide", out)
         self.assertEqual(self.sb.read(cfg), text)
 
+    def test_fix_saves_an_edited_hook_section_aside(self):
+        self.assertEqual(self.sb.run("hook", "install")[0], 0)
+        cfg = hook.config_path(self.env)
+        text = self.sb.read(cfg).replace(hook.HOOK_ARGS, hook.HOOK_ARGS + " --my-flag")
+        with open(cfg, "w") as f:
+            f.write(text)
+        code, out, err = self.doctor()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("config.toml", out)
+        code, out, err = self.doctor("--fix")
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("--my-flag", self.sb.read(cfg))
+        self.assertEqual(self.sb.read(cfg + ".appglass-changed"), text)
+        self.assertIn("config.toml.appglass-changed", err)
+
     def test_fix_saves_the_hand_version_aside(self):
         self.apply()
         with open(self.owned(), "a") as f:
@@ -918,6 +933,39 @@ class EventGuard(Base):
             self.assertTrue(app.remove_owner("alacritty"))
         self.assertFalse(os.path.exists(self.owned()))
         self.assertTrue(app.event)
+
+    def test_an_event_save_cannot_drop_a_record(self):
+        self.apply()
+        for name, drop in (
+                ("a file", lambda st: st.owners["alacritty"]["files"].clear()),
+                ("an owner", lambda st: st.owners.pop("alacritty")),
+                ("every owner", lambda st: st.data.update(owners={}))):
+            with self.subTest(name):
+                app = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+                app.event = True
+                drop(app.state)
+                with self.assertRaises(core.EventRemove):
+                    app.state.save()
+                with open(self.state_json) as f:
+                    self.assertIn(self.owned(),
+                                  json.load(f)["owners"]["alacritty"]["files"])
+        # the user's own switch may, and a later event save keeps what it saved
+        app = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+        app.event = True
+        with app.user_action():
+            app.state.owners["alacritty"]["files"].clear()
+            app.state.save()
+        app.state.save()
+
+    def test_an_event_run_cannot_restore_or_rescue(self):
+        self.apply()
+        app = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+        app.event = True
+        for name, fn in (("cmd_restore", lambda: core.cmd_restore(app)),
+                         ("cmd_rescue", lambda: core.cmd_rescue(app))):
+            with self.subTest(name):
+                with self.assertRaises(core.EventRemove):
+                    fn()
 
     def test_which_runs_are_events(self):
         from unittest import mock
