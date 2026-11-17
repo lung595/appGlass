@@ -180,8 +180,13 @@ def inactive_rule(ctx):
         % (_a(c), _a(inactive.level(c, p["factor"]))),
         "window.background { transition: %s; }" % inactive.transition("background-color",
                                                                        ctx.settings),
-        "window.background:backdrop { background-color: alpha(@window_bg_color, %s); }"
-        % _a(r),
+        # libadwaita only: the Default theme paints an opaque literal, never
+        # @window_bg_color, so alpha(@window_bg_color) would turn plain GTK4
+        # windows into glass when unfocused. --window-bg-color exists only
+        # under libadwaita; elsewhere the var() falls back to the Default
+        # theme's own opaque background.
+        "window.background:backdrop { --agl-backdrop-bg: alpha(var(--window-bg-color), %s); "
+        "background-color: var(--agl-backdrop-bg, @theme_bg_color); }" % _a(r),
         "",
     ]
 

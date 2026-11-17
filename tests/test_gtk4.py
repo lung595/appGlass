@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import unittest
 
-from fixtures.css import backdrop_text_changes
+from fixtures.css import backdrop_text_changes, rules as css_rules
 from fixtures.sandbox import Sandbox, fixture
 from appglass import core
 from appglass.families import gtk4 as fam
@@ -146,6 +146,22 @@ class Gtk4(unittest.TestCase):
         self.apply()
         self.assertIn("filter: opacity(0.8); }", self.glass())   # off: the old cue
 
+    def test_inactive_backdrop_reaches_libadwaita_only(self):
+        # gtk.css reaches every GTK4 app. The Default theme (no libadwaita)
+        # paints an opaque literal colour, never @window_bg_color: a backdrop
+        # rule built on @window_bg_color turned its unfocused windows into
+        # dark glass. Only libadwaita defines --window-bg-color; without it
+        # the rule falls back to the Default theme's own opaque background.
+        self.sb.set_level(0.8)
+        self.apply()
+        bd = [(sel, d) for sel, d in css_rules(self.glass())
+              if ":backdrop" in sel and ("background-color" in d or "background" in d)]
+        self.assertEqual([sel for sel, _ in bd], ["window.background:backdrop"])
+        d = bd[0][1]
+        self.assertNotIn("@window_bg_color", d["background-color"])
+        self.assertIn("var(--window-bg-color)", d["--agl-backdrop-bg"])
+        self.assertEqual(d["background-color"], "var(--agl-backdrop-bg, @theme_bg_color)")
+
     def test_inactive_backdrop_fades(self):
         self.apply()
         self.assertNotIn(":backdrop { background-color", self.glass())   # 0.60: the floor
@@ -155,13 +171,15 @@ class Gtk4(unittest.TestCase):
         self.assertIn("window.background { transition: background-color 180ms "
                       "cubic-bezier(0.33, 1, 0.68, 1); }", g.splitlines())
         # 0.80 x 0.90 = 0.72 net: alpha() multiplies the 0.80 window colour by 0.90
-        self.assertIn("window.background:backdrop { background-color: "
-                      "alpha(@window_bg_color, 0.90); }", g.splitlines())
+        self.assertIn("window.background:backdrop { --agl-backdrop-bg: "
+                      "alpha(var(--window-bg-color), 0.90); "
+                      "background-color: var(--agl-backdrop-bg, @theme_bg_color); }",
+                      g.splitlines())
         self.run_ag("set", "inactive.factor", "0.8")
         self.run_ag("set", "inactive.durationMs", "0")
         self.apply()
         g = self.glass()
-        self.assertIn("alpha(@window_bg_color, 0.80); }", g)   # 0.64 net, above the floor
+        self.assertIn("alpha(var(--window-bg-color), 0.80);", g)   # 0.64 net, above the floor
         self.assertIn("window.background { transition: none; }", g)
         self.run_ag("set", "inactive.enabled", "false")
         self.apply()

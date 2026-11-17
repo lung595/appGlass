@@ -7,10 +7,13 @@ import subprocess
 import unittest
 import urllib.parse
 
+from fixtures import broadway
 from fixtures.css import backdrop_text_changes
 from fixtures.sandbox import Sandbox, fixture
 from appglass import core
 from appglass.families import gtk3 as fam
+
+E2E = os.path.join(os.path.dirname(os.path.abspath(__file__)), "e2e")
 
 
 def has_gi(version):
@@ -139,7 +142,11 @@ class Gtk3(unittest.TestCase):
         self.sb.set_level(0.8)
         self.apply()
         t = self.theme()
-        self.assertEqual(backdrop_text_changes(t), [])
+        # the spin arrows repeat Adwaita's focused literals as a mix() (no
+        # focused twin in our CSS): test_unfocused_widgets_keep_their_text
+        # checks them against what GTK computes
+        self.assertEqual([x for x in backdrop_text_changes(t) if " image:" not in x[0]
+                          and "spinbutton" not in x[0]], [])
         self.assertNotIn("window.background:backdrop { color: mix(", t)
         self.assertIn("window.background:backdrop", t[t.index("text keeps"):])
         self.sb.run("set", "inactive.enabled", "false")
@@ -155,8 +162,11 @@ class Gtk3(unittest.TestCase):
         self.assertIn(rule, t.splitlines())
         # after the content rule, so it wins for :backdrop
         self.assertGreater(t.index(rule), t.index("alpha(@window_bg_color, 0.80)"))
-        self.assertIn("window.background { transition: background-color 180ms "
-                      "cubic-bezier(0.33, 1, 0.68, 1); }", t.splitlines())
+        self.assertIn("window.background, headerbar, .titlebar:not(headerbar) { transition: "
+                      "background-color 180ms cubic-bezier(0.33, 1, 0.68, 1); }", t.splitlines())
+        # the CSD headerbar is painted directly: it fades from its own bar level
+        self.assertIn("headerbar:backdrop, .titlebar:not(headerbar):backdrop { "
+                      "background-color: alpha(@headerbar_bg_color, 0.72); }", t.splitlines())
         self.sb.run("set", "inactive.enabled", "false")
         self.apply()
         self.assertNotIn("transition", self.theme())
@@ -447,6 +457,47 @@ class Gtk3(unittest.TestCase):
             r = subprocess.run(["desktop-file-validate", p], capture_output=True, text=True)
             errors = [ln for ln in (r.stdout + r.stderr).splitlines() if "error:" in ln]
             self.assertEqual(errors, [], p)
+
+    @unittest.skipUnless(has_gi("3.0") and broadway.available(), "GTK 3 gi or broadwayd missing")
+    def test_unfocused_widgets_keep_their_text(self):
+        # GTK computes the styles: every widget's text and the headerbar button
+        # edges keep their focused colour on :backdrop (Adwaita greys tabs,
+        # spin buttons and button borders at once, light and dark), the window
+        # and the CSD headerbar both fade 0.80 -> 0.72, popups stay opaque
+        for light in (False, True):
+            with self.subTest(light=light):
+                self.seed(light=light)
+                self.sb.set_level(0.8)
+                self.sb.run("set", "inactive.durationMs", "0")    # no transition to wait for
+                self.apply()
+                self.check_backdrop()
+
+    def check_backdrop(self):
+        bw = broadway.Broadway()
+        try:
+            env = dict(self.sb.env, PATH=os.environ.get("PATH", ""), GTK_THEME=fam.THEME,
+                       **bw.env)
+            r = subprocess.run(["python3", os.path.join(E2E, "gtk3_backdrop.py")],
+                               capture_output=True, text=True, env=env, timeout=60)
+        finally:
+            bw.close()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        res = json.loads(r.stdout)
+        f, b = res["focused"], res["backdrop"]
+
+        def rgba(s):
+            v = [float(x) for x in s[s.index("(") + 1:-1].split(",")]
+            return v + [1.0] if len(v) == 3 else v
+
+        def near(x, y):    # mix() rounds: one step either way is no visible change
+            return all(abs(p - q) <= 1 for p, q in zip(rgba(x)[:3], rgba(y)[:3]))
+        for kind in ("fg", "edge"):
+            self.assertEqual({k: v for k, v in b[kind].items() if not near(v, f[kind][k])}, {},
+                             "focused: %s" % f[kind])
+        for part, want in (("window", (0.8, 0.72)), ("headerbar", (0.8, 0.72)),
+                           ("popover", (1.0, 1.0)), ("menu", (1.0, 1.0))):
+            self.assertEqual((round(rgba(f["bg"][part])[3], 2), round(rgba(b["bg"][part])[3], 2)),
+                             want, part)
 
     @unittest.skipUnless(has_gi("3.0"), "python3-gobject with GTK 3 not installed")
     def test_gtk_parses_theme(self):

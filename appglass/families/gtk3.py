@@ -98,8 +98,18 @@ BACKDROP_FG_FADE = """\
 window.background:backdrop, button:backdrop, button:backdrop.flat,
 notebook > header > tabs > arrow:backdrop { color: @theme_fg_color; }
 .view:backdrop, iconview:backdrop, .view text:backdrop, iconview text:backdrop,
-textview text:backdrop, list:backdrop, entry:backdrop { color: @theme_text_color; }
+textview text:backdrop, list:backdrop, entry:backdrop, spinbutton:backdrop:not(.vertical) {
+  color: @theme_text_color; }
+notebook > header tab:backdrop, notebook > header tab:backdrop:checked { color: @theme_fg_color; }
+/* Adwaita's spin button arrows: fg mixed 10.5% / 21% towards the background */
+spinbutton:not(.vertical) button:backdrop { color: mix(@theme_fg_color, @theme_bg_color, 0.105); }
+spinbutton:not(.vertical) image:backdrop, entry image:backdrop {
+  color: mix(@theme_fg_color, @theme_bg_color, 0.21); }
+headerbar button:backdrop, .titlebar button:backdrop {
+  border-color: @borders; border-bottom-color: {edge}; }
 """
+# Adwaita's focused button bottom edge (a literal, no named colour)
+BUTTON_EDGE = {"dark": "#070707", "light": "#bfb8b1"}
 
 RULES = """\
 /* content level {c} */
@@ -167,7 +177,9 @@ def render(ctx):
     lines.append("")
     fade = inactive.active(ctx.settings, lv.content)
     lines.append(RULES.format(c=_a(lv.content), b=_a(lv.bar), i=_a(lv.bar_over_content),
-                              backdrop_fg=BACKDROP_FG_FADE if fade else BACKDROP_FG))
+                              backdrop_fg=BACKDROP_FG_FADE.replace("{edge}", BUTTON_EDGE[
+                                  "light" if ctx.mode == "light" else "dark"])
+                              if fade else BACKDROP_FG))
     lines += inactive_rule(ctx)
     return "\n".join(lines)
 
@@ -181,13 +193,19 @@ def inactive_rule(ctx):
         return []
     p = inactive.params(ctx.settings)
     lv = inactive.level(c, p["factor"])
+    bar = ctx.levels.bar
+    # the CSD headerbar is painted directly (not over the window): its own fade
+    bars = "headerbar, .titlebar:not(headerbar)"
+    bars_bd = "headerbar:backdrop, .titlebar:not(headerbar):backdrop"
+    tr = inactive.transition("background-color", ctx.settings)
     return [
-        "/* inactive windows: background %s -> %s, faded (text stays opaque) */"
-        % (_a(c), _a(lv)),
-        "window.background { transition: %s; }" % inactive.transition("background-color",
-                                                                       ctx.settings),
+        "/* inactive windows: background %s -> %s, bars %s -> %s, faded (text stays opaque) */"
+        % (_a(c), _a(lv), _a(bar), _a(inactive.level(bar, p["factor"]))),
+        "window.background, %s { transition: %s; }" % (bars, tr),
         "window.background:backdrop { background-color: alpha(@window_bg_color, %s); }"
         % _a(lv),
+        "%s { background-color: alpha(@headerbar_bg_color, %s); }"
+        % (bars_bd, _a(inactive.level(bar, p["factor"]))),
         "",
     ]
 
