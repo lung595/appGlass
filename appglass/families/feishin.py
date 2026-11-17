@@ -6,8 +6,10 @@ a Node inspector on 127.0.0.1 (random port, --inspect-publish-uid=stderr:
 the target is not listed over HTTP, the session UUID is read only by the
 wrapper from a 0700 dir and deleted after injection); agl-inject.py then
 requires agl-hook.js in the main process, which clears the window background
-and injects feishin-glass.css. The inspector port stays open while Feishin
-runs (Electron cannot close it): the reason this adapter is opt-in.
+and injects feishin-glass.css, then closes the inspector (user decision
+"Auto, port closed after"); one that cannot close stays on 127.0.0.1, a
+random port. Injected: it goes live only after a verify PASS (the engine's
+gate, engine spec 1.4).
 
 Files (owned; adopted hand files restored by remove):
   ~/.local/lib/appglass/feishin/agl-hook.js, agl-inject.py

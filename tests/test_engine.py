@@ -4,6 +4,8 @@ with no command run, and glass that breaks after an app update heals.
 B5: the detect classes (root, game sticky, sensitive, game-launcher), the
 AppImage magic, the fingerprint cache, generic routing (gtk3, qtstyle,
 gtk4 records), the gate, the units, learn's X11 _NET_WM_PID.
+B5c: stale after an update, appglass verify (a stub harness), launch-check
+and appglass fail, colour keys as data, verify waiting for a game.
 """
 
 import json
@@ -18,7 +20,7 @@ import unittest
 from fixtures.sandbox import Sandbox, fixture  # noqa: F401  (sets sys.path)
 from fixtures.apps import World, elf, desktop, _w, _ln
 from fixtures.shimworld import ShimWorld
-from appglass import adapters, core, detect, engine, learn
+from appglass import adapters, core, detect, engine, learn, verify
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GTK3 = ["libgtk-3.so.0", "libc.so.6"]
@@ -346,6 +348,24 @@ class Routing(unittest.TestCase):
         self.run_ok("remove")
         self.assertFalse(os.path.exists(self.user_launcher("org.example.QtThing.desktop")))
 
+    def test_stage_carries_what_the_glass_files_import(self):
+        """The AppGlass theme imports ~/.config/gtk-3.0/dank-colors.css by
+        file:// URL: the hidden session gets it too (else its colours are
+        undefined and the window draws clear)."""
+        g = bin_elf(self.w, "gtkapp", GTK3)
+        self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
+        colours = self.sb.write("gtk-3.0/dank-colors.css", "@define-color window_bg_color #101418;\n")
+        self.run_ok("apply", "--only", "gtk3")
+        app = core.App(self.sb.env, quiet=True)
+        run = self.sb.path("stage-run")
+        os.makedirs(run)
+        home = verify.stage(app, engine.record_for(app, "gtkapp"), run)
+        css = os.path.join(home, ".local/share/themes/AppGlass/gtk-3.0/gtk.css")
+        with open(css) as f:
+            self.assertIn("file://%s/.config/gtk-3.0/dank-colors.css" % home, f.read())
+        with open(os.path.join(home, os.path.relpath(colours, self.sb.home))) as f:
+            self.assertIn("window_bg_color", f.read())
+
     def test_no_new_family_without_a_full_apply(self):
         self.run_ok("apply", "--only", "gtk4")
         bin_elf(self.w, "qtthing", QT6)
@@ -536,3 +556,331 @@ cat "%(res)s"
 NOTIFY = """#!/bin/sh
 printf '%%s|' "$@" >> "%(log)s"; echo >> "%(log)s"
 """
+
+
+class Heal(unittest.TestCase):
+    """B5c: LocalSend (an injected route) through stale, verify, fail and
+    launch-check, with a stub harness and a stub notify-send."""
+
+    def setUp(self):
+        self.w = ShimWorld()
+        self.sb = self.w.sb
+        self.world = World(self.sb)
+        self.world.flatpak_app(LS, "localsend", {
+            "bin/localsend": elf(["libflutter_linux_gtk.so", "libgtk-3.so.0"])},
+            runtime="org.freedesktop.Platform/x86_64/25.08")
+        self.hlog, self.res, self.nlog = (self.sb.path(n) for n in ("harness", "res", "notify"))
+        for n, t, log in (("stub-harness", HARNESS, self.hlog), ("stub-notify", NOTIFY, self.nlog)):
+            p = self.sb.path(n)
+            with open(p, "w") as f:
+                f.write(t % {"log": log, "res": self.res})
+            os.chmod(p, 0o755)
+        open(self.nlog, "w").close()
+        self.sb.env.update(APPGLASS_VERIFY_HARNESS=self.sb.path("stub-harness"),
+                           APPGLASS_NOTIFY=self.sb.path("stub-notify"),
+                           APPGLASS_POWER_SUPPLY=self.sb.path("no-power"))
+        self.result("pass", "background 204 (want 204)")
+
+    def tearDown(self):
+        self.w.cleanup()
+
+    def result(self, r, why):
+        with open(self.res, "w") as f:
+            f.write(json.dumps({"result": r, "reason": why}) + "\n")
+
+    def run_ok(self, *argv, env=None):
+        code, out, err = self.w.run(*argv, env=env)
+        self.assertEqual(code, 0, err)
+        return out + err
+
+    def state(self):
+        return routes(self.sb)[LS]
+
+    def store(self):
+        return self.sb.json(os.path.join(self.sb.state, "appglass", "engine.json"))
+
+    def marker(self):
+        return os.path.join(self.sb.state, "appglass", "plain", LS)
+
+    def notes(self):
+        with open(self.nlog) as f:
+            return [ln for ln in f.read().splitlines() if ln]
+
+    def harness_calls(self):
+        try:
+            with open(self.hlog) as f:
+                return f.read().splitlines()
+        except OSError:
+            return []
+
+    def update(self, commit):
+        """A flatpak update: a new deploy, the active link moved."""
+        d = self.sb.path("flatpak", "app", LS, "x86_64", "stable")
+        shutil.copytree(os.path.join(d, "0123abcd"), os.path.join(d, commit), symlinks=True)
+        os.remove(os.path.join(d, "active"))
+        os.symlink(commit, os.path.join(d, "active"))
+
+    def live(self):
+        self.run_ok("apply")
+        self.assertEqual(self.state()["state"], "waiting")
+        self.assertIn(LS, self.store()["queue"])
+        out = self.run_ok("verify", "--queue")
+        self.assertIn("pass", out)
+        self.assertEqual(self.state()["state"], "glass")
+        self.assertTrue(os.path.exists(self.w.user(".local/bin/appglass-localsend")))
+
+    def test_stale_then_reverified(self):
+        """B5c Accept 1."""
+        self.live()
+        fp1 = self.state()
+        self.update("4567cdef")
+        self.run_ok("apply", "--from-hook")
+        self.assertEqual(self.state()["state"], "stale")
+        self.assertTrue(os.path.exists(self.marker()))
+        self.assertIn(LS, self.store()["queue"])
+        # glass files are kept (S6): the wrapper reads the marker
+        self.assertTrue(os.path.exists(self.w.user(".local/bin/appglass-localsend")))
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.state()["state"], "glass")
+        self.assertFalse(os.path.exists(self.marker()))
+        self.assertEqual(len(self.harness_calls()), 2)
+        self.assertNotEqual(self.harness_calls()[0].split()[1], self.harness_calls()[1].split()[1])
+        self.assertEqual(self.notes(), [])
+        del fp1
+
+    def test_verify_fail_pauses_with_one_notification(self):
+        """B5c Accept 2: a broken shim."""
+        self.result("fail", "the window is opaque (no glass)")
+        self.run_ok("apply")
+        self.run_ok("verify", "--queue")
+        s = self.state()
+        self.assertEqual(s["state"], "opaque")
+        self.assertIn("check failed", s["reason"])
+        self.assertTrue(os.path.exists(self.marker()))
+        self.assertEqual(len(self.notes()), 1)
+        self.assertIn("glass paused", self.notes()[0])
+        self.assertEqual(self.store()["queue"], [])
+        for _ in range(2):                           # no retry on this fingerprint
+            self.run_ok("apply", "--from-hook")
+            self.assertIn("nothing queued", self.run_ok("verify", "--queue"))
+        self.assertEqual(len(self.harness_calls()), 1)
+        self.assertEqual(len(self.notes()), 1)
+        self.result("pass", "ok")
+        self.update("89abcdef")                      # the next fingerprint: checked again
+        self.run_ok("apply", "--from-hook")
+        self.run_ok("verify", "--queue")
+        self.assertEqual(len(self.harness_calls()), 2)
+        self.assertEqual(self.state()["state"], "glass")
+
+    def launch_check(self, windows):
+        wf = self.sb.write("windows.json", json.dumps(windows), base=self.sb.root)
+        proc = self.sb.path("proc")
+        os.makedirs(proc, exist_ok=True)
+        return self.run_ok("launch-check", LS, "4242", env={
+            "APPGLASS_NIRI_WINDOWS": wf, "APPGLASS_PROC": proc, "APPGLASS_LAUNCH_WAIT": "0.2",
+            "APPGLASS_LAUNCH_STEP": "0.05"})
+
+    def wrapper_argv(self):
+        """Run the installed wrapper with /usr/bin/flatpak replaced by a stub
+        that prints its argv."""
+        src = self.sb.read(self.w.user(".local/bin/appglass-localsend"))
+        fake = self.sb.path("fake-flatpak")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\nprintf '%s\\n' \"$*\"\n")
+        os.chmod(fake, 0o755)
+        p = self.sb.path("wrapper-copy")
+        with open(p, "w") as f:
+            f.write(src.replace("/usr/bin/flatpak", fake).replace("setsid -f", "true"))
+        env = dict(self.sb.env)
+        env["PATH"] = os.path.dirname(shutil.which("jq") or "/usr/bin/jq") + ":/usr/bin:/bin"
+        r = subprocess.run(["sh", p], env=env, capture_output=True, text=True, timeout=30)
+        return r.stdout.strip()
+
+    def test_launch_with_no_window_twice_then_plain(self):
+        """B5c Accept 3."""
+        self.live()
+        self.assertIn("LD_PRELOAD", self.wrapper_argv())          # first launch: glass
+        out = self.launch_check([])
+        self.assertIn("failed launch 1", out)
+        self.assertFalse(os.path.exists(self.marker()))
+        self.assertIn("LD_PRELOAD", self.wrapper_argv())          # second launch: glass
+        out = self.launch_check([{"app_id": "other", "pid": 1}])
+        self.assertIn("failed launch 2, glass paused", out)
+        self.assertTrue(os.path.exists(self.marker()))
+        self.assertEqual(len(self.notes()), 1)
+        third = self.wrapper_argv()                               # third launch: plain
+        self.assertNotIn("LD_PRELOAD", third)
+        self.assertIn("--command=localsend", third)
+        self.assertEqual(self.state()["state"], "opaque")
+        self.launch_check([])
+        self.assertEqual(len(self.notes()), 1)
+
+    def test_a_window_clears_the_count(self):
+        self.live()
+        self.launch_check([])
+        self.launch_check([{"app_id": LS, "pid": 999}])
+        self.assertNotIn("fails", self.store()["apps"][LS])
+
+    def test_appglass_fail(self):
+        self.live()
+        self.run_ok("fail", LS, "white window")
+        out = self.run_ok("fail", LS, "white window")
+        self.assertIn("paused", out)
+        self.assertTrue(os.path.exists(self.marker()))
+        self.assertEqual(len(self.notes()), 1)
+        self.assertIn("white window", self.notes()[0])
+
+    def test_verify_waits_for_a_game(self):
+        """B5c Accept 5."""
+        self.run_ok("apply")
+        wf = self.sb.write("windows.json", json.dumps([{"app_id": "steam_app_570", "pid": 7}]),
+                           base=self.sb.root)
+        code, out, err = self.w.run("verify", "--queue", env={"APPGLASS_NIRI_WINDOWS": wf})
+        self.assertEqual(code, verify.EX_TEMPFAIL)
+        self.assertIn("game window", out + err)
+        self.assertEqual(self.harness_calls(), [])
+        self.assertIn(LS, self.store()["queue"])
+
+    def test_verify_waits_on_low_battery(self):
+        self.run_ok("apply")
+        bat = self.sb.path("power", "BAT0")
+        for n, v in (("type", "Battery"), ("status", "Discharging"), ("capacity", "12")):
+            _w(os.path.join(bat, n), v + "\n")
+        code, out, err = self.w.run("verify", "--queue",
+                                    env={"APPGLASS_POWER_SUPPLY": self.sb.path("power")})
+        self.assertEqual(code, verify.EX_TEMPFAIL)
+        self.assertEqual(self.harness_calls(), [])
+
+    def test_keys_are_data_per_mode(self):
+        lv = json.loads(self.run_ok("levels").strip().splitlines()[-1])
+        code, out, err = self.w.run("keys", LS, "dark")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.strip(), "0e1513:%s,1a2120:%s" % (lv["content"], lv["bar"]))
+        code, out, err = self.w.run("keys", LS, "light")
+        self.assertEqual(out.strip(), "f4fbf8:%s,e9efed:%s" % (lv["content"], lv["bar"]))
+        fp = engine.record_for(core.App(self.sb.env, quiet=True), LS)["fp"]
+        p = verify.keys_file(core.Env(self.sb.env), LS, fp, "dark")
+        self.assertEqual(self.sb.json(p)["source"], "family defaults")
+        with open(p, "w") as f:
+            json.dump({"keys": [["101010", "content"]], "source": "measured"}, f)
+        self.assertEqual(self.w.run("keys", LS, "dark")[1].strip(), "101010:%s" % lv["content"])
+        with open(p, "w") as f:
+            json.dump({"keys": [["nothex", "content"]]}, f)
+        self.assertEqual(self.w.run("keys", LS, "dark")[0], 1)
+        with self.assertRaises(SystemExit) as cm:              # argparse: a usage error
+            self.w.run("keys", LS, "sepia")
+        self.assertEqual(cm.exception.code, 2)
+        self.assertEqual(self.w.run("keys", "org.example.None", "dark")[0], 1)
+        self.assertEqual(self.w.run("remove")[0], 0)
+        self.assertFalse(os.path.exists(os.path.join(self.sb.cache, "appglass")))
+
+    def test_stage_renders_a_waiting_family(self):
+        """Spec 1.7: a family that waits for its first check has no files
+        yet: verify renders its candidate files into the throwaway HOME
+        only, the real one stays as it was."""
+        self.run_ok("apply")
+        self.assertEqual(self.state()["state"], "waiting")
+        wrapper = self.w.user(".local/bin/appglass-localsend")
+        self.assertFalse(os.path.exists(wrapper))
+        app = core.App(self.sb.env, quiet=True)
+        run = self.sb.path("stage-run")
+        os.makedirs(run)
+        home = verify.stage(app, engine.record_for(app, LS), run)
+        staged = os.path.join(home, ".local", "bin", "appglass-localsend")
+        self.assertTrue(os.path.isfile(staged))
+        self.assertTrue(os.access(staged, os.X_OK))
+        with open(staged) as f:
+            self.assertNotIn(self.sb.home + "/", f.read())
+        self.assertFalse(os.path.exists(wrapper))
+        self.assertNotIn("localsend", core.App(self.sb.env, quiet=True).state.owners)
+        # the hidden session starts the staged glass launcher
+        self.assertIn(staged, verify.launcher_exec(app, engine.record_for(app, LS), home))
+
+    def test_typed_apply_does_not_queue(self):
+        self.run_ok("apply", "--only", "gtk3")
+        p = os.path.join(self.sb.state, "appglass", "engine.json")
+        self.assertFalse(os.path.exists(p) and LS in self.sb.json(p)["queue"])
+
+
+class Judge(unittest.TestCase):
+    """verify.judge: the window shot against the content level."""
+
+    def j(self, hist, level=0.8):
+        import collections
+        return verify.judge(None, None, level, hist=collections.Counter(hist))
+
+    def test_pass(self):
+        self.assertEqual(self.j({204: 9000, 255: 400, 0: 100})["result"], "pass")
+
+    def test_opaque_window(self):
+        r = self.j({255: 10000})
+        self.assertEqual(r["result"], "fail")
+        self.assertIn("opaque", r["reason"])
+
+    def test_wrong_level(self):
+        r = self.j({150: 9000, 255: 400})
+        self.assertIn("expected 204", r["reason"])
+
+    def test_text_faded_with_the_window(self):
+        r = self.j({204: 9000, 200: 300})
+        self.assertIn("no opaque text", r["reason"])
+
+    def test_glass_only_in_a_corner(self):
+        r = self.j({204: 1000, 120: 900, 255: 8000})
+        self.assertEqual(r["result"], "fail")
+
+
+class Harness(unittest.TestCase):
+    def test_session_env_is_clean_but_keeps_the_toolkit_hints(self):
+        """The hidden session starts from nothing (env -i), but apps must
+        pick the same backend as in the real session: Electron's ozone hint."""
+        sb = Sandbox()
+        try:
+            sb.env.update(ELECTRON_OZONE_PLATFORM_HINT="auto", NIRI_SOCKET="/run/x/niri.sock",
+                          WAYLAND_DISPLAY="wayland-1", DBUS_SESSION_BUS_ADDRESS="unix:path=/x",
+                          SECRET="1")
+            app = core.App(sb.env, quiet=True)
+            e = verify.session_env(app.env, sb.path("h"), sb.path("run"))
+            self.assertEqual(e["ELECTRON_OZONE_PLATFORM_HINT"], "auto")
+            # Electron 38+ picks Wayland from the session type, not the hint
+            self.assertEqual(e["XDG_SESSION_TYPE"], "wayland")
+            self.assertEqual(e["XDG_CURRENT_DESKTOP"], "niri")
+            self.assertEqual(e["XDG_RUNTIME_DIR"], sb.path("run", "rt"))
+            self.assertEqual(e["HOME"], sb.path("h"))
+            for k in ("WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "SECRET", "DISPLAY"):
+                self.assertNotIn(k, e)
+            self.assertEqual(e["AGV_REAL_NIRI"], "/run/x/niri.sock")
+        finally:
+            sb.cleanup()
+
+    def test_sandbox_can_ask_for_the_real_session(self):
+        """APPGLASS_VERIFY_HARNESS=builtin: the hidden session itself, with
+        the sandbox HOME as the real one (an end-to-end proof)."""
+        sb = Sandbox()
+        try:
+            empty = sb.path("nobin")
+            os.makedirs(empty)
+            sb.env.update(APPGLASS_VERIFY_HARNESS="builtin", PATH=empty)
+            app = core.App(sb.env, quiet=True)
+            r = verify.run_harness(app, {"key": "x", "fp": "1"}, 0.6)
+            self.assertEqual(r, {"result": "unverifiable", "reason": "gamescope not installed"})
+        finally:
+            sb.cleanup()
+
+    def test_script_is_valid_and_refuses_the_real_runtime_dir(self):
+        p = verify.harness_script()
+        self.assertTrue(os.access(p, os.X_OK))
+        self.assertEqual(subprocess.run(["bash", "-n", p]).returncode, 0)
+        sb = Sandbox()
+        try:
+            r = subprocess.run(["bash", p, sb.path("run"), "^x$", sb.path("s.png"), "1"],
+                               env={"PATH": "/usr/bin:/bin", "XDG_RUNTIME_DIR": "/run/user/UID"},
+                               capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("refus", r.stdout + r.stderr)
+        finally:
+            sb.cleanup()
+
+
+if __name__ == "__main__":
+    unittest.main()

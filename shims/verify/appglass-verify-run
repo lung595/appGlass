@@ -1,0 +1,50 @@
+#!/bin/bash
+# appglass verify: the hidden session, run by `appglass verify` inside
+# dbus-run-session with env -i (a private bus, a private XDG_RUNTIME_DIR, a
+# throwaway HOME). Headless gamescope -> nested niri (animations off) -> the
+# app's glass launcher ($RUN/cmd.sh); the first window whose app-id matches
+# is shot with niri screenshot-window (premultiplied alpha) to $SHOT.
+# Prints window=<id> or window=none. Ends only the PIDs it started.
+#   appglass-verify-run RUN APPID_REGEX SHOT WAIT_S
+set -u
+RUN=$1 RX=$2 SHOT=$3 WAIT=${4:-10}
+case "$XDG_RUNTIME_DIR" in "$RUN"/*) ;; *) echo "refusing: runtime dir not private"; exit 2 ;; esac
+[ -n "${AGV_REAL_NIRI:-}" ] && [ "$AGV_REAL_NIRI" = "${NIRI_SOCKET:-}" ] && { echo refusing; exit 2; }
+unset NIRI_SOCKET WAYLAND_DISPLAY DISPLAY AGV_REAL_NIRI
+gamescope --backend headless -W 1280 -H 800 -w 1280 -h 800 -r 30 --expose-wayland -- \
+    niri -c "$RUN/niri.kdl" >"$RUN/niri.log" 2>&1 </dev/null &
+GPID=$!
+sock=''
+for _ in $(seq 1 100); do
+    sock=$(ls "$XDG_RUNTIME_DIR" 2>/dev/null | grep -E '^niri\.wayland-[0-9]+\.[0-9]+\.sock$' | head -n 1)
+    [ -n "$sock" ] && break; sleep 0.1
+done
+APID=''
+end() {
+    [ -n "$APID" ] && { kill -TERM -- "-$APID" 2>/dev/null; sleep 0.5; kill -KILL -- "-$APID" 2>/dev/null; }
+    [ -n "${NPID:-}" ] && kill "$NPID" 2>/dev/null; sleep 0.5
+    kill "$GPID" 2>/dev/null; sleep 0.5; kill -9 "$GPID" 2>/dev/null
+    wait 2>/dev/null
+}
+if [ -z "$sock" ]; then echo "window=none (no niri)"; end; exit 0; fi
+WL=$(echo "$sock" | sed -E 's/^niri\.(wayland-[0-9]+)\..*/\1/')
+NPID=$(echo "$sock" | sed -E 's/^niri\.wayland-[0-9]+\.([0-9]+)\.sock/\1/')
+export WAYLAND_DISPLAY=$WL NIRI_SOCKET=$XDG_RUNTIME_DIR/$sock
+setsid sh "$RUN/cmd.sh" >"$RUN/app.log" 2>&1 </dev/null &
+APID=$!
+id=''
+for _ in $(seq 1 $((WAIT * 4))); do
+    id=$(niri msg -j windows 2>/dev/null | python3 -c '
+import json, re, sys
+rx = sys.argv[1]
+for w in json.load(sys.stdin):
+    if re.search(rx, w.get("app_id") or ""):
+        print(w["id"]); break' "$RX" 2>/dev/null)
+    [ -n "$id" ] && break; sleep 0.25
+done
+if [ -z "$id" ]; then echo "window=none"; end; exit 0; fi
+sleep 2      # first frames, fonts
+niri msg action screenshot-window --id "$id" --write-to-disk true --path "$SHOT" >/dev/null 2>&1
+for _ in $(seq 1 20); do [ -s "$SHOT" ] && break; sleep 0.1; done
+echo "window=$id"
+end
