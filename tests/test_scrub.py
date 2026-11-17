@@ -469,7 +469,9 @@ class Coverage(unittest.TestCase):
     COVERED = {"qt-style": QtStyle, "ck-shim": CkShim, "webkit-shim": WebkitShim,
                "qtquick-shim": QtQuickShim, "electron-hook": ElectronHook, "vklayer": VkLayer}
     NO_ENV = {"electron-vencord": "a stylesheet read by Vencord, no process env",
-              "sync": "systemd units of appglass itself, no app env"}
+              "sync": "systemd units of appglass itself, no app env",
+              "verify": "appglass verify's own hidden session (env -i, a throwaway HOME): "
+                        "the display it sets is the app's own"}
 
     def test_every_shim_has_a_scrub_test(self):
         dirs = sorted(d for d in os.listdir(SHIMS) if os.path.isdir(shim(d)))

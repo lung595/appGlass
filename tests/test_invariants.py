@@ -515,6 +515,8 @@ DELETE_SITES = {
     ("shims", "build"),            # its own temporary build dir
     ("engine", "Store.sync_markers"),  # its own plain/ markers (engine state, no
                                    # owned file: what runs plain, never glass)
+    ("inputs", "drop"),            # the hook digest: its own temp file moved over it
+    ("inputs", "save"),            # (engine state, no owned file)
 }
 
 
