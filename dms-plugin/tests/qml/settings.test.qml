@@ -160,6 +160,7 @@ Item {
                     t.press(root.find(p, "rail-fade"));
                     t.check("fade open", [root.shown("page-fade"), root.shown("page-glass")], [true, false]);
                     t.check("fade items", root.shownAll(root.fadeIds), [true, true, true, true, true]);
+                    t.ok("the fade says a change reaches an open app on its restart", root.find(p, "inactiveToggle").description.indexOf("when they restart") > 0);
                     t.check("defaults loaded", [root.find(p, "glassToggle").value, root.find(p, "inactiveToggle").value, root.find(p, "inactiveLevel").value, root.find(p, "inactiveDuration").value, root.find(p, "inactiveEasing").value, root.find(p, "instantFallback").value, root.find(p, "fallbackMode").value], [true, true, 10, 180, "ease-out-cubic", false, "opaque"]);
                     // the widgets save their keys
                     root.find(p, "inactiveLevel").value = 15;

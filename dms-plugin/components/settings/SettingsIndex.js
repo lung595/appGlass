@@ -84,7 +84,7 @@ var ENTRIES = [
         "id": "inactiveToggle",
         "category": "fade",
         "label": "Fade unfocused windows",
-        "help": "Unfocused windows get a little more transparent; only the background fades",
+        "help": "Unfocused windows get a little more transparent; only the background fades. Open apps pick up a change when they restart",
         "keywords": ["inactive", "unfocused", "focus", "dim", "fade"]
     },
     {

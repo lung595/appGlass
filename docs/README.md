@@ -157,12 +157,16 @@ appglass restore [ID] [--list]               # put back a backup ring entry
 
 With `inactive.enabled` (on by default) an unfocused window's background goes a little more transparent, with a short fade; text, icons and logos stay opaque. niri switches an opacity rule at once, so each app fades its own background:
 
-- **GTK4, GTK3**: `window.background:backdrop` at the lower alpha, with a CSS transition.
+- **GTK4, GTK3**: `window.background:backdrop` at the lower alpha, with a CSS transition. While the fade is on, unfocused text keeps its focused look: GTK4 bar contents get `filter: none` on `:backdrop` (instead of the `opacity(0.8)` cue), GTK3 text keeps `@theme_fg_color` / `@theme_text_color` (instead of Adwaita's grey, which switches at once). With the fade off, the old cues come back.
 - **Obsidian**: `body:not(.is-focused)` lowers the snippet colours, with a transition.
 - **Alacritty**: `appglass vibrancy`, run by `appglass-vibrancy.service` (installed by `hook install`), follows the niri focus and eases `window.opacity` over Alacritty's IPC socket.
-- **Others**: nothing, unless `inactive.instantFallback` adds a niri `is-active=false` rule (instant, and the text dims too).
+- **Discord (Vencord), Feishin, Jellyfin, Lian Li**: a class on the page root (`html:not(.app-focused)`, set by Discord itself; `html.agl-inactive`, set by agl-hook.js, jfglass or appglass-wk.so) lowers the content background, with a CSS transition.
+- **Qt style apps**: the style animates the window fill on deactivation.
+- **Others**: nothing, unless `inactive.instantFallback` adds a niri `is-active=false` rule (instant, and the text dims too). Deferred: the ck-shim apps (LocalSend, ArtCraft) and plain GTK4 apps without libadwaita.
 
 The unfocused level is content x `factor` (0.90 by default), never below 0.60: at the default content level 0.60 nothing changes until the content level is raised.
+
+Each app reads its own focus (GTK `:backdrop`, Electron blur, Qt window activation, page focus), not niri's, and the levels are written at apply time: most open apps pick up a change of these settings only when they restart.
 
 ## DMS plugin
 

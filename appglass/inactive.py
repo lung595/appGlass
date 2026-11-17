@@ -5,8 +5,11 @@ so the fade is done by each app on its background only (text, icons and logos
 stay opaque):
 
   gtk4      dank-glass.css: ``window.background:backdrop`` at a lower alpha,
-            with a CSS transition on background-color
-  gtk3      the AppGlass theme: the same on ``window.background:backdrop``
+            with a CSS transition on background-color; the bar contents keep
+            ``filter: none`` on :backdrop (no faded titles, no jump)
+  gtk3      the AppGlass theme: the same on ``window.background:backdrop``;
+            backdrop text keeps its focused colour (@theme_fg_color,
+            @theme_text_color) instead of Adwaita's instant grey
   obsidian  the snippet: ``body:not(.is-focused)`` lowers the --ag-* colours,
             with a transition on the painted regions
   alacritty a small daemon (``appglass vibrancy``) that follows the niri focus
@@ -23,6 +26,16 @@ fade ("180ms cubic-bezier(...)"), fade_ms, fade_easing.
 
 Apps with no lever can get an instant niri ``is-active=false`` rule
 (instantFallback, off by default: it fades the text too, without animation).
+
+Not covered: the ck-shim apps (LocalSend, ArtCraft: colour keys, no CSS) are
+deferred, and plain GTK4 apps without libadwaita keep the Default theme's own
+backdrop greying.
+
+Two departures from the engine plan: the focus is read in each app (GTK
+:backdrop, Electron blur, QWindow active, page focus) rather than from niri's
+focus state, so a fade starts with the app's own focus event; and the levels
+are written into the app's CSS or wrapper at apply time, so most apps that
+are already open pick up a settings change only when they restart.
 
 settings.json ``inactive``:
 
