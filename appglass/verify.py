@@ -7,12 +7,15 @@ verify <key> | --queue
     dbus-run-session, a throwaway HOME holding a copy of the app's glass
     files, gamescope --backend headless --expose-wayland and a nested niri
     with animations off (shims/verify/appglass-verify-run). The app starts
-    from its glass launcher; the window shot (niri screenshot-window,
-    premultiplied alpha) must show the background within 0.05 of the
-    content level and opaque text. PASS lets an injected route go live for
-    this app version (fingerprint); FAIL makes it run plain with one
-    notification. A window that does not show within 10 s is
-    "unverifiable": an injected route stays off, a theme route stays on.
+    from its glass launcher; its window is the one of the started pid or a
+    child (shims/verify/agv-pick.py), else one whose app-id matches a name
+    of its launcher, and the app-id seen is kept (engine.seen_ids). The
+    shot (niri screenshot-window, premultiplied alpha) must show the
+    background within 0.05 of the content level and opaque text. PASS
+    lets an injected route go live for this app version (fingerprint);
+    FAIL makes it run plain with one notification. A window that does not
+    show within 10 s is "unverifiable": an injected route stays off, a
+    theme route stays on.
     Not run while a game window is open (exit 75: try later), nor on a
     battery under 20 %. In a sandbox only the stand-in named by
     $APPGLASS_VERIFY_HARNESS runs (it prints the result as JSON).
@@ -326,6 +329,26 @@ def session_env(env, home, run, fp=None):
     return e
 
 
+def window_rx(rec):
+    """One regex for the app's window: its app-id regexes and every name of
+    its launcher (StartupWMClass, flatpak id, desktop id, binary)."""
+    from . import detect
+    rxs = list(rec.get("app_ids") or ())
+    for n in rec.get("names") or ():
+        r = detect._rx(n)
+        if r not in rxs:
+            rxs.append(r)
+    return "|".join(rxs) or "^$"
+
+
+def parse_window(log):
+    """(window id, app-id) from the harness output, or (None, None)."""
+    m = re.search(r"(?m)^window=(\d+)(?: app_id=(\S*))?", log)
+    if not m:
+        return None, None
+    return m.group(1), m.group(2) or None
+
+
 def new_run(base):
     """A private dir agv.* under base, with its runtime dir rt (0700)."""
     run = tempfile.mkdtemp(prefix="agv.", dir=base)
@@ -435,8 +458,8 @@ def run_harness(app, rec, level):
                   "TMPDIR"):
             os.makedirs(clean[k], exist_ok=True)
         shot = os.path.join(run, "window.png")
-        p = subprocess.Popen(["dbus-run-session", "--", harness_script(), run, rec["app_ids"][0]
-                              if rec.get("app_ids") else "^$", shot, str(WINDOW_WAIT)],
+        p = subprocess.Popen(["dbus-run-session", "--", harness_script(), run, window_rx(rec),
+                              shot, str(WINDOW_WAIT)],
                              env=clean, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              stdin=subprocess.DEVNULL, start_new_session=True)
         try:
@@ -450,6 +473,9 @@ def run_harness(app, rec, level):
             return {"result": "unverifiable",
                     "reason": "no window within %d s" % WINDOW_WAIT, "log": log[-400:]}
         res = judge(env, shot, level)
+        seen = parse_window(log)[1]
+        if seen:
+            res["app_id"] = seen
         keep = env.environ.get("APPGLASS_VERIFY_KEEP")
         if keep and os.path.isdir(keep):
             dst = os.path.join(keep, "%s-%s.png" % (rec["key"], rec.get("fp") or "x"))
@@ -560,12 +586,17 @@ def record(a, key, rec, route, res):
     """Record one result (under the lock, a: the App that read the state
     under it); a PASS or FAIL runs the hook apply."""
     if res.get("result") in ("pass", "fail"):
-        engine.verified(a, key, rec.get("fp"), res["result"], res.get("reason", ""))
+        seen = res.get("app_id")
+        engine.verified(a, key, rec.get("fp"), res["result"], res.get("reason", ""),
+                        app_id=seen if isinstance(seen, str) and seen else None)
     else:
         st = engine.store(a)
+        seen = (st.get(key).get("verify") or {}).get("app_id")
         st.app(key)["verify"] = {"fp": rec.get("fp"), "result": "unverifiable",
                                  "reason": res.get("reason", ""), "route": engine.ROUTE_VERSION,
                                  "at": time.strftime("%Y-%m-%d %H:%M")}
+        if seen:
+            st.app(key)["verify"]["app_id"] = seen
         st.dequeue(key)
         if route.get("injected") and engine.explicit_on(a, route.get("family"), key):
             # the user's own on stays on (S4): say the check could not run

@@ -360,9 +360,24 @@ def records(app, write=None):
         write = bool(getattr(app, "from_hook", False)) and not getattr(app, "dry_run", False)
     recs, changed = scan(app.env, write=write, owned=owned_files(app.state))
     recs = learn.merge(recs, learn.load(app.env))
+    seen_ids(app, recs)
     sticky(app, recs, save=write)
     app._engine_records, app._engine_changed = recs, changed
     return recs
+
+
+def seen_ids(app, recs):
+    """The app-id a check saw for an app (its window is often named after
+    its binary, not its launcher): one more app-id regex of its record, for
+    the niri rule, the launch check and the game guard (E2)."""
+    st = store(app)
+    for r in recs:
+        seen = ((st.get(r["key"]).get("verify") or {}).get("app_id"))
+        if not isinstance(seen, str) or not re.match(r"^[\w.+-]{1,200}$", seen):
+            continue
+        ids = r.setdefault("app_ids", [])
+        if not any(re.search(rx, seen) for rx in ids):
+            ids.append(detect._rx(seen))
 
 
 def sticky(app, recs, save=False):
@@ -625,13 +640,17 @@ def notify_once(app, key, fp, title, body, tag=""):
     return True
 
 
-def verified(app, key, fp, result, reason=""):
-    """Record a check result for (key, fp)."""
+def verified(app, key, fp, result, reason="", app_id=None):
+    """Record a check result for (key, fp). app_id: the app-id of the
+    window the check found (records() adds it to the app's app-ids)."""
     st = store(app)
     a = st.app(key)
     prev = a.get("verify")
     a["verify"] = {"fp": fp, "result": result, "reason": reason, "route": ROUTE_VERSION,
                    "at": time.strftime("%Y-%m-%d %H:%M")}
+    seen = app_id or (prev or {}).get("app_id")
+    if seen:
+        a["verify"]["app_id"] = seen
     st.dequeue(key)
     if result == "pass":
         if (a.get("plain") or {}).get("fp") in (fp, None) or \

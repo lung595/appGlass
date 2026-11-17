@@ -663,6 +663,114 @@ class Budget(Stubbed):
         self.assertNotIn("KillMode=", t.replace("KillMode=control-group", ""))
 
 
+class WindowOfTheApp(Stubbed):
+    """E2: the hidden session finds the app's window by the pid it started
+    (and its children), not only by the first app-id regex; the app-id it
+    saw is recorded and used for the niri rule and the launch check."""
+
+    PICK = os.path.join(REPO, "shims", "verify", "agv-pick.py")
+
+    def proc(self, tree, envs=None):
+        """A fake /proc: tree {pid: ppid}, envs {pid: [b"K=V"]}."""
+        root = self.sb.path("fproc")
+        for pid, ppid in tree.items():
+            d = os.path.join(root, str(pid))
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "stat"), "w") as f:
+                f.write("%d (some app) S %d 1 1 0 -1\n" % (pid, ppid))
+            with open(os.path.join(d, "environ"), "wb") as f:
+                f.write(b"\0".join((envs or {}).get(pid, [b"PATH=/usr/bin"])) + b"\0")
+        return root
+
+    def pick(self, windows, apid, rx, proc, rt="/nonexistent/rt"):
+        r = subprocess.run([sys.executable, "-I", self.PICK, str(apid), rx],
+                           input=json.dumps(windows), capture_output=True, text=True,
+                           env={"PATH": "/usr/bin:/bin", "AGV_PROC": proc,
+                                "XDG_RUNTIME_DIR": rt}, timeout=10)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def test_a_child_of_the_launched_pid_with_another_app_id(self):
+        # cmd.sh 100 -> sh 101 -> gtkfn 102; 300 is not ours
+        proc = self.proc({100: 1, 101: 100, 102: 101, 300: 1})
+        ws = [{"id": 7, "app_id": "other", "pid": 300},
+              {"id": 9, "app_id": "gtkfn", "pid": 102}]
+        self.assertEqual(self.pick(ws, 100, r"^org\.example\.FnGtk2$", proc), "9 gtkfn")
+
+    def test_a_process_of_the_hidden_session_that_left_the_tree(self):
+        # a D-Bus activated or double-forked app: reparented, but it carries
+        # the private runtime dir
+        rt = self.sb.path("run", "rt")
+        proc = self.proc({100: 1, 400: 1}, {400: [b"XDG_RUNTIME_DIR=" + rt.encode()]})
+        ws = [{"id": 3, "app_id": "fnd", "pid": 400}]
+        self.assertEqual(self.pick(ws, 100, r"^x$", proc, rt=rt), "3 fnd")
+
+    def test_the_app_id_regexes_still_count(self):
+        proc = self.proc({100: 1, 500: 1})
+        ws = [{"id": 4, "app_id": "org.example.FnGtk2", "pid": 500}]
+        self.assertEqual(self.pick(ws, 100, r"^nope$|^org\.example\.FnGtk2$", proc),
+                         "4 org.example.FnGtk2")
+        self.assertEqual(self.pick(ws, 100, r"^nope$", proc), "")
+
+    def test_the_regex_covers_every_name(self):
+        rec = {"key": "org.example.FnGtk2", "app_ids": [r"^org\.example\.FnGtk2$"],
+               "names": ["org.example.FnGtk2", "gtkfn"]}
+        rx = verify.window_rx(rec)
+        for n in ("org.example.FnGtk2", "gtkfn"):
+            self.assertRegex(n, rx)
+        self.assertNotRegex("gtkfnx", rx)
+        self.assertEqual(verify.window_rx({"key": "k"}), "^$")
+
+    def test_the_harness_reports_the_app_id(self):
+        with open(verify.harness_script()) as f:
+            t = f.read()
+        self.assertIn("agv-pick.py", t)
+        self.assertIn("app_id=", t)
+        self.assertEqual(verify.parse_window("noise\nwindow=12 app_id=gtkfn\n"),
+                         ("12", "gtkfn"))
+        self.assertEqual(verify.parse_window("window=none\n"), (None, None))
+
+    def test_the_seen_app_id_gets_the_niri_rule(self):
+        g = bin_elf(self.w, "gtkfn", GTK3)
+        self.w.launcher("org.example.FnGtk2.desktop", desktop("Fn Gtk", g))
+        self.run_ok("apply")
+        self.assertIn(r"org\.example\.FnGtk2", self.kdl())
+        self.assertNotIn("^gtkfn$", self.kdl())
+        with open(self.res, "w") as f:
+            f.write(json.dumps({"result": "pass", "reason": "ok", "app_id": "gtkfn"}) + "\n")
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.store()["apps"]["org.example.FnGtk2"]["verify"]["app_id"], "gtkfn")
+        glass = self.kdl().split("// glass:", 1)[1].split("// games")[0]
+        self.assertIn("^gtkfn$", glass)
+        self.assertIn(r"org\.example\.FnGtk2", glass)
+        # the launch check knows it too: a window "gtkfn" is a good launch
+        app = core.App(self.sb.env, quiet=True)
+        self.assertIn("^gtkfn$", engine.record_for(app, "org.example.FnGtk2")["app_ids"])
+        # a failed check takes the seen app-id out of the glass rule as well
+        with open(self.res, "w") as f:
+            f.write(json.dumps({"result": "fail", "reason": "opaque", "app_id": "gtkfn"}) + "\n")
+        self.run_ok("verify", "org.example.FnGtk2")
+        glass = self.kdl().split("// glass:", 1)[1].split("// games")[0] \
+            if "// glass:" in self.kdl() else ""
+        self.assertNotIn("gtkfn", glass)
+
+    def test_a_seen_game_app_id_is_a_game_window(self):
+        """The app-id seen in the check names the window for the game guard."""
+        g = bin_elf(self.w, "gtkfn", GTK3)
+        self.w.launcher("org.example.FnGtk2.desktop", desktop("Fn Gtk", g))
+        self.run_ok("apply")
+        with open(self.res, "w") as f:
+            f.write(json.dumps({"result": "pass", "reason": "ok", "app_id": "gtkfn"}) + "\n")
+        self.run_ok("verify", "--queue")
+        app = core.App(self.sb.env, quiet=True)
+        engine.store(app).data["games"]["org.example.FnGtk2"] = "test"
+        app._engine_records = None
+        wf = self.sb.write("w.json", json.dumps([{"app_id": "gtkfn", "pid": 5}]),
+                           base=self.sb.root)
+        app.env.environ["APPGLASS_NIRI_WINDOWS"] = wf
+        self.assertIn("gtkfn", verify.game_running(app) or "")
+
+
 class Cleanup(unittest.TestCase):
     """A run stopped by SIGTERM scrubs its private dir; stale agv.* dirs
     are swept; processes of the hidden session do not survive it."""

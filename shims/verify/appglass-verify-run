@@ -2,9 +2,11 @@
 # appglass verify: the hidden session, run by `appglass verify` inside
 # dbus-run-session with env -i (a private bus, a private XDG_RUNTIME_DIR, a
 # throwaway HOME). Headless gamescope -> nested niri (animations off) -> the
-# app's glass launcher ($RUN/cmd.sh); the first window whose app-id matches
-# is shot with niri screenshot-window (premultiplied alpha) to $SHOT.
-# Prints window=<id> or window=none. Ends only the PIDs it started.
+# app's glass launcher ($RUN/cmd.sh); the app's window (agv-pick.py: of the
+# launcher's pid or a child, of a process with this private runtime dir, or
+# an app-id that matches) is shot with niri screenshot-window (premultiplied
+# alpha) to $SHOT. Prints "window=<id> app_id=<app-id>" or window=none.
+# Ends only the PIDs it started.
 #   appglass-verify-run RUN APPID_REGEX SHOT WAIT_S
 set -u
 RUN=$1 RX=$2 SHOT=$3 WAIT=${4:-10}
@@ -32,19 +34,16 @@ NPID=$(echo "$sock" | sed -E 's/^niri\.wayland-[0-9]+\.([0-9]+)\.sock/\1/')
 export WAYLAND_DISPLAY=$WL NIRI_SOCKET=$XDG_RUNTIME_DIR/$sock
 setsid sh "$RUN/cmd.sh" >"$RUN/app.log" 2>&1 </dev/null &
 APID=$!
-id=''
+PICK="$(dirname "$(readlink -f "$0")")/agv-pick.py"
+id='' got=''
 for _ in $(seq 1 $((WAIT * 4))); do
-    id=$(niri msg -j windows 2>/dev/null | python3 -c '
-import json, re, sys
-rx = sys.argv[1]
-for w in json.load(sys.stdin):
-    if re.search(rx, w.get("app_id") or ""):
-        print(w["id"]); break' "$RX" 2>/dev/null)
+    got=$(niri msg -j windows 2>/dev/null | python3 -I "$PICK" "$APID" "$RX" 2>/dev/null)
+    id=${got%% *}
     [ -n "$id" ] && break; sleep 0.25
 done
 if [ -z "$id" ]; then echo "window=none"; end; exit 0; fi
 sleep 2      # first frames, fonts
 niri msg action screenshot-window --id "$id" --write-to-disk true --path "$SHOT" >/dev/null 2>&1
 for _ in $(seq 1 20); do [ -s "$SHOT" ] && break; sleep 0.1; done
-echo "window=$id"
+echo "window=$id app_id=${got#* }"
 end
