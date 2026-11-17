@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Common
+import qs.Services
 import qs.Modules.Plugins
 
 // The settings page: components/SettingsBody.qml is the page (search, rail,
@@ -17,12 +18,23 @@ PluginSettings {
 
     property var body: null
 
-    function freshUrl(rel) {
+    // DMS's reload counter for the plugin, the N it loaded this file with.
+    // Read from PluginService: this file's own URL is no help, as quickshell
+    // keeps the QML disk cache and a file it loads again unchanged comes
+    // back with the URL it was first compiled under (?revision=<the first>)
+    function revision() {
+        const revs = PluginService._componentRevisions;
+        if (revs && revs["appGlass"] !== undefined)
+            return Number(revs["appGlass"]);
         const m = /[?&]revision=(\d+)/.exec(String(Qt.resolvedUrl("#r")));
+        return m ? Number(m[1]) : 0;
+    }
+
+    function freshUrl(rel) {
         const url = String(Qt.resolvedUrl(rel));
-        if (!m || url.indexOf("file:///") !== 0)
+        let n = root.revision();
+        if (!(n > 0) || url.indexOf("file:///") !== 0)
             return url;
-        let n = Number(m[1]);
         let prefix = "";
         while (n > 0) {
             prefix = ((n - 1) % 2 ? "/proc/thread-self/root" : "/proc/self/root") + prefix;

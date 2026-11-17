@@ -104,7 +104,16 @@ for test in "$work"/*.test.qml; do
     ran=$((ran + 1))
     echo "=== $name"
     status=0
-    (cd "$work" && timeout 120 "$qml" -I "$here/stubs" "$test") >"$out" 2>&1 || status=$?
+    # quickshell keeps the QML disk cache on, and a file it loads again with
+    # "?revision=N" comes back from that cache with the URL it was first
+    # compiled under: reload.test.qml needs the cache to see what DMS sees
+    cache=""
+    [ "$name" = reload.test.qml ] && cache="$work/qmlcache"
+    (cd "$work" && if [ -n "$cache" ]; then
+        env -u QML_DISABLE_DISK_CACHE QML_DISK_CACHE_PATH="$cache" timeout 120 "$qml" -I "$here/stubs" "$test"
+    else
+        timeout 120 "$qml" -I "$here/stubs" "$test"
+    fi) >"$out" 2>&1 || status=$?
     cat "$out"
     reason=""
     if [ "$status" -ne 0 ]; then

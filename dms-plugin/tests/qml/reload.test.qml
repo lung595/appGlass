@@ -10,7 +10,10 @@ import qs.Services
 // its old URL. An update whose root calls a new logic.js function then
 // fails ("glassCount is not a function"). run.sh copies the plugin into
 // reload/ for this test, which rewrites it in place (as git pull does) and
-// loads it again with the next revision.
+// loads it again with the next revision. run.sh also keeps the QML disk
+// cache on for it, as quickshell does: an unchanged file loaded again comes
+// back with the URL it was first compiled under, so its own URL does not
+// tell the revision.
 Item {
     id: root
 
@@ -94,6 +97,10 @@ Item {
             "XDG_RUNTIME_DIR": "/tmp/fakehome/run"
         };
         PluginService.reset();
+        // as DMS's reloadPlugin: bump the counter, load <file>?revision=<it>
+        PluginService._componentRevisions = revision ? {
+            "appGlass": revision
+        } : {};
         SettingsData.reset();
         SettingsData.pluginSettings = {
             "appGlass": {

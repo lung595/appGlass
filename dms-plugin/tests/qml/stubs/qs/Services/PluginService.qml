@@ -25,6 +25,9 @@ QtObject {
     // Plugin id -> folder, what getPluginPath() answers
     property var pluginPaths: ({})
     property var pluginStates: ({})
+    // DMS's reload counter: plugins reload bumps it, and the plugin's files
+    // load as <file>?revision=<it>
+    property var _componentRevisions: ({})
     property var saves: []
     property var launcherUpdates: []
 
@@ -73,6 +76,7 @@ QtObject {
     function reset() {
         globalVars = {};
         pluginStates = {};
+        _componentRevisions = {};
         saves = [];
         launcherUpdates = [];
     }
