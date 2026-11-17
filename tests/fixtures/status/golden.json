@@ -2,7 +2,12 @@
   "adapters": [
     {
       "families": [
-        "alacritty"
+        "alacritty",
+        "foot",
+        "kitty",
+        "ghostty",
+        "wezterm",
+        "konsole"
       ],
       "family": "alacritty",
       "implemented": true,
@@ -61,13 +66,14 @@
     },
     {
       "families": [
-        "herdr"
+        "herdr",
+        "zed"
       ],
       "family": "herdr",
       "implemented": true,
       "name": "gpui-json",
       "risk": "none",
-      "summary": "theme file with alpha colours",
+      "summary": "theme file with alpha colours (Zed: theme_overrides in settings.json)",
       "tier": "native",
       "toolkits": [
         "gpui"
@@ -100,6 +106,21 @@
       "toolkits": [
         "qt-widgets"
       ],
+      "why": ""
+    },
+    {
+      "families": [
+        "mpv",
+        "gimp",
+        "kate"
+      ],
+      "family": "mpv",
+      "implemented": true,
+      "name": "app-config",
+      "risk": "none",
+      "summary": "the app's own config: a glass background colour (mpv), a user CSS over its theme (GIMP), a clear editor colour theme (Kate, under the qt-style glass)",
+      "tier": "native",
+      "toolkits": [],
       "why": ""
     },
     {
@@ -141,7 +162,8 @@
     },
     {
       "families": [
-        "feishin"
+        "feishin",
+        "vscodium"
       ],
       "family": "feishin",
       "implemented": true,
@@ -615,6 +637,21 @@
       "enabled": false,
       "installed": false
     },
+    "foot": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
+    "ghostty": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
+    "gimp": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
     "gtk3": {
       "applied": [],
       "enabled": true,
@@ -635,6 +672,21 @@
       "enabled": false,
       "installed": false
     },
+    "kate": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
+    "kitty": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
+    "konsole": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
     "lianli": {
       "applied": [],
       "enabled": false,
@@ -643,6 +695,11 @@
     "localsend": {
       "applied": [],
       "enabled": false,
+      "installed": false
+    },
+    "mpv": {
+      "applied": [],
+      "enabled": true,
       "installed": false
     },
     "obsidian": {
@@ -659,6 +716,21 @@
       "applied": [],
       "enabled": false,
       "installed": true
+    },
+    "vscodium": {
+      "applied": [],
+      "enabled": false,
+      "installed": false
+    },
+    "wezterm": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
+    "zed": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
     }
   },
   "hand_files": [
