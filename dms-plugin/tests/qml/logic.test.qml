@@ -166,6 +166,14 @@ Item {
                 "kind": "Forced"
             }]);
         t.check("games have no route", byKey["Pinball"].routes, []);
+        // an app with no route at all: switched on it stays on the fallback, and says so
+        const routeless = Logic.appRows(status, {
+            "md.example.Electron": {
+                "enabled": true
+            }
+        }, true).filter(r => r.key === "md.example.Electron")[0];
+        t.check("no route: on says it stays on the fallback", [routeless.on, routeless.reason], [true, "No route yet: stays on the fallback (family feishin does not list this app)"]);
+        t.check("no route, off: the plain reason", byKey["md.example.Electron"].reason, "family feishin does not list this app");
         // the saved choices win until the next status has them
         const saved = {
             "Alacritty": {

@@ -33,7 +33,11 @@ Item {
     Accessible.selected: entry.on
     Accessible.onPressAction: entry.clicked()
 
-    onClicked: entry.view.pick(entry.modelData.id)
+    // a click (or tap) takes the focus too, so the arrow keys step from here
+    onClicked: {
+        entry.forceActiveFocus();
+        entry.view.pick(entry.modelData.id);
+    }
 
     Keys.onReturnPressed: entry.clicked()
     Keys.onEnterPressed: entry.clicked()

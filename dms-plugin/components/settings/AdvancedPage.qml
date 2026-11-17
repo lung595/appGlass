@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Common
 import qs.Widgets
+import qs.DCommon.Widgets
 
 // Advanced: the CLI's learn, adopt, report and uninstall, run by the daemon.
 // Adopt and Uninstall ask first; one action runs at a time. A question
@@ -36,7 +37,7 @@ CategoryPage {
         buttonText: page.host.action === "learn" ? "Learning..." : "Learn"
         iconName: "travel_explore"
         busy: page.host.action === "learn"
-        available: page.idle
+        available: page.idle && !page.host.gone
         onClicked: page.run("learn")
     }
 
@@ -46,7 +47,7 @@ CategoryPage {
         buttonText: page.host.action === "adopt" ? "Adopting..." : "Adopt"
         iconName: "move_to_inbox"
         busy: page.host.action === "adopt"
-        available: page.idle
+        available: page.idle && !page.host.gone
         onClicked: page.asking = "adopt"
     }
     ConfirmSheet {
@@ -80,6 +81,15 @@ CategoryPage {
         onClicked: page.asking = "uninstall"
     }
     StyledText {
+        objectName: "uninstallErrorInfo"
+        width: parent.width
+        visible: page.view.shown("uninstallButton") && page.host.uninstallError !== ""
+        text: page.host.uninstallError
+        color: Theme.error
+        font.pixelSize: Theme.fontSizeSmall
+        wrapMode: Text.WordWrap
+    }
+    StyledText {
         objectName: "uninstallLinkHint"
         width: parent.width
         visible: page.host.uninstallState === "linkStays"
@@ -87,6 +97,17 @@ CategoryPage {
         color: Theme.error
         font.pixelSize: Theme.fontSizeSmall
         wrapMode: Text.WordWrap
+    }
+    // Uninstalled: only the user's own click brings the glass back (the
+    // daemon seeds from `appglass get` and syncs, as on a first start)
+    DButton {
+        objectName: "reinstallButton"
+        visible: page.view.shown("uninstallButton") && page.host.gone
+        text: "Set up again"
+        iconName: "restart_alt"
+        variant: "tonal"
+        enabled: page.idle
+        onClicked: page.host.reinstall()
     }
     ConfirmSheet {
         objectName: "confirmUninstall"

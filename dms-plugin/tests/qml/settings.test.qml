@@ -44,6 +44,10 @@ Item {
                 calls = calls.concat([["report"]]);
                 return true;
             }
+            function reinstall() {
+                calls = calls.concat([["reinstall"]]);
+                return true;
+            }
         }
     }
 
@@ -492,6 +496,9 @@ Item {
                     root.find(p, "rail-glass").forceActiveFocus();
                     root.find(p, "rail-glass").Keys.upPressed(null);
                     t.check("up from the first wraps to the last", [root.shown("page-about"), root.find(p, "rail-about").activeFocus], [true, true]);
+                    // a click takes the focus too: the arrows then step from there
+                    root.find(p, "rail-apps").clicked();
+                    t.check("a click focuses the entry", [root.shown("page-apps"), root.find(p, "rail-apps").activeFocus], [true, true]);
                     // --- the narrow rail: the badge stays a dot, the name shows on focus
                     root.page.width = 380;
                     root.type("fade");
@@ -580,6 +587,38 @@ Item {
                     const p = root.page;
                     t.press(root.find(p, "rail-advanced"));
                     t.check("uninstalled: Uninstall off, no hint", [root.find(p, "uninstallButton").enabled, root.shown("uninstallLinkHint")], [false, false]);
+                    // nothing says glass is on, nothing offers a change the
+                    // daemon would not sync
+                    t.check("the header says it", root.find(p, "headerStatus").text.indexOf("Uninstalled") === 0, true);
+                    t.check("no pause, learn or adopt", [root.find(p, "pauseButton").enabled, root.find(p, "learnButton").enabled, root.find(p, "adoptButton").enabled, root.find(p, "reportButton").enabled], [false, false, false, true]);
+                    t.press(root.find(p, "rail-glass"));
+                    t.check("no re-apply, no glass switch", [root.find(p, "reapplyButton").enabled, root.find(p, "glassToggle").enabled], [false, false]);
+                    t.press(root.find(p, "rail-apps"));
+                    const toggles = root.findAll(p, "appToggle-", []).filter(x => x.visible);
+                    t.ok("the app switches are off limits", toggles.length > 0 && toggles.every(x => !x.enabled));
+                    // set up again: the user's click asks the daemon
+                    t.press(root.find(p, "rail-advanced"));
+                    t.check("set up again offered", root.shown("reinstallButton"), true);
+                    t.press(root.find(p, "reinstallButton"));
+                    t.check("set up again asks the daemon", root.daemon.calls, [["reinstall"]]);
+                    // --- a failed remove: its error stays on the page
+                    root.fresh(true, {
+                        "status": root.status,
+                        "lastError": "",
+                        "syncing": false,
+                        "action": "",
+                        "uninstallState": "",
+                        "uninstallError": "Uninstall failed, nothing was removed: boom"
+                    });
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.press(root.find(p, "rail-advanced"));
+                    t.check("the remove error shows", [root.shown("uninstallErrorInfo"), root.find(p, "uninstallErrorInfo").text.indexOf("boom") >= 0], [true, true]);
+                    t.check("glass on: no set up again", root.shown("reinstallButton"), false);
+                    t.check("the header as before", root.find(p, "headerStatus").text, "Glass on, 7 apps on glass");
                 }
             }
         ]);

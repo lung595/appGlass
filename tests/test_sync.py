@@ -447,8 +447,11 @@ class GlassOffOn(unittest.TestCase):
         st = {h["path"]: h["status"] for h in doc["hand_files"]}
         tilde = lambda p: "~" + p[len(self.w.sb.home):]
         self.assertEqual(st[tilde(self.desk)], "conflict")
-        self.assertEqual(st[tilde(self.so)], "parked")
+        # its unchanged sibling stays too (glass on adopts an owner's files
+        # only all together): not parked any more, in the way as well
+        self.assertEqual(st[tilde(self.so)], "conflict")
         self.assertIn(tilde(self.desk), [c for a in doc["apps"] for c in a["conflicts"]])
+        self.assertIn(tilde(self.so), [c for a in doc["apps"] for c in a["conflicts"]])
         # a link in its place is changed too
         os.remove(self.desk)
         os.symlink(self.so, self.desk)

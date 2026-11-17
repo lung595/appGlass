@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import time
 import unittest
 
 from fixtures.sandbox import Sandbox, REPO
@@ -133,6 +134,46 @@ class Ring(Base):
         self.assertEqual(len(self.entries()), 3)
         self.assertIn(newest, self.entries())
 
+    def test_ring_order_survives_a_clock_going_back(self):
+        # a DST fall-back or a timezone change: local time goes back, and
+        # the newest entry must still be the one restore puts back
+        old = os.environ.get("TZ")
+        try:
+            for i, (tz, v) in enumerate((("UTC0", 0.5), ("XXX10", 0.6), ("YYY-10", 0.7))):
+                os.environ["TZ"] = tz
+                time.tzset()
+                self.sb.set_level(v)
+                self.apply()
+                states = self.sb.readb(self.state_json)
+                self.assertEqual(len(self.entries()), i + 1)
+        finally:
+            if old is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old
+            time.tzset()
+        self.sb.set_level(0.8)
+        self.apply()
+        code, out, err = self.sb.run("restore")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.readb(self.state_json), states, "the newest entry put back")
+
+    def test_a_dropped_backup_goes_into_the_ring(self):
+        # remove --only drops the backup of alacritty.toml: restoring the
+        # state before it must find that backup again
+        self.assertEqual(self.sb.run("hook", "install")[0], 0)
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        orig = self.sb.readb(main)
+        self.apply()
+        code, out, err = self.sb.run("remove", "--only", "alacritty")
+        self.assertEqual(code, 0, err)
+        code, out, err = self.sb.run("restore")
+        self.assertEqual(code, 0, err)
+        self.assertNotEqual(self.sb.readb(main), orig)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.readb(main), orig)
+
     def test_restore_unknown_entry_fails(self):
         self.apply()
         code, out, err = self.sb.run("restore", "nope")
@@ -194,6 +235,62 @@ class Refusal(Base):
         self.assertIn("unreadable state", err)
         self.assertHint(err)
 
+    def test_backups_without_state_json_count_as_lost_state(self):
+        # no marker file left (a family whose files carry none, the niri
+        # fragment gone): backup/ still says appglass had state here
+        self.apply()
+        for p in (self.owned(), self.sb.cfg("niri", niri.FILE)):
+            os.remove(p)
+        os.remove(self.state_json)
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        data = self.sb.readb(main)
+        code, out, err = self.apply(ok=False)
+        self.assertNotEqual(code, 0)
+        self.assertIn("backup", err)
+        self.assertHint(err)
+        self.assertEqual(self.sb.readb(main), data)
+        code, out, err = self.sb.run("doctor")
+        self.assertEqual(code, 1)
+        self.assertIn("appglass restore", out)
+
+    def test_restore_to_before_the_first_apply_applies_again(self):
+        # the oldest entry has no state.json: after it, the backups of the
+        # later state go into the ring too, and apply runs again
+        self.sb.set_level(0.5)
+        self.apply()
+        self.sb.set_level(0.6)
+        self.apply()
+        first = self.entries()[0]
+        code, out, err = self.sb.run("restore", first)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(self.state_json))
+        self.assertFalse(os.listdir(os.path.join(self.state_dir, "backup"))
+                         if os.path.isdir(os.path.join(self.state_dir, "backup")) else [])
+        self.apply()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+
+    def test_a_probe_that_raises_is_reported(self):
+        from unittest import mock
+        from appglass.families import alacritty
+        self.apply()
+        os.remove(self.state_json)
+        err = io.StringIO()
+        app = core.App(dict(self.sb.env, APPGLASS_ASSUME_INSTALLED="alacritty"),
+                       out=io.StringIO(), err=err)
+        with mock.patch.object(alacritty, "apply", side_effect=RuntimeError("boom")):
+            core._engine_paths(app)
+        self.assertIn("alacritty", err.getvalue())
+        self.assertIn("boom", err.getvalue())
+
+    def test_remove_on_a_lost_state_refuses(self):
+        self.apply()
+        os.remove(self.state_json)
+        code, out, err = self.sb.run("remove")
+        self.assertNotEqual(code, 0)
+        self.assertIn("appglass restore", err)
+        self.assertTrue(self.entries())
+
     def test_a_clean_home_applies(self):
         self.apply()
         self.assertTrue(os.path.isfile(self.state_json))
@@ -208,6 +305,124 @@ class Refusal(Base):
         self.assertEqual(code, 0, err)
         self.assertTrue(os.path.isfile(self.state_json))
         self.apply()
+
+    def lost_state_with_an_adopted_file(self):
+        hand = self.sb.write("niri/appglass-test.kdl", "// my rules\nwindow-rule { opacity 1.0; }\n")
+        mine = self.sb.readb(hand)
+        code, out, err = self.sb.run("adopt", hand, assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.sb.set_level(0.5)
+        self.apply()
+        self.sb.set_level(0.6)
+        self.apply()
+        backup = os.path.join(self.state_dir, "backup")
+        self.assertTrue(os.listdir(backup))
+        os.remove(self.state_json)
+        return hand, mine, backup
+
+    def test_a_refusal_keeps_the_ring_and_the_backups(self):
+        # the refusal itself must not wipe the only saved state.json and the
+        # originals of the adopted files (the sync path unit runs
+        # apply --from-hook on the next DMS change, unasked)
+        for argv in (("apply", "--from-hook", "--quiet"), ("apply", "--only", "alacritty"),
+                     ("apply", "--all"), ("sync", None), ("doctor", "--fix"), ("doctor",),
+                     ("remove",)):
+            with self.subTest(argv=argv):
+                self.tearDown()
+                self.setUp()
+                hand, mine, backup = self.lost_state_with_an_adopted_file()
+                ring = self.entries()
+                origs = sorted(os.listdir(backup))
+                if argv[0] == "sync":
+                    argv = ("sync", "--settings-file", self.sync_file())
+                code, out, err = self.sb.run(*argv, assume="alacritty")
+                if argv[0] != "remove":
+                    self.assertNotEqual(code, 0, argv)
+                self.assertEqual(self.entries(), ring, argv)
+                self.assertEqual(sorted(os.listdir(backup)), origs, argv)
+                code, out, err = self.sb.run("restore", assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertTrue(os.path.isfile(self.state_json))
+                code, out, err = self.sb.run("remove")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.sb.readb(hand), mine, "the adopted file's own rules")
+
+    def test_restore_on_an_unreadable_state(self):
+        self.sb.set_level(0.5)
+        self.apply()
+        self.sb.set_level(0.6)
+        self.apply()
+        good = self.sb.readb(self.state_json)
+        for bad in (b"{garbage", b"", b'{"version": 99}'):
+            with self.subTest(bad=bad):
+                with open(self.state_json, "wb") as f:
+                    f.write(bad)
+                code, out, err = self.apply(ok=False)
+                self.assertNotEqual(code, 0)
+                self.assertIn("appglass restore", err)
+                # the hinted commands work, and change nothing but restore
+                for argv in (("restore", "--list"), ("doctor",), ("get",)):
+                    code, out, err = self.sb.run(*argv, assume="alacritty")
+                    self.assertNotIn("Traceback", err)
+                    self.assertNotIn("unreadable state", err, argv)
+                    self.assertTrue(os.path.isdir(self.ring), argv)
+                    self.assertEqual(self.sb.readb(self.state_json), bad, argv)
+                code, out, err = self.sb.run("doctor")
+                self.assertEqual(code, 1)
+                self.assertIn("unreadable", out)
+                code, out, err = self.sb.run("doctor", "--fix")
+                self.assertEqual(code, 1)
+                self.assertEqual(self.sb.readb(self.state_json), bad)
+                n = len(self.entries())
+                code, out, err = self.sb.run("restore")
+                self.assertEqual(code, 0, err)
+                self.assertNotEqual(self.sb.readb(self.state_json), bad)
+                # the bad bytes went into the ring entry the restore made
+                newest = self.entries()[-1]
+                self.assertTrue(self.manifest(newest)["state"])
+                with open(os.path.join(self.ring, newest, "state.json"), "rb") as f:
+                    self.assertEqual(f.read(), bad)
+                self.assertGreaterEqual(len(self.entries()), min(n + 1, core.RING_KEEP))
+                self.apply()
+                with open(self.state_json, "wb") as f:
+                    f.write(good)
+
+
+class EventsRemoveNothing(Base):
+    """S6 at run time: a family not detected for a moment keeps its files
+    on an event (the hook's apply --from-hook, the plugin's sync); only a
+    typed appglass apply, or the user's switch, takes them out."""
+
+    def test_from_hook_keeps_a_family_not_detected(self):
+        self.apply()
+        data = self.sb.readb(self.owned())
+        code, out, err = self.sb.run("apply", "--from-hook", assume_not="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertIn("alacritty: not installed, left as is", out)
+        self.assertEqual(self.sb.readb(self.owned()), data)
+
+    def test_from_hook_keeps_a_family_switched_off(self):
+        self.apply()
+        code, out, err = self.sb.run("set", "apps.alacritty.enabled", "false")
+        self.assertEqual(code, 0, err)
+        code, out, err = self.sb.run("apply", "--from-hook", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(self.owned()))
+
+    def test_plugin_sync_keeps_a_family_not_detected(self):
+        self.apply()
+        p = self.sync_file()
+        code, out, err = self.sb.run("sync", "--settings-file", p, assume_not="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(self.owned()))
+        self.assertIn("left as is", out)
+
+    def test_typed_apply_still_removes_a_family_gone(self):
+        self.apply()
+        code, out, err = self.sb.run("apply", "--only", "alacritty", assume_not="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertIn("not installed, files removed", out)
+        self.assertFalse(os.path.exists(self.owned()))
 
 
 class Doctor(Base):

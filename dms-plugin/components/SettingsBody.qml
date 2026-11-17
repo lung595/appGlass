@@ -31,6 +31,10 @@ PluginSettings {
     readonly property string action: root.vars.action || ""
     // "" | "removed" | "linkStays": the files are back (and the link stayed)
     readonly property string uninstallState: root.vars.uninstallState || ""
+    // uninstalled: the daemon syncs nothing, so nothing here offers a change
+    readonly property bool gone: root.uninstallState !== ""
+    // why the last Uninstall failed (kept after the sync that followed)
+    readonly property string uninstallError: root.vars.uninstallError || ""
     // The pages' widgets save from here on (CategoryPage)
     property bool ready: false
     // The saved switches, reloaded whenever the plugin data changes
@@ -86,6 +90,9 @@ PluginSettings {
     }
     function runAction(name) {
         return root.daemon && root.daemon.runAction ? root.daemon.runAction(name) : root.noDaemon();
+    }
+    function reinstall() {
+        return root.daemon && root.daemon.reinstall ? root.daemon.reinstall() : root.noDaemon();
     }
     function copyReport() {
         return root.daemon && root.daemon.copyReport ? root.daemon.copyReport() : root.noDaemon();
@@ -173,15 +180,15 @@ PluginSettings {
 
                     DIcon {
                         anchors.verticalCenter: parent.verticalCenter
-                        name: root.glassOn ? "blur_on" : "blur_off"
+                        name: root.glassOn && !root.gone ? "blur_on" : "blur_off"
                         size: 22
-                        color: root.glassOn ? Theme.primary : Theme.surfaceVariantText
+                        color: root.glassOn && !root.gone ? Theme.primary : Theme.surfaceVariantText
                     }
                     StyledText {
                         objectName: "headerStatus"
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 30
-                        text: !root.glassOn ? "Glass paused" : (root.status ? "Glass on, " + Logic.glassCount(root.status, true) + " apps on glass" : "Waiting for appglass")
+                        text: root.gone ? "Uninstalled: every file restored" : !root.glassOn ? "Glass paused" : (root.status ? "Glass on, " + Logic.glassCount(root.status, true) + " apps on glass" : "Waiting for appglass")
                         color: Theme.surfaceText
                         font.pixelSize: Theme.fontSizeMedium
                         font.weight: Theme.fontWeightMedium
@@ -198,6 +205,7 @@ PluginSettings {
                     text: root.glassOn ? "Pause glass" : "Resume glass"
                     iconName: root.glassOn ? "pause" : "play_arrow"
                     variant: "tonal"
+                    enabled: !root.gone
                     onClicked: root.setGlass(!root.glassOn)
                 }
             }

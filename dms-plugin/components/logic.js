@@ -435,6 +435,11 @@ function appRows(status, saved, glassOn) {
         var savedRoute = typeof own.route === "string" ? own.route : "";
         var tier = routeInfo(status, route).tier || a.tier;
         var st = appStatus(a, saved, glassOn);
+        var on = typeof own.enabled === "boolean" ? own.enabled : a.enabled === true;
+        var reason = String(a.reason || "");
+        // on, but nothing to apply: the switch saved, the app stays as it was
+        if (on && typeof a.enabled === "boolean" && !names.length && !a.family && a.effective !== "glass")
+            reason = "No route yet: stays on the fallback" + (reason ? " (" + reason + ")" : "");
         rows.push({
             "key": a.key,
             "name": String(a.name || a.key),
@@ -443,11 +448,11 @@ function appRows(status, saved, glassOn) {
             "badge": badge(a),
             "kind": BADGES[tier] || "",
             "effective": String(a.effective || ""),
-            "reason": String(a.reason || ""),
+            "reason": reason,
             "risk": String(a.risk || ""),
             // delegated, excluded and games have no switch
             "switchable": typeof a.enabled === "boolean",
-            "on": typeof own.enabled === "boolean" ? own.enabled : a.enabled === true,
+            "on": on,
             "route": route,
             "routes": routes,
             // a saved route the status does not list (the chips show, to pick again)

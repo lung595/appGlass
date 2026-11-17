@@ -24,6 +24,9 @@ PluginComponent {
     function runAction(name) {
         return root.body ? root.body.runAction(name) : false;
     }
+    function reinstall() {
+        return root.body ? root.body.reinstall() : false;
+    }
     function copyReport() {
         return root.body ? root.body.copyReport() : false;
     }

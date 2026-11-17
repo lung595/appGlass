@@ -56,7 +56,10 @@ PluginComponent {
     property bool sweeping: false
     property bool holding: false
     // `appglass remove` worked: nothing is synced any more (DMS drops the
-    // plugin once its link is gone)
+    // plugin once its link is gone). Kept in the plugin data
+    // (uninstallState): a reload or a shell restart while the link stays
+    // seeds and syncs nothing either; only reinstall() (the page's "Set up
+    // again") brings the glass back
     property bool uninstalled: false
 
     PluginGlobalVar {
@@ -84,6 +87,13 @@ PluginComponent {
     PluginGlobalVar {
         id: uninstallVar
         varName: "uninstallState"
+        defaultValue: ""
+    }
+    // Why the last `appglass remove` failed ("" when it did not): kept
+    // after the sync that follows (that one clears lastError)
+    PluginGlobalVar {
+        id: uninstallErrorVar
+        varName: "uninstallError"
         defaultValue: ""
     }
     // The Settings > Advanced action running ("" for none)
@@ -295,6 +305,7 @@ PluginComponent {
             root.again = false;
             root.publish(actionVar, "");
             root.fail(Logic.errorText(output, exitCode));
+            root.publish(uninstallErrorVar, "Uninstall failed, nothing was removed: " + Logic.errorText(output, exitCode));
             if (!root.requestSync("uninstall", 0))
                 root.refreshStatus();
             return;
@@ -304,17 +315,34 @@ PluginComponent {
         root.ready = false;
         // a later install starts again from `appglass get`
         root.save("seeded", false);
+        root.save("uninstallState", "removed");
         root.publish(lastErrorVar, "");
+        root.publish(uninstallErrorVar, "");
         root.publish(uninstallVar, "removed");
         Proc.runCommand(Logic.UNLINK_ID, Logic.unlinkArgv(root.bin), (out, code) => {
             root.publish(actionVar, "");
             if (code === 0) {
                 ToastService.showInfo("appGlass: uninstalled, every file restored");
             } else {
+                root.save("uninstallState", "linkStays");
                 root.publish(uninstallVar, "linkStays");
                 root.fail("every file restored, but the plugin link stays: " + Logic.errorText(out, code) + ". Run 'appglass plugin remove' in a terminal to finish.");
             }
         }, 0, Logic.ACTION_TIMEOUT_MS, root);
+    }
+
+    // Set up again after an uninstall (the page's button, the user's own
+    // click): the files come back from `appglass get` and a sync, as on a
+    // first start
+    function reinstall() {
+        if (!root.uninstalled || root.sweeping || actionVar.value || !root.bin)
+            return false;
+        root.uninstalled = false;
+        root.save("uninstallState", "");
+        root.publish(uninstallVar, "");
+        root.publish(lastErrorVar, "");
+        root.seed();
+        return true;
     }
 
     function actionDone(name, output, exitCode) {
@@ -431,9 +459,17 @@ PluginComponent {
     Component.onCompleted: {
         root.publish(syncingVar, false);
         root.publish(actionVar, "");
-        root.publish(uninstallVar, "");
+        root.publish(uninstallErrorVar, "");
         const dir = PluginService.getPluginPath(root.pluginId) || root.shellDir;
         root.pluginDir = String(dir).replace(/\/+$/, "");
+        const gone = root.service.loadPluginData(Logic.PLUGIN_ID, "uninstallState", "");
+        if (gone === "removed" || gone === "linkStays") {
+            // uninstalled before this load: no seed, no sync
+            root.uninstalled = true;
+            root.publish(uninstallVar, gone);
+            return;
+        }
+        root.publish(uninstallVar, "");
         if (root.service.loadPluginData(Logic.PLUGIN_ID, "seeded", false) === true) {
             root.ready = true;
             root.requestSync("start", 0);

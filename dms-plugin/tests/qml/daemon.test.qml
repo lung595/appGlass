@@ -36,7 +36,7 @@ Item {
     }
 
     // A clean shell, then a daemon. Nothing launches until Proc.flush().
-    function fresh(seeded, getAnswer) {
+    function fresh(seeded, getAnswer, extra) {
         if (root.d) {
             root.d.destroy();
             root.d = null;
@@ -57,6 +57,8 @@ Item {
         };
         if (seeded)
             data.seeded = true;
+        for (const k of Object.keys(extra || {}))
+            data[k] = extra[k];
         SettingsData.pluginSettings = {
             "appGlass": data
         };
@@ -305,6 +307,7 @@ Item {
                     Proc.flush();
                     t.check("unlink argv", Proc.lastCommand(Logic.UNLINK_ID), Logic.unlinkArgv(root.bin));
                     t.check("seed again on a new install", root.pdata().seeded, false);
+                    t.check("the uninstall is kept in the plugin data", root.pdata().uninstallState, "removed");
                     t.check("uninstall toast", ToastService.ofLevel("info").map(x => x.message).slice(-1), ["appGlass: uninstalled, every file restored"]);
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 5);
                     t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
@@ -395,6 +398,7 @@ Item {
                     t.ok("the link error said", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("not a link") > 0);
                     t.ok("with the command to finish it", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("appglass plugin remove") > 0);
                     t.check("the page learns the link stays", root.vars().uninstallState, "linkStays");
+                    t.check("and so does the plugin data", root.pdata().uninstallState, "linkStays");
                     t.check("no second uninstall", root.d.runAction("uninstall"), false);
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 9);
                     t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
@@ -404,6 +408,35 @@ Item {
                 "wait": 700,
                 "run": () => {
                     t.check("no sync after a half uninstall", [Proc.pendingIds(), root.syncs().length - root.mark], [[], 0]);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- a reload (or a shell restart) after it: still
+                    // uninstalled, nothing seeds or syncs the glass back
+                    root.fresh(true, undefined, {
+                        "uninstallState": "linkStays"
+                    });
+                    t.check("a reload after an uninstall stays uninstalled", [root.d.uninstalled, root.vars().uninstallState], [true, "linkStays"]);
+                    t.check("IPC after the reload", ["sync", "toggle", "pause", "resume"].map(c => IpcRegistry.call("appGlass", c)), ["uninstalled", "uninstalled", "uninstalled", "uninstalled"]);
+                    t.check("no action after the reload", root.d.runAction("learn"), false);
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 4);
+                }
+            },
+            {
+                "wait": 700,
+                "run": () => {
+                    t.check("no seed, no sync after the reload", Proc.calls.map(c => c.id), []);
+                    // only an explicit set up again (the page's button) brings it back
+                    t.check("set up again", root.d.reinstall(), true);
+                    t.check("the uninstall forgotten", [root.d.uninstalled, root.pdata().uninstallState, root.vars().uninstallState], [false, "", ""]);
+                    t.check("it seeds from appglass get", Proc.pendingIds(), [Logic.SEED_ID]);
+                    Proc.flush();
+                    t.check("then syncs", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    Proc.flush();
+                    Proc.flush();
+                    t.check("set up again only once", root.d.reinstall(), false);
                     root.drop();
                 }
             },
@@ -424,6 +457,7 @@ Item {
                     t.ok("the remove error said", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("boom") > 0);
                     Proc.flush();
                     t.check("the sync carries the change made during the remove", root.lastSyncSettings().inactive.factor, 0.89);
+                    t.ok("the remove error stays after that sync", (root.vars().uninstallError || "").indexOf("boom") >= 0);
                     t.check("the IPC works again", IpcRegistry.call("appGlass", "pause"), "glass off");
                     Proc.flush();
                 }

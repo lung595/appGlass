@@ -16,6 +16,7 @@ CategoryPage {
         objectName: "glassToggle"
         visible: page.view.shown("glassToggle")
         settingKey: "glassEnabled"
+        enabled: !page.host.gone
         label: page.view.label("glassToggle")
         description: page.view.help("glassToggle")
         defaultValue: true
@@ -64,7 +65,7 @@ CategoryPage {
         buttonText: page.host.syncing ? "Applying..." : "Re-apply"
         iconName: "refresh"
         busy: page.host.syncing
-        available: !page.host.syncing
+        available: !page.host.syncing && !page.host.gone
         onClicked: page.host.reapply()
     }
 }

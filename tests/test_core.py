@@ -276,9 +276,10 @@ class HookScope(unittest.TestCase):
         have, used = self._backups()
         self.assertEqual(have, used)
         self.assertEqual(len(have), 1)        # the hook's stays (niri has no app left)
-        # the auto-remove of an uninstalled family drops its backups too
+        # the auto-remove of an uninstalled family (a typed apply; the hook
+        # removes nothing) drops its backups too
         self.run_ag("apply", "--only", "alacritty")
-        code, out, err = self.sb.run("apply", "--from-hook", "--quiet",
+        code, out, err = self.sb.run("apply", "--only", "alacritty", "--quiet",
                                      assume_not="alacritty")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.owners(), ["hook"])
@@ -686,6 +687,27 @@ class Writes(unittest.TestCase):
         self.assertEqual(self.sb.read(p), "line\n")
         self.assertEqual(self.sb.read(p + ".appglass-changed"), "line\nours\nuser\n")
         self.assertTrue(err)
+
+    def test_a_saved_aside_version_is_not_overwritten_blind(self):
+        # an earlier .appglass-changed (the user's version from a previous
+        # remove) goes into the ring before the new one replaces it
+        p = self.sb.write("app/conf", "line\n")
+        older = self.sb.write("app/conf.appglass-changed", "older\n")
+        app = self._app()
+        ctx = app.ctx("t")
+        ctx.edit_text(p, lambda t: t + "ours\n")
+        app.commit(ctx)
+        with open(p, "a") as f:
+            f.write("user\n")
+        app = self._app()
+        app.warn = lambda m: None
+        app.remove_owner("t")
+        self.assertEqual(self.sb.read(older), "line\nours\nuser\n")
+        with open(os.path.join(app.ring_entry, "manifest.json")) as f:
+            rec = json.load(f)["files"][older]
+        with open(os.path.join(app.ring_entry, rec["blob"])) as f:
+            self.assertEqual(f.read(), "older\n")
+        app.finish()
 
     def test_non_utf8_is_conflict(self):
         p = self.sb.write("app/bin", b"\xff\xfe\x00")

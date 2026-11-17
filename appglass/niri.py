@@ -244,7 +244,7 @@ def sync(app, dry_run=False, extra_ids=()):
     kw = rule_inputs(app)
     wanted = kw.pop("_wanted")
     if not ids and not wanted:
-        if "niri" in app.state.owners and not dry_run:
+        if "niri" in app.state.owners and not dry_run and not app.from_hook:
             app.remove_owner("niri")
             app.info("niri: no glass apps, rule removed")
         return []

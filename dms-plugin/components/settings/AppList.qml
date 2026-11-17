@@ -236,7 +236,7 @@ Column {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         visible: row.app.switchable
-                        enabled: row.app.switchable && list.host.glassOn
+                        enabled: row.app.switchable && list.host.glassOn && !list.host.gone
                         checked: row.app.on
                         onToggled: on => list.toggle(row.app, on)
                     }
@@ -273,6 +273,7 @@ Column {
                             objectName: "route-" + row.app.key + "-" + modelData.name
                             text: modelData.name + (modelData.kind ? " · " + modelData.kind : "")
                             variant: modelData.name === row.app.route ? "tonal" : "outlined"
+                            enabled: !list.host.gone
                             onClicked: list.choose(row.app, modelData.name)
                         }
                     }
