@@ -163,7 +163,8 @@ class FakeInspector:
                 msg = self.frame(c)
                 expr = msg["params"]["expression"]
                 self.exprs.append(expr)
-                self.send(c, {"id": msg["id"], "result": {"result": {"type": "string", "value": "ok"}}})
+                ans = "armed" if "require('inspector')" in expr else "ok true"
+                self.send(c, {"id": msg["id"], "result": {"result": {"type": "string", "value": ans}}})
                 if "inspector" in expr and ".close()" in expr and self.close_on_arm:
                     self.srv.close()
         except (OSError, ValueError, KeyError):

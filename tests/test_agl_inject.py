@@ -1,7 +1,8 @@
 """agl-inject.py against a fake Node inspector: the wrapper reads the inspector
 url as soon as it is printed, which can be before Node has finished its
 bootstrap (require() then throws inside node:internal), so the injector
-retries until the hook answers "ok true"."""
+retries until the hook answers "ok true", then closes the inspector (one
+more evaluate, also after a failed install)."""
 
 import base64
 import hashlib
@@ -81,6 +82,11 @@ class Inspector(threading.Thread):
             pass
 
 
+def hook_calls(calls):
+    """The evaluate calls before the inspector close (the last one)."""
+    return [c for c in calls if "require('inspector')" not in c]
+
+
 def inject(answers):
     srv = Inspector(answers)
     srv.start()
@@ -95,14 +101,16 @@ class AglInject(unittest.TestCase):
         r, calls = inject([value("ok true")])
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("ok true", r.stdout)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(hook_calls(calls)), 1)
         self.assertIn('require("/x/agl-hook.js")', calls[0])
+        self.assertIn("require('inspector')", calls[-1])
 
     def test_retries_while_node_is_still_starting(self):
         r, calls = inject([EARLY, EARLY, value("ok true")])
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("ok true", r.stdout)
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(hook_calls(calls)), 3)
+        self.assertEqual(len(calls), 4)
         # a require that threw must not leave a half-loaded module in the cache
         self.assertIn("require.cache", calls[1])
 
@@ -117,6 +125,7 @@ class AglInject(unittest.TestCase):
         r, calls = inject([EARLY])
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("testEnabled", r.stdout + r.stderr)
+        self.assertIn("require('inspector')", calls[-1])     # closed after a failure too
 
 
 if __name__ == "__main__":
