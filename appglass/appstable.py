@@ -14,7 +14,9 @@ far it was tested and the result. ``tested`` is one of:
 ``reason``. It is the hand-entered result (or, for a probe row, what the
 probe saw). The table's Result column is derived from the evidence
 (``shown``): a row with no family "needs adapter", a family not verified
-(probe, no) is "untested", and a glass row tested here needs a PASS.
+(probe, no) is "untested", and a glass row tested here needs a PASS; a PASS
+that opened no popup on a toolkit that has popups is "glass (popups
+unverified)".
 
     python3 -m appglass.appstable --collect <verify dir>   # refresh measured
     python3 -m appglass.appstable --write                  # docs/apps.md
@@ -34,6 +36,10 @@ BG_TOL = 4
 MIN_SHARE = 0.6
 MIN_POPUP = 0.5
 MAX_REGION_OPAQUE = 0.5   # a region expected glass (vrun --region NAME:BOX:glass)
+# toolkits that open popup surfaces (menus, popovers, tooltips); a terminal or
+# an own renderer draws none
+POPUP_TOOLKITS = ("GTK", "Qt", "Electron", "CEF", "Tauri", "VCL", "Gecko", "Java")
+UNVERIFIED = "glass (popups unverified)"
 
 
 def verdict(rep):
@@ -91,6 +97,9 @@ def shown(r):
     m = r.get("measured")
     if r.get("result") == "glass" and m and m.get("result") != "PASS":
         return "partial"
+    if (r.get("result") == "glass" and m and m.get("popup") is None
+            and (r.get("toolkit") or "").startswith(POPUP_TOOLKITS)):
+        return UNVERIFIED
     return r["result"]
 
 
@@ -125,7 +134,8 @@ def render(rows):
     for r in rows:
         _check(r)
     n = {t: sum(1 for r in rows if r["tested"] == t) for t in TESTED}
-    g = {t: sum(1 for r in rows if shown(r) == t) for t in SHOWN}
+    g = {t: sum(1 for r in rows if shown(r).split(" (")[0] == t) for t in SHOWN}
+    unver = sum(1 for r in rows if shown(r) == UNVERIFIED)
     out = [
         "# App table",
         "",
@@ -138,12 +148,14 @@ def render(rows):
         "",
         "Result follows the evidence: **needs adapter** = no family covers the app; **untested** = a family",
         "exists but was not verified on this app (the probe's or the expected result is in the notes);",
-        "glass, partial or opaque only for rows tested here (a glass row needs a PASS) or earlier.",
+        "glass, partial or opaque only for rows tested here (a glass row needs a PASS) or earlier;",
+        "**glass (popups unverified)** = a PASS that opened no popup on a toolkit that has popups.",
         "",
         "%d rows (a row can name several apps): %d tested here, %d earlier, %d probe, %d documented. "
-        "%d glass, %d partial, %d opaque, %d untested, %d needs adapter." % (
-            len(rows), n["here"], n["earlier"], n["probe"], n["no"],
-            *(g[t] for t in SHOWN)),
+        "%d glass%s, %d partial, %d opaque, %d untested, %d needs adapter." % (
+            len(rows), n["here"], n["earlier"], n["probe"], n["no"], g["glass"],
+            " (%d with popups unverified)" % unver if unver else "",
+            *(g[t] for t in SHOWN[1:])),
         "",
         "| App | Toolkit | Family | Route | Tested | Result | Measured / reason | Evidence |",
         "|---|---|---|---|---|---|---|---|",

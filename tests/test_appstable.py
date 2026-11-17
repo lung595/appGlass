@@ -78,6 +78,18 @@ class Shown(unittest.TestCase):
         self.assertEqual(appstable.shown(dict(ROW, tested="earlier", result="partial")), "partial")
         self.assertEqual(appstable.shown(dict(ROW, measured={"result": "PASS"})), "glass")
 
+    def test_glass_without_an_opened_popup_says_so(self):
+        # a toolkit that opens popups (menus, popovers) but the verify opened none
+        for tk in ("GTK4 / libadwaita", "GTK3", "Qt6 Widgets", "Electron"):
+            with self.subTest(toolkit=tk):
+                self.assertEqual(appstable.shown(dict(ROW, toolkit=tk, measured={
+                    "result": "PASS", "popup": None})), "glass (popups unverified)")
+                self.assertEqual(appstable.shown(dict(ROW, toolkit=tk, measured={
+                    "result": "PASS", "popup": 0.9})), "glass")
+        # a terminal draws no popup surface: nothing to verify
+        self.assertEqual(appstable.shown(dict(ROW, toolkit="own (pixman)", measured={
+            "result": "PASS", "popup": None})), "glass")
+
     def test_failed_measurement_is_not_glass(self):
         self.assertEqual(appstable.shown(dict(ROW, measured={"result": "FAIL", "why": "x"},
                                               reason="y")), "partial")
@@ -94,6 +106,12 @@ class Render(unittest.TestCase):
         self.assertIn("1 glass, 0 partial, 0 opaque, 1 untested, 1 needs adapter", md)
         self.assertIn("| Ptyxis | own | - | alpha | probe | needs adapter | probe: glass |", md)
         self.assertIn("| kitty | own | kitty | alpha | no | untested | expected: glass |", md)
+
+    def test_popups_unverified_counts_as_glass(self):
+        md = appstable.render([dict(ROW, toolkit="GTK3", measured={
+            "result": "PASS", "bg": 153, "share": 0.9, "popup": None})])
+        self.assertIn("1 glass (1 with popups unverified), 0 partial", md)
+        self.assertIn("| here | glass (popups unverified) |", md)
 
     def test_measured_row(self):
         row = dict(ROW, measured={"result": "PASS", "bg": 153, "share": 0.99, "text": 900,
@@ -154,7 +172,7 @@ class Docs(unittest.TestCase):
 
     def test_glass_only_with_evidence(self):
         for r in self.rows:
-            if appstable.shown(r) == "glass":
+            if appstable.shown(r).startswith("glass"):
                 self.assertIn(r["tested"], ("here", "earlier"), r["app"])
                 self.assertTrue(r.get("family"), r["app"])
 
