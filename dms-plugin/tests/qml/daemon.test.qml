@@ -193,8 +193,13 @@ Item {
                     t.check("saved", root.pdata().glassEnabled, false);
                     t.check("app off", IpcRegistry.call("appGlass", "app", "Alacritty", "off"), "Alacritty off");
                     t.check("app usage", IpcRegistry.call("appGlass", "app", "Alacritty", "maybe"), "usage: app <key> on|off");
+                    // a family key too (the documented way to take a Native family out)
+                    t.check("family off", IpcRegistry.call("appGlass", "app", "gtk3", "off"), "gtk3 off");
                     t.check("apps saved", root.pdata().apps, {
                         "Alacritty": {
+                            "enabled": false
+                        },
+                        "gtk3": {
                             "enabled": false
                         }
                     });
@@ -208,6 +213,9 @@ Item {
                     const s = root.lastSyncSettings();
                     t.check("the sync carries both", [s.enabled, s.apps], [false, {
                             "Alacritty": {
+                                "enabled": false
+                            },
+                            "gtk3": {
                                 "enabled": false
                             }
                         }]);

@@ -1,118 +1,138 @@
-# Per-app glass: alpha on app backgrounds by level instead of fading whole windows
+# Draft issue for DankMaterialShell (not posted)
+
+This is a draft. It has not been posted, and the repo link is a placeholder. Attach only the screenshots listed at the end, after the privacy check.
+
+---
+
+**Title: Per-app glass that follows the window-rule opacity, with text kept opaque (plugin: App Glass)**
 
 ## Problem
 
-The usual way to get glass on niri + DMS today is the "Glass blur" window rule in `dms/windowrules.kdl` (`opacity 0.60`, blur on). niri applies that opacity to the whole window, so text, icons and logos are drawn at 0.60 together with the background and are tinted by whatever is behind the window. In Alacritty, for example, glyphs measure alpha 153 of 255 under that rule instead of 255.
+The usual way to get glass on niri + DMS is the "Glass blur" window rule in `dms/windowrules.kdl` (`opacity 0.60`, blur on). niri applies that opacity to the whole window, so text, icons and logos fade together with the background and take on the colour of whatever is behind. In Alacritty, glyphs measure alpha 153 of 255 under that rule instead of 255. Apps paint opaque backgrounds, so today you choose between faded text and no glass.
 
-DMS already has the numbers: `foregroundLayerTransparency`, `popupTransparency`, `dankBarTransparency` and the floating-window settings in `~/.config/dms/settings.json`. DMS uses them for its own surfaces (bar, popouts, Settings), and `dms-window-opaque` already sets `opacity 1.00` on DMS windows because they paint their own glass. Other apps never get these values: the matugen templates DMS runs (`dank-colors.css`, `dank-theme.toml`, ...) carry colours without background alpha, so a window-wide opacity is the only option left.
+## Demo
 
-## Proposal
+Same desktop, before and after. The nested-session pairs are at a DMS opacity of 0.60; the after shots of Lian Li, LocalSend, Feishin and ArtCraft come from the real session at 0.80 (background 204):
 
-Move the alpha into the colour files DMS already generates, on background roles only, and set the niri opacity of those apps back to 1.0.
+- *(attach)* Alacritty: before (window rule) / after (terminal opacity key, text at 255)
+- *(attach)* Nautilus (GTK4/libadwaita): before / after, plus an opaque popover
+- *(attach)* Solaar (GTK3): before / after, focused and unfocused
+- *(attach)* VLC (Qt Widgets): before / after
+- *(attach)* Herdr (gpui): before / after
+- *(attach)* Lian Li (Tauri/WebKitGTK) and LocalSend (Flutter): before / after
+- *(attach)* Feishin (Electron): after
+- *(attach)* ArtCraft (wgpu): before / after
+- *(attach)* a full-screen shot of the real desktop
 
-1. **Alpha by level**, the same levels for every app:
+Measured from window screenshots composited over black and white, in nested niri at 0.60: background alpha 153 at the level, bars at 166 at 0.60 (Dux Files uses one level everywhere), text and icons 255, popups 255. The 0.80 after shots are from the real session, with the background at 204 and the bars at `max(content, 0.65)`, so 204 too. The generated text colours target 2.25:1 over any backdrop, and the end-to-end checks fail under 2:1.
 
-   | Level | Alpha | Surfaces |
-   |---|---|---|
-   | Content | DMS `foregroundLayerTransparency` (0.60 here) | window / view / editor / terminal background |
-   | Bars | `max(content, 0.65)` | header bars, tab bars, sidebars, toolbars, status bars |
-   | Popups | 1.0 | menus, popovers, tooltips, dialogs, command palettes |
-   | Text | 1.0, never alpha'd | text, icons, logos |
+## How it works
 
-   Alphas stack: a bar painted on top of the 0.60 content needs `(0.65 - 0.60) / (1 - 0.60) = 0.125` to land at 0.65. Painting it at 0.65 gives 0.86.
+- **The level comes from DMS.** The content level is the opacity of the DMS glass window rule. Bars are `max(content, 0.65)`, popups and menus are 1.0, and text roles never get alpha.
+- **Each app paints its own alpha, and its niri rule goes back to `opacity 1.0`.** The rule lives in a separate file included after `dms/windowrules.kdl`, the same pattern as `dms-browser-glass.kdl`. Blur stays on. Every window App Glass does not handle gets `opacity 1.0` too (opaque, sharp), so nothing is ever faded twice.
+- **Route by toolkit, cleanest first.** The toolkit is found by reading the binary (ELF libraries, Electron fuses, flatpak runtime), without running the app:
 
-2. **Generate it from the matugen templates DMS already runs.** Background roles get the alpha of their level; text roles do not. Some text colours that are fine on an opaque window are too faint on glass (dank16term color0/5/8, Adwaita's `--dim-opacity` 0.55, Obsidian's `--text-faint` `#666`), so text roles are made solid and moved toward white (dark scheme) or black (light scheme) until they reach 2.25:1 over any backdrop from black to white. Under 2:1 counts as a bug.
+  | Toolkit | Route |
+  |---|---|
+  | terminals (Alacritty) | the terminal's own opacity key |
+  | GTK4 / libadwaita | a glass CSS imported next to `dank-colors.css` |
+  | GTK3 | a per-app `GTK_THEME` in a launcher override |
+  | Qt Widgets | a small Qt style plugin chosen per launch |
+  | gpui (Herdr) | the app's theme with alpha |
+  | Electron | the app's own CSS hook (Obsidian), or a hook through the Node inspector (Feishin, opt-in) |
+  | Tauri/WebKitGTK, Flutter/egui, QtQuick | a preload shim scoped to one launch (opt-in) |
+  | Discord | Vencord's theme support, if the user installed Vencord (opt-in) |
+  | Firefox family | left to browserGlass |
+  | anything else | opaque |
 
-3. **A niri window rule `opacity 1.0` for each app that paints its own alpha**, matched on its app-id, in a file included after `dms/windowrules.kdl`. Later rules win, and blur stays on from the global rule. This is the same pattern as `dms-browser-glass.kdl`:
+  TODO(adapters): kitty, foot, Ghostty and WezTerm through their opacity keys; Zed through `background.appearance`; a generic `NODE_OPTIONS=--require` route for Electron apps whose fuses allow it.
 
-   ```kdl
-   // ~/.config/niri/config.kdl, after: include "dms/windowrules.kdl"
-   include optional=true "appglass.kdl"
-   ```
+- **Kept in step with DMS.** A matugen user template with a `post_hook` re-applies on every theme change, and a systemd path unit on `dms/windowrules.kdl` and `dms-colors.json` re-applies when the level changes. Nothing of ours runs while idle except a small reader that fades unfocused Alacritty windows.
 
-   ```kdl
-   // ~/.config/niri/appglass.kdl
-   window-rule {
-       match app-id=r#"^Alacritty$"#
-       match app-id=r#"^org\.gnome\.Nautilus$"#
-       // ... one match per glass app
-       opacity 1.0
-   }
-   ```
+  TODO(engine): path units on the application folders, the rpm database and the flatpak `.changed` files, plus a daily timer, so new and updated apps are routed on their own. One short job fingerprints the launchers with `stat` and re-routes only the apps that changed (measured on the prototype: about 25 ms per event, 1.7 s for a cold scan, once).
 
-   The rule and the app-side alpha go together. App alpha without the rule multiplies with the global 0.60 (content 0.60 becomes 0.36, text at most 0.60). The rule without app alpha makes the window fully opaque.
+- **Opt-in for anything loaded into an app.** Shims, the inspector hook and the Vencord route stay off until the user turns them on for that app, and the plugin asks first.
 
-4. **Re-run on every theme change.** In the POC this is a user matugen template whose `post_hook` re-applies, so it runs whenever DMS runs the user templates ("Run user templates", on by default).
+  TODO(engine): such a route goes live only after a hidden headless check (gamescope headless, nested niri, a private D-Bus and a throwaway HOME) shows the background at the level and the text at 255. After an app update, that app is shown opaque until it passes again; a failure leaves it opaque and sends one notification.
 
-5. **Opt-out respected.** Anything the user takes out stays out on later theme changes: the niri include line, a deleted `gtk.css` or a removed glass import in it, an Obsidian snippet turned off, `GTK_THEME` removed from a launcher, another Herdr layout selected, a Dux key removed.
+- **Safe by default:**
+  - no system files, no sudo; app binaries, asars and flatpak deploys are not modified (the opt-in Vencord route re-runs the user's Vencord installer after a Discord update);
+  - every file it writes is recorded and restored byte for byte on uninstall, with a backup ring of the last 5 applies;
+  - games are never touched: no file, env or preload, `opacity 1.0` and blur off;
+  - turning the plugin off, reloading or restarting it removes nothing.
 
-6. **Fallback.** An app that cannot paint its own alpha gets no rule and keeps the global `opacity 0.60`, as today.
+  TODO(engine): root GUIs and password managers classed and kept away from injected routes; preloads checked to be removed from child processes, and game launchers never given one.
 
-## How the POC does it
+## What we would ask from DMS
+
+1. **Alpha by level in the existing matugen templates** (opt-in): background roles at the content or bar level, popups 1.0, text roles solid and readable on glass. GTK3/4, terminals, Qt palettes and Vesktop CSS would then get glass natively, with no plugin code.
+2. **The levels as documented values** (`content`, `bar`, `popup`), for example in `dms-colors.json` next to the colours. Tools would then stop parsing `windowrules.kdl`.
+3. **A documented slot for plugin-owned niri rules**, included after `dms/windowrules.kdl`, and/or a per-app "paints its own alpha" flag in window rules, so DMS sets `opacity 1.0` for those apps itself.
+4. **A stable "theme applied" event or hook for plugins.** Today this means a matugen user template with a `post_hook`, or a path unit on `dms-colors.json`.
+5. **Plugin lifecycle: a "disabled by user" signal that is distinct from "unloaded/reloaded"**, so a plugin never has to guess whether to clean up.
+6. **Feedback on the plugin's home:** is a plugin with the `process` permission the right shape, or should parts (1-3) live in DMS? Is there interest in listing it in the plugin browser?
+
+## Limits
+
+- **Steam:** the client window stays opaque. Both official routes were measured and give no window alpha: Valve's CEF underlay flags (the page turns transparent, the window stays at alpha 255), and Steam's GL composer option (the main window and menus always use the system composer, which reports "transparent background not supported"; alpha 255). Nothing is injected into Steam, and games are never touched.
+- **Chrome and Chromium browsers:** web content has no window alpha, so they stay opaque.
+- **Games, Wine/Proton, SDL:** excluded on purpose (opaque, blur off). Nothing runs inside a game process, so there is nothing for an anti-cheat to see.
+- **Feishin's inspector hook** keeps a Node inspector port open on 127.0.0.1 (random port, session id private to the wrapper) while Feishin runs. It is opt-in for that reason.
+
+  TODO(adapters): close the inspector right after the injection when Electron allows it.
+- **Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime, Electron apps with no hook:** opaque.
+- GTK apps and Dux Calendar need a restart after a theme change. Alacritty, Herdr and Dux Files reload live. Obsidian needs a restart on the first enable (or the snippet toggled off and on), and reloads live after that.
+- Apps started outside their launcher (shell, D-Bus activation) do not get launcher-based routes. They stay opaque and sharp.
+- Tested on Fedora + niri + NVIDIA, dark scheme first. Light mode has been measured less.
+- Dark logos drawn by the app itself can be hard to see on dark glass. CSS cannot reach them.
+- The NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible.
+
+## Install / uninstall
+
+```sh
+git clone <repo> ~/.local/share/appglass
+cd ~/.local/share/appglass
+bin/appglass plugin install         # links the plugin
+bin/appglass hook install           # matugen hook + user units
+bin/appglass apply --all --dry-run  # preview
+bin/appglass apply --all
+# then enable "App Glass" in DMS Settings > Plugins
+```
+
+TODO(engine): one `appglass setup` for the steps above.
+
+- Settings: global pause, per-app switch and route, and the reason for each app that stays opaque.
+- Turning the plugin off removes nothing.
+- Uninstall: Settings > Advanced > Uninstall appGlass, or `appglass remove && appglass plugin remove`. Every file is restored byte for byte, and `appglass remove` takes the hook and the units too.
+
+I'm happy to turn parts of this into PRs (templates, levels in `dms-colors.json`, the niri slot) in whatever shape fits DMS, or to keep it as a plugin.
 
 POC: <!-- link to the appGlass repo -->
 
-A small Python CLI with one module per app family (Alacritty, GTK4, GTK3, Obsidian, Dux, Herdr). It reads the colours from its own matugen output (else `~/.cache/dms/dms-colors.json`) and the content level from `foregroundLayerTransparency` (0.60 when unset).
+---
 
-```sh
-appglass apply [--only gtk4,alacritty] [--dry-run]   # write the glass files for the installed apps + the niri rule
-appglass remove [--only ...]                         # undo every file it touched
-appglass status [--json]                             # colours, levels, applied families, app routes
-appglass detect --json | apply --all [--dry-run]     # detected toolkits; apply every app with an adapter
-appglass hook install | remove                       # matugen user template + post_hook
-```
+## Screenshots
 
-- `apply` plans every write first, then writes, and records each file in a state file. On `remove`, files it created are deleted, files it edited are restored byte-identical from a backup, and merged JSON keys are put back. If the user changed an edited file since, only appglass's part is taken out.
-- The niri rule goes into `~/.config/niri/appglass.kdl`, and the include line goes right after the `dms/windowrules.kdl` include. After a change, `niri validate` runs; if it fails, the rule is taken out again.
-- `hook install` adds a `[templates.appglass]` section to `~/.config/matugen/config.toml`. matugen renders a colours JSON and runs `appglass apply --from-hook --quiet`, which refreshes only the families already applied, and does nothing before the first manual `apply`.
-- An existing user file is merged into or edited, never replaced. A GTK4 `gtk.css` that holds more than the DMS import line is left alone, and the family is skipped with a warning.
-- 286 unit tests cover the generated files, the state handling and remove. Each family also has an end-to-end script that runs the app in a nested niri session, checks the window alpha per region, opaque glyphs and at least 2:1 text contrast from window screenshots, then checks that `remove` leaves the files byte-identical.
+The screenshots are kept in the private probe folder (`<probe>` below), never in this repo. Every path below is written in full from `<probe>`. `shots/...` are window screenshots from nested niri sessions, except `shots/a4b/*` (screen captures from the real session) and `shots/b1/*`, which come from the real session like `realshims/*`; `.black`/`.white` variants prove the alpha, `.wp.png` is the composite over the blurred wallpaper and looks like the real desktop. Look at each one before attaching.
 
-## Apps
+| Pair | Before | After |
+|---|---|---|
+| Alacritty | `shots/terminal/C-screen-niri060.png` (`shots/terminal/C.wp.png`) | `shots/terminal/E-op060-palettefix.png` (`shots/terminal/E.pm.wp.png`); or `shots/terminal/D-screen-niri100rule.png` / `shots/terminal/D.wp.png` |
+| Nautilus GTK4 | `shots/gtk4/verify-1/plain-noenv.wp.png` | `shots/gtk4/naut-final.wp.png` + `shots/gtk4/naut-final-popover.wp.png` |
+| GTK3 (Solaar) | `shots/gtk3/00-baseline-csd.png` | `shots/gtk3/08-theme-v5-focused.wp.png`, unfocused `shots/gtk3/08-theme-v5-backdrop.wp.png` |
+| VLC Qt | `shots/qt/vlc-baseline.wp.png` | `shots/qt/verify-0/glass.wp.png` |
+| Herdr | `shots/gpu/herdr-baseline.png` | `shots/gpu/herdr-glass3.wp.png` |
+| Lian Li (WebKit) | `shots/webkit/lianli-niri-opacity060.wp.png` (or `shots/webkit/lianli-default.wp.png`) | `realshims/lianli-glass.png` (real session) |
+| LocalSend (Flutter) | `shots/flutter/ls-baseline.wp.png` | `realshims/localsend-glass.png` (real session) |
+| Feishin | (none) | `realshims/feishin-glass.png` (real session) |
+| Obsidian | (no clean before) | `shots/electron/x-obsidian-final.png` |
+| Dux Files | (none) | `shots/a3/dux/run4/dfiles-run4.png` (config A, what appglass ships); not `shots/qtquick/dfiles-060.wp.png`, which is config B (0.86 panes) |
+| ArtCraft | `shots/gpu/artcraft-baseline.wp.png` | `shots/b1/after-new-shim.png` (`shots/b1/before-old-shim.png` is the old shim, not a no-glass baseline) |
+| Real desktop | `shots/a4b/pre-<output>.png` (and a `-small` copy) | `shots/a4b/alacritty.png`, `shots/a4b/nautilus.png`, `shots/a4b/nvidia-settings.png`, `shots/a4b/dfiles.png`, `shots/a4b/herdr-new.png` |
+| Steam GL composer test | | `shots/steam-gl/main-xcompworkaround-off.png`: proof of the limit (alpha 255 everywhere), not a glass shot |
 
-"Tested" means run in a nested niri session with the alpha measured from window screenshots; "(expected)" means from docs and sources only. The full table (52 rows) and per-toolkit details are in the POC's `docs/`.
+Paths are relative to `<probe>`. Every file in this table exists there.
 
-| App | Toolkit | Method | Levels (content / bars / popups) | Result | Notes |
-|---|---|---|---|---|---|
-| Alacritty 0.17.0 | terminal | `[window] opacity` = content, `transparent_background_colors = false`, imported after `dank-theme.toml`; palette overrides | 0.60 / explicit-bg cells (statuslines) 1.0, no 0.65 / no popups | yes | Live reload. The main `alacritty.toml` wins over imports, so its own `opacity` line is commented out |
-| Nautilus 51.1 | GTK4 / libadwaita | `gtk-4.0/gtk.css` imports `dank-colors.css` + a generated `dank-glass.css` (alpha on bg roles, `dialog sheet` rule, `--dim-opacity: 0.80`, `:backdrop` filter fix) | 0.60 / 0.65 (sidebar) / 1.0 | yes | The content headerbar is flat by libadwaita design, so it stays at 0.60. No live reload |
-| GNOME Software, file-chooser portal, Zenity | GTK4 / libadwaita | same `gtk.css` | 0.60 / 0.65 / 1.0 (expected) | yes (expected) | Installed, not launched. Need the rule because `gtk.css` is global |
-| GNOME Web 51 | GTK4 + WebKitGTK | same `gtk.css` | page 1.0 (no content level) / 0.65 / dialogs 1.0 | partial | Chrome only, the page stays opaque |
-| Solaar 1.1.20 | GTK3 | per-app theme `AppGlass` (Adwaita + `dank-colors.css` + glass rules) via `GTK_THEME` in launcher/autostart overrides | 0.60 / 0.65 / 1.0 | yes | About dialog body stayed opaque in the test (the POC adds a `dialog` rule, not re-measured). Restart to pick up colours |
-| nvidia-settings | GTK3 | same theme + notebook add-on | 0.60 / 0.65 / 1.0 | partial | Column-header text was too faint with the add-on (the POC sets a solid colour, not re-measured) |
-| Obsidian 1.15.1 (flatpak) | Electron | vault CSS snippet: clear every layout layer, paint each region once; text and accent colours lifted | 0.60 / 0.65 (status bar 0.87, stacked) / 1.0 | partial | Stock `--text-faint` is under 2:1 and is replaced. Measured in dark mode only |
-| Dux Files | QtQuick | merge `floatingWindowTransparency` 0.60, `floatingWindowForegroundTransparency` 0.0 into `ui-settings.json` | 0.60 (preview card 1.0) / 0.60 / context menu 1.0 | partial | Live. Levels inverted (see below); dropdowns take the window alpha |
-| Dux Calendar | QtQuick | same keys, foreground 0.65 | 0.86 / 0.60 / popup menus 1.0 | partial | Restart needed. Levels inverted; dropdowns take the window alpha |
-| Herdr 0.1.16 | gpui | theme with `#rrggbbaa` colours + a glass copy of the main layout, selected in `shared.json` | 0.60 / 0.65 / 1.0 | partial | Live reload. ANSI 0/8 were unreadable in the tested hand-made theme; the POC derives them from DMS roles and lifts them, not re-measured in the docs |
-| DMS windows | QtQuick | none, DMS paints them | already glass (window 0.70, panes about 0.88) | yes (expected) | `dms-window-opaque` already present |
-| kitty, foot, Ghostty, WezTerm, Zed | terminal / gpui | per-app opacity key, or an alpha copy of `dank-zed.json` | 0.60 (Zed: all three levels) (expected) | yes (expected) | Not in the POC |
-| Chrome, Discord, Feishin, Steam, VS Code, Element, Signal, Slack, Spotify | Electron / CEF | none | global 0.60 | no (fallback) | The app's code has to clear its window background; no flag or theme does it |
-| VLC, Jellyfin, KDE apps, KeePassXC, Krita, OBS, qBittorrent | Qt Widgets (Jellyfin: QML) | none | global 0.60 | no (fallback) | Palette alpha lands on an opaque buffer; would need a style plugin (Kvantum). Jellyfin's QML is compiled in |
-| Lian Li Linux, LocalSend, ArtCraft Launcher | Tauri / Flutter / egui | none | global 0.60 | no (fallback) | Transparency is compiled in or must be set by the app |
-| Timeshift, GIMP, LibreOffice, Thunderbird | GTK3 / own UI | none | global 0.60 | no (fallback) | Root via XWayland (Timeshift) or opaque own surfaces |
+Levels: every pair is at 0.60, except the after shots at 0.80 of Lian Li, LocalSend, Feishin (`realshims/*`, real session) and ArtCraft (`shots/b1/after-new-shim.png`, real session). Their before shots are at 0.60. Take those four again at 0.60 for the fresh set.
 
-"partial" means the glass works and text stays opaque, but some target levels are missed or a readability fix is still open.
-
-## Limits / open questions
-
-- **Light mode is tested less.** Every screenshot measurement used the dark DMS scheme. The generators handle light mode (unit tests use a light palette), but light-mode contrast in real windows is still to be measured.
-- **GTK4 `gtk.css` is global.** `~/.config/gtk-4.0/gtk.css` reaches every GTK4 app, so every one the user runs needs the `opacity 1.0` rule, or it ends up at 0.36 background with text at 0.60. That includes the file-chooser portal used by Chrome and Electron apps. Flatpak GTK4 apps do not read it at all without a filesystem override. GTK3 avoids the problem with a per-app `GTK_THEME`.
-- **Obsidian needs a restart on first enable.** Obsidian does not pick up a snippet added to `appearance.json` while it runs (toggling the snippet off and on in its settings also works), and it may later save its settings without it. Later theme changes only rewrite the snippet file, which Obsidian reloads live.
-- **Apps that need a restart after a theme change:** GTK3 and GTK4 apps (GTK reads the CSS at start; Solaar is a long-running tray process), Dux Calendar. Alacritty, Dux Files, Herdr and the Obsidian snippet reload live.
-- **Dux levels are inverted.** Panes are drawn on top of the window background, so content can never be more transparent than the bars. Dux Files uses one level (0.60 everywhere); Dux Calendar uses 0.60 bars and 0.86 content for its dimmed day numbers. A foreground value of about 0.125 would give 0.60 / 0.65 inverted (calculated, not tested). Dropdown menus take the window alpha instead of 1.0 (from the source, not captured).
-- **Measured minimum contrasts** (premultiplied-correct composites, dark mode). The generated text colours target 2.25:1 over any backdrop, and the end-to-end checks fail under 2:1. Lowest measured values:
-  - GTK3 (Solaar) insensitive label: 2.26 on white.
-  - Obsidian after the fixes: code comment and folder chevron 2.27 on white; disabled arrows and code operators 2.40 on white. Stock `--text-faint` was 1.13-1.31 on white.
-  - Alacritty default foreground: 3.73 on white. Stock dank16term color0/5/8 fall below 2:1 on glass; color1 (1.87) and dim text (1.76) fall below it on white. The POC lifts those too; not re-measured in the docs.
-  - GTK4 and Dux: to re-measure (only early, uncorrected composites exist).
-- **Dark logos** drawn by an app (`#111`, `#24292f`) disappear on dark glass, about 1.3:1. CSS cannot reach them.
-- **NVIDIA WebKit workarounds** (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView window nearly invisible (alpha about 0).
-
-## What would be needed in DMS
-
-- **A setting**, for example "App glass" in the theme settings, with a per-app opt-in. Content follows `foregroundLayerTransparency`, bars `max(content, 0.65)`, popups opaque.
-- **Alpha variants of the existing matugen templates** (or extra templates next to them): background roles with the level alpha, text roles solid and readable on glass (solid dim/faint colours, dank16term 0/5/8 replaced). For GTK4 this is a separate glass file imported after `dank-colors.css`; for terminals an opacity key next to the theme import.
-- **A generated niri rules file** with `opacity 1.0` for the opted-in apps, included after `dms/windowrules.kdl`, like `dms-browser-glass.kdl`.
-- **Templates for apps DMS does not theme today** where it pays off (Obsidian snippet, Herdr theme), or a documented way for user templates to get the level values.
-
-I am happy to turn the POC into a PR in whatever shape fits DMS, or to keep it as a plugin if that is preferred.
+**Privacy:** `shots/a4b/*`, `shots/b1/*` and `realshims/*` come from the real session. Check them for file names, terminal history, account names and notifications, and crop them before attaching. A fresh set taken once the engine work lands (same apps, same level) would make a cleaner demo.
