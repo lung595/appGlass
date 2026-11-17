@@ -139,6 +139,8 @@ HAND_FILES = (
      "the Vulkan glass layer (ArtCraft)"),
     (".local/lib/appglass/artcraft/vk/appglass-vk.json", "ck-shim",
      "the Vulkan glass layer manifest (ArtCraft)"),
+    (".local/lib/appglass/artcraft/vk/appglass-vkprobe", "ck-shim",
+     "the Vulkan device probe (ArtCraft)"),
     (".local/share/applications/org.jeffvli.feishin.desktop", "electron-hook",
      "Feishin shim launcher"),
     (".local/bin/appglass-feishin", "electron-hook", "Feishin launch wrapper"),

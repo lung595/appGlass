@@ -815,6 +815,14 @@
       "what": "the Vulkan glass layer manifest (ArtCraft)"
     },
     {
+      "adapter": "ck-shim",
+      "implemented": true,
+      "owner": null,
+      "path": "~/.local/lib/appglass/artcraft/vk/appglass-vkprobe",
+      "status": "absent",
+      "what": "the Vulkan device probe (ArtCraft)"
+    },
+    {
       "adapter": "electron-hook",
       "implemented": true,
       "owner": null,

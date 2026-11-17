@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -22,8 +23,8 @@ class ArtCraft(ShimCase, unittest.TestCase):
     LAUNCHER = ".local/share/applications/ai.storyteller.artcraft-launcher.desktop"
     FILES = {L + "appglass-ck.so": 0o755, L + "appglass-ck.c": 0o644,
              L + "vk/libappglass-vk.so": 0o755, L + "vk/appglass-vk.json": 0o644,
-             ".local/bin/appglass-artcraft": 0o755}
-    BUILDS = 2            # the colour-key shim and the Vulkan layer
+             L + "vk/appglass-vkprobe": 0o755, ".local/bin/appglass-artcraft": 0o755}
+    BUILDS = 3            # the colour-key shim, the Vulkan layer and its device probe
     REBUILDS = 1
     WRAPPER = ".local/bin/appglass-artcraft"
 
@@ -44,7 +45,7 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.assertNotIn("Projects/", w.replace(REPO, ""))
         self.assertIn('APPGLASS_MAXFPS="${APPGLASS_MAXFPS:-60}"', w)
         self.assertIn("WGPU_BACKEND=vulkan", w)
-        self.assertIn('VK_ADD_LAYER_PATH="$LIB/vk', w)
+        self.assertIn('LAYERS="$LIB/vk${VK_ADD_LAYER_PATH:+:', w)
         for g in ("/usr/share/vulkan/implicit", "/etc/vulkan/implicit", ".local/share/vulkan"):
             self.assertNotIn(g, w)
         self.assertIn("APPGLASS_SCRUB=", w)
@@ -67,10 +68,14 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.assertEqual(len(vk), 1, self.w.tc.builds())
         self.assertIn("appglass-vk.c", vk[0])
         self.assertIn("-shared", vk[0])
+        pr = [c for c in self.w.tc.builds() if "appglass-vkprobe" in c]
+        self.assertEqual(len(pr), 1, self.w.tc.builds())
+        self.assertIn("appglass-vkprobe.c", pr[0])
+        self.assertNotIn("-lvulkan", pr[0])          # the loader is dlopen'd: headers are enough
         for root, dirs, files in os.walk(self.w.sb.root):
             self.assertNotIn("vulkan", os.path.relpath(root, self.w.sb.root).split(os.sep), root)
         owned = self.w.state()["owners"]["artcraft"]["files"]
-        for rel in ("vk/libappglass-vk.so", "vk/appglass-vk.json"):
+        for rel in ("vk/libappglass-vk.so", "vk/appglass-vk.json", "vk/appglass-vkprobe"):
             self.assertIn(self.w.user(L + rel), owned)
 
     def test_layer_build_fails_cpu_route(self):
@@ -101,6 +106,20 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.run_ok("remove")
         self.assertEqual(self.w.sb.tree_hash(), self.before)
 
+    def test_probe_build_fails_cpu_route(self):
+        """the probe does not build: no layer either (the wrapper never takes the GPU route blind)"""
+        self.enable()
+        self.w.tc.fail_one("appglass-vkprobe", "appglass-vkprobe.c:13:10: fatal error: vulkan/vulkan.h: "
+                           "No such file or directory\n")
+        out, err = self.apply()
+        self.assertNotIn("skipped", err)
+        self.assertIn("Vulkan headers", err)
+        self.assertFalse(os.path.lexists(self.w.user(L + "vk")))
+        self.assertTrue(os.path.isfile(self.w.user(self.WRAPPER)))
+        self.assertEqual(self.status()["families"]["artcraft"]["render"], "cpu")
+        self.run_ok("remove")
+        self.assertEqual(self.w.sb.tree_hash(), self.before)
+
     def test_layer_gone_on_reapply_when_build_fails(self):
         """a layer that no longer builds is taken out: the wrapper falls back to the CPU route"""
         self.enable()
@@ -122,18 +141,25 @@ class ArtCraft(ShimCase, unittest.TestCase):
         out, err = self.run_ok("status", "--json")
         return json.loads(out)
 
-    def device(self, render=True, icds=("nvidia_icd.x86_64.json", "lvp_icd.x86_64.json")):
-        d = tempfile.mkdtemp(prefix="appglass-dev-")
-        self.addCleanup(shutil.rmtree, d, True)
-        os.makedirs(os.path.join(d, "dri"))
-        os.makedirs(os.path.join(d, "icd"))
-        if render:
-            open(os.path.join(d, "dri", "renderD128"), "w").close()
-        for n in icds:
-            open(os.path.join(d, "icd", n), "w").close()
-        from appglass.families import artcraft
-        return mock.patch.multiple(artcraft, DRI=os.path.join(d, "dri"),
-                                   ICD_DIRS=(os.path.join(d, "icd"),))
+    @contextlib.contextmanager
+    def device(self, gpu=True, code=None):
+        """the installed probe answers as on a host with a Vulkan GPU (gpu False: only lavapipe;
+        code: its own shell code); it is put back after, byte for byte"""
+        p = self.w.user(L + "vk/appglass-vkprobe")
+        keep = self.w.sb.readb(p) if os.path.exists(p) else None
+        log = os.path.join(self.w.sb.root, "probe.env")
+        if keep is not None:
+            with open(p, "w") as f:
+                f.write("#!/bin/sh\n/usr/bin/env > '%s'\n%s\n" % (log, code or (
+                    "echo 'gpu Fake GPU'" if gpu else "echo 'cpu llvmpipe (LLVM 99)'; exit 1")))
+        try:
+            yield log
+        finally:
+            if keep is not None:
+                with open(p, "wb") as f:
+                    f.write(keep)
+            if os.path.exists(log):
+                os.remove(log)
 
     def test_status_render(self):
         self.enable()
@@ -150,28 +176,62 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.assertEqual(app["render"], "gpu")
         self.assertIn("GPU", app["reason"])
         self.assertRegex(out, r"(?m)^artcraft .*applied \(renders on the GPU\)")
-        with self.device(icds=("lvp_icd.x86_64.json",)):
+        with self.device(gpu=False):
             fam = self.status()["families"]["artcraft"]
-        self.assertEqual((fam["render"], fam["render_why"]), ("cpu", "no Vulkan GPU"))
-        with self.device(icds=("lvp_icd.x86_64.json",)):
             code, dout, derr = self.w.run("doctor")
-        self.assertIn("render: artcraft on the CPU (no Vulkan GPU)\n", dout)
-        with self.device(render=False):
-            self.assertEqual(self.status()["families"]["artcraft"]["render"], "cpu")
+        self.assertEqual((fam["render"], fam["render_why"]),
+                         ("cpu", "no Vulkan GPU, only llvmpipe (LLVM 99)"))
+        self.assertIn("render: artcraft on the CPU (no Vulkan GPU, only llvmpipe (LLVM 99))\n", dout)
+        # no driver answers, or the probe crashes (a broken driver or a damaged layer)
+        for code in ("exit 2", "kill -BUS $$"):
+            with self.device(code=code):
+                fam = self.status()["families"]["artcraft"]
+            self.assertEqual(fam["render"], "cpu", code)
+            self.assertIn("no usable Vulkan device", fam["render_why"])
+        # the probe itself is not there (a hand removed it): never GPU
+        os.remove(self.w.user(L + "vk/appglass-vkprobe"))
+        self.assertEqual(self.status()["families"]["artcraft"]["render"], "cpu")
+
+    def test_status_probe_env(self):
+        """status runs the probe as the wrapper does: the layer on, no EGL vendor override"""
+        self.enable()
+        self.apply()
+        with self.device() as log:
+            code, out, err = self.w.run("status", "--json", env={
+                "VK_INSTANCE_LAYERS": "VK_LAYER_MINE", "__EGL_VENDOR_LIBRARY_FILENAMES": "/x.json"})
+            with open(log) as f:
+                e = dict(l.split("=", 1) for l in f.read().splitlines() if "=" in l)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(e["VK_INSTANCE_LAYERS"], "VK_LAYER_APPGLASS_glass:VK_LAYER_MINE")
+        self.assertEqual(e["VK_ADD_LAYER_PATH"], self.w.user(L + "vk"))
+        self.assertNotIn("__EGL_VENDOR_LIBRARY_FILENAMES", e)
+
+    def test_status_knob(self):
+        """APPGLASS_ARTCRAFT in the env status runs with is what the wrapper would see"""
+        self.enable()
+        self.apply()
+        with self.device():
+            code, out, err = self.w.run("status", "--json", env={"APPGLASS_ARTCRAFT": "cpu"})
+            fam = json.loads(out)["families"]["artcraft"]
+            self.assertEqual((fam["render"], fam["render_why"]), ("cpu", "APPGLASS_ARTCRAFT=cpu"))
+            code, out, err = self.w.run("status", "--json", env={"APPGLASS_ARTCRAFT": "off"})
+            fam = json.loads(out)["families"]["artcraft"]
+            self.assertEqual(fam["render"], "gpu")
+            self.assertIn("APPGLASS_ARTCRAFT=off", fam["render_why"])
+            self.assertIn("plain", fam["render_why"])
 
     # --- the wrapper: gpu, cpu or plain
 
-    def wrapped(self, env=(), render=True, icds=("nvidia_icd.x86_64.json", "lvp_icd.x86_64.json"),
-                mesa=True, scheme="prefer-dark", rm=()):
-        """run the installed wrapper around a stub launcher: the route it took"""
+    def wrapped(self, env=(), gpu=True, code=None, mesa=True, scheme="prefer-dark", rm=()):
+        """run the installed wrapper around a stub launcher, the probe answering as device(gpu,
+        code) says: the route it took"""
+        with self.device(gpu, code):
+            return self._wrapped(env, mesa, scheme, rm)
+
+    def _wrapped(self, env, mesa, scheme, rm):
         d = tempfile.mkdtemp(prefix="appglass-wr-")
         self.addCleanup(shutil.rmtree, d, True)
-        for sub in ("dri", "icd", "bin"):
-            os.makedirs(os.path.join(d, sub))
-        if render:
-            open(os.path.join(d, "dri", "renderD128"), "w").close()
-        for n in icds:
-            open(os.path.join(d, "icd", n), "w").close()
+        os.makedirs(os.path.join(d, "bin"))
         if mesa:
             open(os.path.join(d, "mesa.json"), "w").close()
         with open(os.path.join(d, "bin", "gsettings"), "w") as f:
@@ -185,8 +245,7 @@ class ArtCraft(ShimCase, unittest.TestCase):
                     "\"LD_PRELOAD=${LD_PRELOAD:-}\" \"ARGS=$*\" > \"$OUT\"\n")
         os.chmod(app, 0o755)
         text = self.w.sb.read(self.w.user(self.WRAPPER))
-        for var, val in (("BIN", app), ("MESA", os.path.join(d, "mesa.json")),
-                         ("DRI", os.path.join(d, "dri")), ("ICD", os.path.join(d, "icd"))):
+        for var, val in (("BIN", app), ("MESA", os.path.join(d, "mesa.json"))):
             text, n = re.subn(r"(?m)^%s=.*$" % var, "%s='%s'" % (var, val), text)
             self.assertEqual(n, 1, var)
         w = os.path.join(d, "wrapper")
@@ -205,7 +264,7 @@ class ArtCraft(ShimCase, unittest.TestCase):
         if got["WGPU_BACKEND"] == "vulkan":
             self.assertEqual(got["VK_INSTANCE_LAYERS"], "VK_LAYER_APPGLASS_glass")
             self.assertEqual(got["VK_ADD_LAYER_PATH"], self.w.user(L + "vk"))
-            self.assertEqual(got["APPGLASS_MAXFPS"], "")       # no cap on the GPU
+            self.assertEqual(got["APPGLASS_MAXFPS"], "60")     # the layer keeps to it on a CPU device only
             self.assertIn("appglass-ck.so", got["LD_PRELOAD"])
             self.assertTrue(got["APPGLASS_KEYS"].startswith("121316:"))
             return "gpu"
@@ -225,12 +284,13 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.assertEqual(self.wrapped(), "gpu")
         self.assertEqual(self.wrapped(mesa=False), "gpu")
         self.assertEqual(self.wrapped(env={"APPGLASS_ARTCRAFT": "cpu"}), "cpu")
-        self.assertEqual(self.wrapped(render=False), "cpu")
-        self.assertEqual(self.wrapped(icds=("lvp_icd.x86_64.json",)), "cpu")
-        self.assertEqual(self.wrapped(icds=(), env={"VK_DRIVER_FILES": "/opt/icd.json"}), "gpu")
-        self.assertEqual(self.wrapped(render=False, mesa=False), "plain")
+        self.assertEqual(self.wrapped(gpu=False), "cpu")
+        self.assertEqual(self.wrapped(code="exit 2"), "cpu")
+        self.assertEqual(self.wrapped(code="kill -BUS $$"), "cpu")
+        self.assertEqual(self.wrapped(gpu=False, mesa=False), "plain")
         self.assertEqual(self.wrapped(env={"APPGLASS_ARTCRAFT": "off"}), "plain")
         self.assertEqual(self.wrapped(scheme="prefer-light"), "plain")
+        self.assertEqual(self.wrapped(rm=(L + "vk/appglass-vkprobe",)), "cpu")
         self.assertEqual(self.wrapped(rm=(L + "vk/appglass-vk.json",)), "cpu")
         self.assertEqual(self.wrapped(rm=(L + "vk/libappglass-vk.so",)), "cpu")
         self.assertEqual(self.wrapped(rm=(L + "appglass-ck.so",)), "plain")

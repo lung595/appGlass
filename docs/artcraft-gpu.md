@@ -13,24 +13,27 @@ Without it, wgpu's Vulkan swapchain is opaque, and the only glass route is the C
 `appglass apply --only artcraft` (the family is off until `apps.artcraft.enabled = true`) builds and records, next to `appglass-ck.so`:
 
 - `~/.local/lib/appglass/artcraft/vk/libappglass-vk.so`, built with the host `cc` from `appglass-vk.c` and `glass-spv.h` (rebuilt only when they or the compiler change);
-- `~/.local/lib/appglass/artcraft/vk/appglass-vk.json`, the explicit manifest (`library_path` `./libappglass-vk.so`).
+- `~/.local/lib/appglass/artcraft/vk/appglass-vk.json`, the explicit manifest (`library_path` `./libappglass-vk.so`);
+- `~/.local/lib/appglass/artcraft/vk/appglass-vkprobe`, built with the same `cc` and headers from `appglass-vkprobe.c` (it `dlopen`s `libvulkan.so.1`, so it needs no `-lvulkan`). It creates a Vulkan instance, lists the physical devices (`gpu <name>` or `cpu <name>` per line) and exits 0 only when one of them is not `VK_PHYSICAL_DEVICE_TYPE_CPU`, 1 when only lavapipe answers, 2 when there is no loader, no instance or no device. It takes about 60 ms on the NVIDIA host, so it runs at every start, uncached.
 
-Nothing is written to `/usr/share/vulkan`, `/etc/vulkan` or `~/.local/share/vulkan`. `appglass remove --only artcraft` deletes both files with the rest of the family (a hand-made file it adopted is put back).
+Nothing is written to `/usr/share/vulkan`, `/etc/vulkan` or `~/.local/share/vulkan`. `appglass remove --only artcraft` deletes the three files with the rest of the family (a hand-made file it adopted is put back). When the probe or the layer does not build, neither is installed.
 
 The one wrapper, `appglass-artcraft`, picks the route at every start:
 
 | Case | Route |
 |---|---|
 | `APPGLASS_ARTCRAFT=off`, no `appglass-ck.so`, or a light system theme | plain (opaque, as the launcher ships) |
-| both layer files there, a `/dev/dri/renderD*` node, and a Vulkan driver that is not lavapipe (an ICD json in `/etc/vulkan/icd.d`, `/usr/share/vulkan/icd.d` or `/usr/local/share/vulkan/icd.d`, or `VK_DRIVER_FILES` / `VK_ICD_FILENAMES` set) | **GPU**: `WGPU_BACKEND=vulkan`, the layer, the keys; no fps cap |
-| `APPGLASS_ARTCRAFT=cpu`, or no layer, or no Vulkan GPU, and Mesa EGL is installed | **CPU**: Mesa EGL, `WGPU_BACKEND=gl`, llvmpipe 4 threads, the keys, `APPGLASS_MAXFPS=60` |
+| the three layer files there, and `appglass-vkprobe` exits 0, run with this route's env (the user's own Vulkan env, the layer added, no `__EGL_VENDOR_LIBRARY_FILENAMES`, no core file, 10 s timeout) | **GPU**: `WGPU_BACKEND=vulkan`, the layer, the keys, no `__EGL_VENDOR_LIBRARY_FILENAMES`; `LP_NUM_THREADS=4` and `APPGLASS_MAXFPS=60`, which the layer keeps to only when wgpu still lands on a CPU device |
+| `APPGLASS_ARTCRAFT=cpu`, or no layer, or the probe finds only lavapipe, no device or crashes (a broken driver, a damaged layer), and Mesa EGL is installed | **CPU**: Mesa EGL, `WGPU_BACKEND=gl`, llvmpipe 4 threads, the keys, `APPGLASS_MAXFPS=60` |
 | none of the above | plain |
 
-Both routes read the levels from `appglass levels` at start and scrub everything they add from the programs the launcher starts.
+Both routes read the levels from `appglass levels` at start and scrub everything they set from the programs the launcher starts. A value the user had set (`WGPU_BACKEND`, `__EGL_VENDOR_LIBRARY_FILENAMES`, `LP_NUM_THREADS`, `APPGLASS_MAXFPS`, and on the GPU route also `VK_ADD_LAYER_PATH`, `VK_INSTANCE_LAYERS`) reaches those programs as it was (`APPGLASS_ORIG_<var>`).
+
+Why the probe and not a look at the files: Fedora's `mesa-vulkan-drivers` ships a dozen ICD jsons (intel, radeon, nouveau, virtio, ...) whatever GPU is fitted, so a render node plus "an ICD that is not lavapipe" is true almost everywhere. With no usable driver, `WGPU_BACKEND=vulkan` opens no window ("Failed to create surface for any enabled backend"), and with only lavapipe wgpu renders on the CPU with no cap. The NVIDIA Vulkan driver presents to Wayland through its own EGL, so a `__EGL_VENDOR_LIBRARY_FILENAMES` pointing at Mesa sends wgpu to lavapipe: the GPU route drops it for the launcher.
 
 When the layer does not build (no Vulkan headers, for example), apply warns once, the CPU route is still installed, and status gives the reason.
 
-`appglass status` shows the route on the family line, `artcraft   installed, applied (renders on the GPU): ...` or `(renders on the CPU: <why>)`. `status --json` has `render` and `render_why` on the family, and the app's route reason says it too, which is what the plugin's app row shows. `appglass doctor` prints `render: artcraft on the GPU` (an information line, not drift). They make the same checks as the wrapper, without `APPGLASS_ARTCRAFT`.
+`appglass status` shows the route on the family line, `artcraft   installed, applied (renders on the GPU): ...` or `(renders on the CPU: <why>)`. `status --json` has `render` and `render_why` on the family, and the app's route reason says it too, which is what the plugin's app row shows. `appglass doctor` prints `render: artcraft on the GPU` (an information line, not drift). They run the same probe the same way as the wrapper, in the env status runs in: `APPGLASS_ARTCRAFT=cpu` there gives `cpu` (`APPGLASS_ARTCRAFT=cpu`), `=off` gives `gpu` with "starts plain, without glass", only lavapipe gives `no Vulkan GPU, only llvmpipe (...)`, a probe that fails gives `no usable Vulkan device (...)`.
 
 **Result**
 
@@ -124,9 +127,10 @@ APPGLASS_KEYS="121316:0.60,151517:0.60,060607:0.65"  APPGLASS_SNAP=0.25
 | `shims/vklayer/appglass-vk.c` | the layer (about 500 lines of C, no dependencies beyond the Vulkan headers) |
 | `shims/vklayer/appglass-vk.json` | explicit layer manifest, `library_path` `./libappglass-vk.so` (next to it) |
 | `shims/vklayer/glass.vert`, `glass.frag`, `gen-spv.py`, `glass-spv.h` | the pass and its generated SPIR-V |
+| `shims/vklayer/appglass-vkprobe.c` | the device probe the wrapper and status run |
 | `shims/ck-shim/appglass-artcraft` | the wrapper: picks the GPU, CPU or plain route (table above) |
 | `appglass/families/artcraft.py` | builds and records the layer, `render_route()` for status |
-| `tests/test_vklayer.py` | SPIR-V freshness and validity, manifest, exports, the layer on lavapipe, and the wrapper's env and scrub on both routes |
+| `tests/test_vklayer.py` | SPIR-V freshness and validity, manifest, exports, the layer on lavapipe (and its cap on a CPU device), the probe (lavapipe only, no driver, a truncated layer), and the wrapper's env, probe env and scrub on both routes |
 | `tests/test_artcraft.py` | the family's files, a failed layer build, status/doctor render, and every wrapper route |
 
 The layer tests run a small C client on lavapipe through `VK_EXT_headless_surface`, with no display:

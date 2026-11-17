@@ -792,6 +792,14 @@ class Ctx:
         self.ops[path] = op
         return path
 
+    def drop(self, path):
+        """Unplan a write of this run (a build that cannot be used without a
+        later one that failed): a file recorded from an earlier apply is then
+        removed like any file the owner no longer plans."""
+        path = os.path.abspath(path)
+        if self.ops.pop(path, None) is not None:
+            self.order.remove(path)
+
     # writes (planned; the core commits them)
     def write_owned(self, path, text, meta=None, mode=None):
         """A file appglass creates and owns: deleted on remove. An adopted

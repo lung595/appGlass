@@ -15,11 +15,14 @@
 // attachment and the colour attachment, each fragment reads its own pixel and writes the keyed,
 // premultiplied value. One submit per keyed swapchain, chained on the app's wait semaphores; the
 // present waits on the last one. Without APPGLASS_KEYS the layer only passes calls through.
+// [APPGLASS_MAXFPS=60] caps presents per second, but only on a CPU device (wgpu fell back to lavapipe:
+// on a 240 Hz output it would otherwise render every frame on the CPU). A GPU is never capped.
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -83,6 +86,7 @@ typedef struct dev {
     void *key; VkDevice h; VkPhysicalDevice pd; inst *in; struct dev *next;
     PFN_vkGetDeviceProcAddr gdpa; PFN_vkSetDeviceLoaderData set_data;
     int graphics_only;                   /* every queue family the app asked for can do graphics */
+    int cpu;                             /* VK_PHYSICAL_DEVICE_TYPE_CPU (lavapipe): presents are capped */
     struct { VkQueue q; uint32_t fam; } qs[MAXQ]; int nq;
     pipe *pipes;                         /* one pass per swapchain format, kept until vkDestroyDevice */
 #define X(n) PFN_vk##n n;
@@ -316,9 +320,24 @@ static VKAPI_ATTR void VKAPI_CALL hk_DestroySwapchainKHR(VkDevice device, VkSwap
 }
 
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
-static FILE *trace_f; static double last_present;
+static FILE *trace_f; static double last_present, min_gap, last_slot;
 static pthread_once_t trace_once = PTHREAD_ONCE_INIT;
-static void trace_init(void) { const char *e = getenv("APPGLASS_TRACE"); if (e && *e) trace_f = fopen(e, "ae"); }
+static void trace_init(void) {
+    const char *e = getenv("APPGLASS_TRACE"); if (e && *e) trace_f = fopen(e, "ae");
+    e = getenv("APPGLASS_MAXFPS"); double f = e ? strtod(e, NULL) : 0; min_gap = f > 0 ? 1000.0 / f : 0;
+}
+/* the cap on a CPU device, per process like appglass-ck.so's: each present reserves the next free
+ * slot (last + 1/MAXFPS) under the lock and sleeps outside it */
+static void pace(void) {
+    double t0 = now_ms();
+    pthread_mutex_lock(&mu);
+    double at = last_slot > 0 && t0 - last_slot < min_gap ? last_slot + min_gap : t0;
+    last_slot = at;
+    pthread_mutex_unlock(&mu);
+    if (at <= t0) return;
+    double w = at - t0; struct timespec ts = { (time_t)(w / 1e3), (long)(((long long)(w * 1e6)) % 1000000000LL) };
+    while (nanosleep(&ts, &ts) && errno == EINTR) ;
+}
 
 static int fam_of(dev *d, VkQueue q, uint32_t *fam) {
     for (int i = 0; i < d->nq; i++) if (d->qs[i].q == q) { *fam = d->qs[i].fam; return 1; }
@@ -334,6 +353,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue q, const VkPres
     uint32_t fam = 0; int known = d && fam_of(d, q, &fam);
     pthread_mutex_unlock(&mu);
     if (!d) return VK_ERROR_DEVICE_LOST;
+    pthread_once(&trace_once, trace_init);
+    if (d->cpu && min_gap > 0) pace();
     double t0 = now_ms();
     uint32_t nw = pi->waitSemaphoreCount; const VkSemaphore *w = pi->pWaitSemaphores;
     VkPipelineStageFlags stb[64], *st = nw <= 64 ? stb : malloc(nw * sizeof *st);
@@ -362,7 +383,6 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue q, const VkPres
     }
     if (st != stb) free(st);
     if (r) return r;
-    pthread_once(&trace_once, trace_init);
     if (keyed) {
         pthread_mutex_lock(&mu);
         if (trace_f) { fprintf(trace_f, "%.2f %.2f %.2f\n", t0, last_present > 0 ? t0 - last_present : 0, now_ms() - t0); fflush(trace_f); }
@@ -460,10 +480,13 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice pd, const
         uint32_t f = ci->pQueueCreateInfos[i].queueFamilyIndex;
         if (f >= nf || !(qf[f].queueFlags & VK_QUEUE_GRAPHICS_BIT)) d->graphics_only = 0;
     }
-    if (dbg() && in->GetPhysicalDeviceProperties) {   /* which adapter the app picked */
+    if (in->GetPhysicalDeviceProperties) {   /* which adapter the app picked */
         VkPhysicalDeviceProperties pr; in->GetPhysicalDeviceProperties(pd, &pr);
+        d->cpu = pr.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+        pthread_once(&trace_once, trace_init);
         LOG("device: %s (vendor 0x%04x device 0x%04x, driver 0x%x, Vulkan %u.%u)", pr.deviceName, pr.vendorID, pr.deviceID,
             pr.driverVersion, VK_API_VERSION_MAJOR(pr.apiVersion), VK_API_VERSION_MINOR(pr.apiVersion));
+        if (d->cpu && min_gap > 0) LOG("device: a CPU device: presents capped at %g fps", 1000.0 / min_gap);
     }
     pthread_mutex_lock(&mu); d->next = devs; devs = d; pthread_mutex_unlock(&mu);
     return VK_SUCCESS;

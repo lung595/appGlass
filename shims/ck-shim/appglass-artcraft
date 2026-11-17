@@ -1,11 +1,14 @@
 #!/usr/bin/sh
 # appglass-artcraft: start the ArtCraft Launcher (egui/wgpu) with a glass window.
 # The launcher draws through Vulkan, whose swapchain it makes opaque. Two routes give it the glass:
-# - GPU (the layer files are there and the host has a Vulkan GPU): wgpu stays on Vulkan and the
-#   explicit layer VK_LAYER_APPGLASS_glass, named only by this env, asks for a PRE_MULTIPLIED
-#   swapchain and colour-keys the launcher's own dark background colours to the DMS glass levels in
-#   one GPU draw before each present (docs/artcraft-gpu.md).
-# - CPU (APPGLASS_ARTCRAFT=cpu, or no layer, or no Vulkan GPU): Mesa EGL + wgpu's GL backend
+# - GPU (the layer files are there and appglass-vkprobe, run with this route's Vulkan env and the
+#   layer on, finds a device that is not the CPU): wgpu stays on Vulkan and the explicit layer
+#   VK_LAYER_APPGLASS_glass, named only by this env, asks for a PRE_MULTIPLIED swapchain and
+#   colour-keys the launcher's own dark background colours to the DMS glass levels in one GPU draw
+#   before each present (docs/artcraft-gpu.md). Should wgpu still land on lavapipe, the layer caps
+#   its presents at APPGLASS_MAXFPS and llvmpipe keeps to 4 threads.
+# - CPU (APPGLASS_ARTCRAFT=cpu, or no layer, or the probe finds only lavapipe, no device, or fails
+#   because a driver or the layer is broken): Mesa EGL + wgpu's GL backend
 #   (llvmpipe: NVIDIA GL makes wgpu fail adapter selection), the same keys done by appglass-ck.so on
 #   each swap, llvmpipe held to 4 threads and swaps capped at APPGLASS_MAXFPS (60 by default: the
 #   launcher otherwise renders as fast as the 240 Hz output asks, on the CPU).
@@ -18,8 +21,6 @@ set -u
 LIB="$HOME/.local/lib/appglass/artcraft"
 BIN=/usr/bin/artcraft-launcher
 MESA=/usr/share/glvnd/egl_vendor.d/50_mesa.json
-DRI=/dev/dri
-ICD="/etc/vulkan/icd.d /usr/share/vulkan/icd.d /usr/local/share/vulkan/icd.d"
 COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
 plain() { exec "$BIN" "$@"; }
 route="${APPGLASS_ARTCRAFT:-on}"
@@ -30,47 +31,42 @@ case "$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" in
     *prefer-dark*) ;;
     *) [ "$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null)" = light ] && plain "$@" ;;
 esac
-# a Vulkan GPU: a render node and a driver that is not lavapipe (or one the user names)
-vulkan_gpu() {
-    for f in "$DRI"/renderD*; do [ -e "$f" ] && break; return 1; done
-    [ -n "${VK_DRIVER_FILES:-}${VK_ICD_FILENAMES:-}" ] && return 0
-    for d in $ICD; do
-        for f in "$d"/*.json; do
-            case "${f##*/}" in lvp_icd*) ;; *) [ -f "$f" ] && return 0 ;; esac
-        done
-    done
-    return 1
-}
+# the layer env, for the probe and the GPU route; NVIDIA's Vulkan driver presents to Wayland through
+# its own EGL, so an EGL vendor override (Mesa) would send wgpu to lavapipe: the GPU route drops it
+LAYERS="$LIB/vk${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}"
+INST=VK_LAYER_APPGLASS_glass${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS}
 gpu=no
-[ "$route" != cpu ] && [ -f "$LIB/vk/libappglass-vk.so" ] && [ -f "$LIB/vk/appglass-vk.json" ] &&
-    vulkan_gpu && gpu=yes
+if [ "$route" != cpu ] && [ -f "$LIB/vk/libappglass-vk.so" ] && [ -f "$LIB/vk/appglass-vk.json" ] &&
+    [ -x "$LIB/vk/appglass-vkprobe" ]; then
+    # exit 0 only for a device that is not the CPU; a crash (no core file) or a hang is a no
+    devs=$( (ulimit -c 0; exec env -u __EGL_VENDOR_LIBRARY_FILENAMES -u APPGLASS_KEYS -u LD_PRELOAD \
+        VK_ADD_LAYER_PATH="$LAYERS" VK_INSTANCE_LAYERS="$INST" \
+        timeout 10 "$LIB/vk/appglass-vkprobe") 2>/dev/null) && gpu=yes
+    [ -n "${APPGLASS_DEBUG:-}" ] && printf '[appglass-artcraft] vulkan: %s -> GPU route: %s\n' \
+        "$(printf '%s' "$devs" | tr '\n' ';')" "$gpu" >&2
+fi
 [ "$gpu" = yes ] || [ -f "$MESA" ] || plain "$@"
 lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
 c=$(printf '%s' "$lv" | jq -r '.content')
 b=$(printf '%s' "$lv" | jq -r '.bar')
+# children never get a route's values: the shim scrubs every one it sets, and a value the user had
+# set before comes back to them as it was (APPGLASS_ORIG_<var>, which the shim hands back)
+orig() { for v in $1; do eval "[ -z \"\${$v+x}\" ] || export APPGLASS_ORIG_$v=\"\$$v\""; done; }
 if [ "$gpu" = yes ]; then
-    # children never get this route's values: the shim scrubs all three, and a value the user had
-    # set before comes back to them as it was (APPGLASS_ORIG_<var>, which the shim hands back)
-    exec env WGPU_BACKEND=vulkan \
-        VK_ADD_LAYER_PATH="$LIB/vk${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}" \
-        VK_INSTANCE_LAYERS=VK_LAYER_APPGLASS_glass${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS} \
-        ${WGPU_BACKEND+"APPGLASS_ORIG_WGPU_BACKEND=$WGPU_BACKEND"} \
-        ${VK_ADD_LAYER_PATH+"APPGLASS_ORIG_VK_ADD_LAYER_PATH=$VK_ADD_LAYER_PATH"} \
-        ${VK_INSTANCE_LAYERS+"APPGLASS_ORIG_VK_INSTANCE_LAYERS=$VK_INSTANCE_LAYERS"} \
+    scrub="WGPU_BACKEND VK_ADD_LAYER_PATH VK_INSTANCE_LAYERS LP_NUM_THREADS __EGL_VENDOR_LIBRARY_FILENAMES APPGLASS_MAXFPS"
+    orig "$scrub"
+    exec env -u __EGL_VENDOR_LIBRARY_FILENAMES WGPU_BACKEND=vulkan \
+        VK_ADD_LAYER_PATH="$LAYERS" VK_INSTANCE_LAYERS="$INST" LP_NUM_THREADS="${LP_NUM_THREADS:-4}" \
         LD_PRELOAD="$LIB/appglass-ck.so${LD_PRELOAD:+ $LD_PRELOAD}" \
         APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 \
-        APPGLASS_SCRUB="WGPU_BACKEND VK_ADD_LAYER_PATH VK_INSTANCE_LAYERS" \
+        APPGLASS_MAXFPS="${APPGLASS_MAXFPS:-60}" APPGLASS_SCRUB="$scrub" \
         "$BIN" "$@"
 fi
-# only scrub what this route adds: a value the user already set is passed on as before
-scrub=''
-[ -n "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" ] || scrub="$scrub __EGL_VENDOR_LIBRARY_FILENAMES"
-[ -n "${WGPU_BACKEND:-}" ] || scrub="$scrub WGPU_BACKEND"
-[ -n "${LP_NUM_THREADS:-}" ] || scrub="$scrub LP_NUM_THREADS"
-[ -n "${APPGLASS_MAXFPS:-}" ] || scrub="$scrub APPGLASS_MAXFPS"
+scrub="WGPU_BACKEND LP_NUM_THREADS __EGL_VENDOR_LIBRARY_FILENAMES APPGLASS_MAXFPS"
+orig "$scrub"
 exec env __EGL_VENDOR_LIBRARY_FILENAMES="$MESA" WGPU_BACKEND=gl LP_NUM_THREADS="${LP_NUM_THREADS:-4}" \
     LD_PRELOAD="$LIB/appglass-ck.so${LD_PRELOAD:+ $LD_PRELOAD}" \
     APPGLASS_KEYS="121316:$c,151517:$c,060607:$b" APPGLASS_SNAP=0.25 \
-    APPGLASS_MAXFPS="${APPGLASS_MAXFPS:-60}" APPGLASS_SCRUB="${scrub# }" \
+    APPGLASS_MAXFPS="${APPGLASS_MAXFPS:-60}" APPGLASS_SCRUB="$scrub" \
     "$BIN" "$@"
