@@ -328,3 +328,31 @@ class Ini(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FlatpakWindowIds(unittest.TestCase):
+    """A flatpak's window app-id is its flatpak id (foot from flathub maps as
+    page.codeberg.dnkl.foot, not foot): every family with a FLATPAK lists it,
+    so status routes the record to the family and niri gets its 1.0 rule."""
+
+    # native-toolkit apps: the flatpak window app-id is the flatpak id
+    # (an Electron app sets its own, feishin, so it is not in the list)
+    NATIVE_IDS = ("foot", "mpv", "kate", "zed", "konsole", "gimp", "wezterm")
+
+    def test_every_flatpak_id_is_an_app_id(self):
+        from appglass.core import discover
+        fams = discover()
+        for name in self.NATIVE_IDS:
+            mod = fams[name]
+            fp = mod.FLATPAK
+            with self.subTest(family=name):
+                self.assertTrue(any(re.search(rx, fp) for rx in mod.APP_IDS),
+                                "%s: %s is not in APP_IDS" % (name, fp))
+
+    def test_flatpak_foot_routes_to_foot(self):
+        from appglass import adapters
+        from appglass.core import discover
+        rec = {"key": "page.codeberg.dnkl.foot", "names": ["page.codeberg.dnkl.foot"],
+               "toolkit": "terminal"}
+        r = adapters.resolve(rec, discover())
+        self.assertEqual((r["family"], r["effective"]), ("foot", "glass"))

@@ -17,7 +17,7 @@ page.codeberg.dnkl.foot: ~/.var/app/page.codeberg.dnkl.foot/config/foot):
 
 A foot.ini the user changed after apply is kept as it is by re-applies;
 remove takes the include out and puts the commented lines back.
-niri: ``^foot$`` (and footclient) get opacity 1.0: foot paints its own alpha.
+niri: ``^foot$``, footclient and the flatpak's ``page.codeberg.dnkl.foot`` get opacity 1.0: foot paints its own alpha.
 """
 
 import os
@@ -27,7 +27,7 @@ from . import _term
 from ..core import Conflict
 
 NAME = "foot"
-APP_IDS = [r"^foot$", r"^footclient$"]
+APP_IDS = [r"^foot$", r"^footclient$", r"^page\.codeberg\.dnkl\.foot$"]
 FLATPAK = "page.codeberg.dnkl.foot"
 CMDS = ("foot",)
 OFF = "# appglass-off: "
