@@ -3,11 +3,12 @@
 
 Connects to the Node inspector of an Electron main process (ws://127.0.0.1:PORT/UUID),
 requires HOOK_PATH there (it clears the window background and injects the glass CSS),
-Stdlib only, loopback only. The app is started with --inspect-publish-uid=stderr, so the
+Retries while Node is still starting, then waits for the hook to install (it answers "ok true");
+exits 1 when it never does. Stdlib only, loopback only. The app is started with --inspect-publish-uid=stderr, so the
 inspector does not list its target over HTTP: a client needs the random session UUID that only the
 wrapper reads from the app's stderr.
 """
-import base64, json, os, socket, struct, sys
+import base64, json, os, socket, struct, sys, time
 
 
 class WS:
@@ -77,16 +78,42 @@ class WS:
                 return r
 
 
+TRIES, PAUSE = 50, 0.2    # about 10 s
+
+
 def main():
     url, hook = sys.argv[1], sys.argv[2]
     ws = WS(url)
-    js = "(()=>{require(" + json.dumps(hook) + ");return 'ok '+!!global.__aglInstalled})()"
-    r = ws.call('Runtime.evaluate', {'expression': js, 'includeCommandLineAPI': True, 'returnByValue': True})
-    print(json.dumps(r.get('result', r))[:500])
+    h = json.dumps(hook)
+    done = "'ok '+!!global.__aglInstalled"
+    load = "(()=>{require(%s);return %s})()" % (h, done)
+    # the url is printed before Node has finished its bootstrap: a require() then throws inside
+    # node:internal (TypeError: testEnabled is not a function); try again from a clean cache
+    again = ("(()=>{try{delete require.cache[require.resolve(%s)]}catch(e){}require(%s);return %s})()"
+             % (h, h, done))
+    js, out = load, ''
+    for _ in range(TRIES):
+        r = ws.call('Runtime.evaluate', {'expression': js, 'includeCommandLineAPI': True,
+                                         'returnByValue': True})
+        res = r.get('result', r)
+        out = json.dumps(res)[:500]
+        val = res.get('result', {}) if isinstance(res, dict) else {}
+        if 'error' in r or 'exceptionDetails' in res or val.get('subtype') == 'error':
+            js = again if js != done else done
+        elif val.get('value') == 'ok true':
+            break
+        else:
+            js = done          # loaded: the hook waits for electron.app by itself
+        time.sleep(PAUSE)
+    else:
+        print(out)
+        return 1
+    print(out)
     try:
         ws.s.close()
     except OSError:
         pass
+    return 0
 
 
-main()
+sys.exit(main())

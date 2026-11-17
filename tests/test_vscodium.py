@@ -73,6 +73,10 @@ class VSCodium(ShimCase, unittest.TestCase):
                               r"!important;")
         for sel in ("quick-input-widget", "monaco-menu", "suggest-widget", "notification-toast"):
             self.assertNotIn(sel, css)
+        # the breadcrumb widget and xterm set their theme colour inline on these
+        clear = css[css.index("background-color: transparent !important") - 2000:]
+        for sel in (".monaco-breadcrumbs", ".xterm,", ".xterm-scrollable-element"):
+            self.assertIn(".monaco-workbench " + sel, clear)
         self.assertNotIn("{{", css)
 
     def test_settings_block_new_file(self):
@@ -82,7 +86,10 @@ class VSCodium(ShimCase, unittest.TestCase):
         got = json.loads(zed.strip_jsonc(text))
         self.assertEqual(got, {"workbench.colorCustomizations": {
             "minimap.background": "#00000000", "editorOverviewRuler.background": "#00000000",
-            "editor.lineHighlightBorder": "#00000000", "editor.lineHighlightBackground": "#ffffff0d"}})
+            "editor.lineHighlightBorder": "#00000000", "editor.lineHighlightBackground": "#ffffff0d",
+            "terminal.background": "#00000000"},
+            # xterm's WebGL renderer paints an opaque canvas (and dark-fringed glyphs on a clear one)
+            "terminal.integrated.gpuAcceleration": "off"})
         self.assertIn(zed.BEGIN, text)
 
     def test_settings_user_keys_kept_and_restored(self):
@@ -92,7 +99,8 @@ class VSCodium(ShimCase, unittest.TestCase):
         self.apply()
         got = json.loads(zed.strip_jsonc(self.settings_text()))
         self.assertEqual(got["editor.fontSize"], 15)
-        self.assertEqual(len(got["workbench.colorCustomizations"]), 4)
+        self.assertEqual(len(got["workbench.colorCustomizations"]), 5)
+        self.assertEqual(got["terminal.integrated.gpuAcceleration"], "off")
         self.assertIn("// mine", self.settings_text())
         self.apply()                                     # idempotent
         self.assertEqual(self.settings_text().count(zed.BEGIN), 1)
@@ -110,20 +118,20 @@ class VSCodium(ShimCase, unittest.TestCase):
 
     FAKE = """#!/bin/sh
 echo "$*" >> "%s"
-[ "$1" = ps ] && exit 0
+[ "$1" = ps ] && { [ -n "${FAKE_RUNNING:-}" ] && echo com.vscodium.codium; exit 0; }
 case "$*" in *--inspect*) i=0; while [ $i -lt 300 ]; do echo "[main] verbose line $i"; i=$((i+1)); done
   echo "Debugger listening on ws://127.0.0.1:9/0000-aaaa" >&2; echo "more output"; sleep 1 ;; esac
 exit 0
 """
 
-    def wrapper(self, rt):
+    def wrapper(self, rt, **extra):
         tmp = tempfile.mkdtemp(prefix="appglass-fp-")
         self.addCleanup(shutil.rmtree, tmp, True)
         calls, fp = os.path.join(tmp, "calls"), os.path.join(tmp, "flatpak")
         with open(fp, "w") as f:
             f.write(self.FAKE % calls)
         os.chmod(fp, 0o755)
-        env = dict(self.w.sb.env, APPGLASS_FLATPAK=fp, XDG_RUNTIME_DIR=rt)
+        env = dict(self.w.sb.env, APPGLASS_FLATPAK=fp, XDG_RUNTIME_DIR=rt, **extra)
         r = subprocess.run([self.w.user(".local/bin/appglass-vscodium")], env=env,
                            capture_output=True, text=True, timeout=60)
         with open(calls) as f:
@@ -151,7 +159,28 @@ exit 0
             r, calls = self.wrapper(d)
             self.assertFalse(any("--inspect" in c for c in calls), calls)
             self.assertTrue(any(c.startswith("run ") for c in calls), calls)
+            self.assertIn("appglass-vscodium: no private XDG_RUNTIME_DIR", r.stderr)
         self.assertEqual(os.listdir(rt), [])
+
+    def test_every_fallback_says_why(self):
+        # a start without glass names its reason on stderr (the journal)
+        self.enable()
+        self.apply()
+        rt = self.w.sb.path("run")
+        os.makedirs(rt, mode=0o700)
+        r, calls = self.wrapper(rt, FAKE_RUNNING="1")
+        self.assertIn("appglass-vscodium: VSCodium already runs", r.stderr)
+        os.remove(self.w.user(L + "agl-hook.js"))
+        r, calls = self.wrapper(rt)
+        self.assertIn("appglass-vscodium: agl-hook.js or agl-inject.py missing", r.stderr)
+
+    def test_injection_logged(self):
+        self.enable()
+        self.apply()
+        rt = self.w.sb.path("run")
+        os.makedirs(rt, mode=0o700)
+        r, calls = self.wrapper(rt)
+        self.assertIn("appglass-vscodium: inspector url after", r.stderr)
 
 
 if __name__ == "__main__":

@@ -13,9 +13,11 @@ notifications left opaque). The inspector port stays open while VSCodium
 runs: the reason this adapter is opt-in.
 
 A few surfaces are painted on canvases from the theme colours, out of CSS
-reach (B5b): the minimap, the overview ruler and the current line. A marked
-block in the user's settings.json (edited, backed up; the user's settings
-kept) sets workbench.colorCustomizations for those four keys only. A
+reach (B5b): the minimap, the overview ruler, the current line and the
+terminal. A marked block in the user's settings.json (edited, backed up; the
+user's settings kept) sets workbench.colorCustomizations for those five keys
+only, and terminal.integrated.gpuAcceleration off (the WebGL renderer draws
+an opaque canvas) unless the user set that key. A
 settings.json with a workbench.colorCustomizations of its own is left
 untouched (a warning names the keys to add by hand).
 
@@ -52,7 +54,11 @@ ROLES = (("surface", "101418"), ("surface_container", "1e2226"),
 COLORS = "workbench.colorCustomizations"
 # canvas / JS painted from the theme: CSS cannot clear them
 CANVAS = {"minimap.background": "#00000000", "editorOverviewRuler.background": "#00000000",
-          "editor.lineHighlightBorder": "#00000000", "editor.lineHighlightBackground": "#ffffff0d"}
+          "editor.lineHighlightBorder": "#00000000", "editor.lineHighlightBackground": "#ffffff0d",
+          "terminal.background": "#00000000"}
+# xterm's WebGL renderer paints the terminal on an opaque canvas (glyphs with dark fringes on a
+# cleared one); the DOM renderer draws text over the glass. Left out when the user set it.
+GPU = "terminal.integrated.gpuAcceleration"
 
 
 def installed(env):
@@ -79,8 +85,11 @@ def canvas(mode):
     return out
 
 
-def block(values, comma):
-    body = json.dumps({COLORS: values}, indent=2)
+def block(values, comma, gpu=True):
+    top = {COLORS: values}
+    if gpu:
+        top[GPU] = "off"
+    body = json.dumps(top, indent=2)
     inner = body.strip()[1:-1].strip("\n")        # '  "workbench.colorCustomizations": {...}'
     return "  %s\n%s%s\n  %s\n" % (zed.BEGIN, inner, "," if comma else "", zed.END)
 
@@ -92,8 +101,9 @@ def edit(ctx, text, path):
         raise Conflict("%s already has a %s of its own; left untouched (add %s there by hand)"
                        % (path, COLORS, ", ".join("%s %s" % kv for kv in sorted(canvas(ctx.mode).items()))))
     values = canvas(ctx.mode)
+    gpu = GPU not in settings
     if not base.strip():
-        return "{\n%s}\n" % block(values, False)
+        return "{\n%s}\n" % block(values, False, gpu)
     at = zed._code_start(base)
     if at < 0:
         raise Conflict("%s: no top-level object; left untouched" % path)
@@ -101,7 +111,7 @@ def edit(ctx, text, path):
     tail = base[at + 1:]
     if tail.startswith("\n"):
         tail = tail[1:]
-    return base[:at + 1] + "\n" + block(values, comma) + tail
+    return base[:at + 1] + "\n" + block(values, comma, gpu) + tail
 
 
 def undo(env, path, text):

@@ -3,6 +3,7 @@
    The workbench is painted once at the content level; every full-size part is transparent (the parts are
    siblings: bars get their own tint over the content only when the bar level is above it); menus, the quick
    input, widgets, hovers, notifications and dialogs are not touched (their theme colours are opaque).
+   The breadcrumb widget and xterm set their theme colour inline: cleared here by the user-origin !important.
    Text untouched. */
 .monaco-workbench {
   background-color: rgba({{surface}}, {{content}}) !important;
@@ -26,7 +27,8 @@
 .monaco-workbench .editor-group-container > .title, .monaco-workbench .tabs-and-actions-container,
 .monaco-workbench .tab:not(.active), .monaco-workbench .breadcrumbs-control, .monaco-workbench .pane-header,
 .monaco-workbench .pane-body, .monaco-workbench .composite.title, .monaco-workbench .welcomePage,
-.monaco-workbench .xterm-viewport, .monaco-workbench .terminal-wrapper, .monaco-workbench .sticky-widget
+.monaco-workbench .xterm-viewport, .monaco-workbench .terminal-wrapper, .monaco-workbench .sticky-widget,
+.monaco-workbench .monaco-breadcrumbs, .monaco-workbench .xterm, .monaco-workbench .xterm-scrollable-element
 { background-color: transparent !important; }
 .monaco-workbench .part.activitybar, .monaco-workbench .part.titlebar, .monaco-workbench .part.statusbar
 { background-color: rgba({{surface_container}}, {{bar_over}}) !important; }
