@@ -490,6 +490,29 @@ class DocsRound2(unittest.TestCase):
         self.assertEqual(verify.judge(None, None, 0.60, hist)["result"], "pass")
 
 
+class FadeRecorded(unittest.TestCase):
+    """Each fading route says what its recorded fade did, or why none was
+    recorded (a frame-by-frame capture in a headless niri session)."""
+
+    def test_recorded_routes_give_the_curve(self):
+        r = doc("routes.md")
+        for sec in ("Qt Widgets", "Feishin and VSCodium", "Jellyfin", "LocalSend and ArtCraft"):
+            self.assertRegex(section(r, sec), r"\*\*Fade, recorded:\*\*[^\n]*0\.80", sec)
+        self.assertRegex(section(r, "LocalSend and ArtCraft"),
+                         r"Fade, recorded:\*\*[^\n]*no fade")
+
+    def test_discord_says_why_its_fade_is_not_recorded(self):
+        d = section(doc("routes.md"), "Discord (Vencord)")
+        self.assertRegex(d, r"\*\*Fade, not recorded:\*\*[^\n]*signed-in")
+        self.assertIn("html:not(.app-focused)", d)
+
+    def test_the_feishin_opaque_region_issue_is_written_down(self):
+        f = section(doc("routes.md"), "Feishin and VSCodium")
+        self.assertIn("set_opaque_region", f)
+        self.assertRegex(f, r"opacity 0\.999")
+        self.assertRegex(f, r"TODO\(engine\)[^\n]*opaque")
+
+
 def uninstall_block():
     """The commands of the fenced block under '## Uninstall' in guide.md."""
     t = doc("guide.md")

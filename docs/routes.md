@@ -71,6 +71,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Writes:** a Qt 6 style plugin built from source with the host Qt, `~/.local/lib/appglass/qt6/styles/libappglass.so`, and a launcher override `~/.local/share/applications/vlc.desktop` that starts VLC with `QT_STYLE_OVERRIDE=appglass`, the same for every other host Qt 6 Widgets app the engine finds. Nothing is preloaded: Qt loads the style itself, and takes its variables out of the environment of the processes the app starts.
 - **Kate and Konsole (flatpak):** their launcher override gives that `flatpak run` read-only access to the style and the DMS colours. The host-built style loads in the KDE runtime when its Qt minor version matches.
 - **Fade:** an unfocused window eases its background to the unfocused level, in the flatpaks and in the apps the engine finds too.
+- **Fade, recorded:** VLC 3.0.24 (under XWayland) at 0.80, 180 ms ease-out, three runs: unfocused, the background went 0.80 to 0.72 in about 110 ms, one step per frame (7 steps; the end of the ease-out is under one 8-bit step); focused again, back to 0.80 in 120 to 180 ms (2 or 3 steps).
 - **Measured:** content 153, bars 166, text 255. Source: [qt.md](qt.md).
 - **Needs:** `g++` and the Qt 6 headers. A Qt update rebuilds the plugin.
 - **Undo:** `appglass remove --only qtstyle`.
@@ -115,6 +116,7 @@ A Mod route: client mods are against Discord's terms. appglass never installs Ve
 - **Writes:** `~/.config/Vencord/themes/appglass-discord.css` (rendered from the DMS colours and levels), and merges `transparent` and the enabled themes into Vencord's `settings.json`.
 - **After a Discord update:** the `appglass-discord.path` unit re-runs the Vencord installer, so the glass comes back. That installer patches Discord's own `app-*/resources` folder. The niri rule is written only while Vencord is in the newest Discord folder; otherwise Discord keeps the fallback look.
 - **Measured:** not measured in a nested session for this version.
+- **Fade, not recorded:** Discord's window shows Discord's web app, which needs a signed-in account. A test session must not reuse your signed-in profile (it holds the account's session), and a fresh profile stops at the login page. What is checked: the rendered theme puts `html:not(.app-focused)` (Discord drops that class when its window loses focus) at the unfocused level and eases `#app-mount` (unit test).
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps, or `appglass set apps.vencord.enabled false --apply` without the plugin.
 - **Undo:** `appglass remove --only vencord` puts Vencord's settings back. It does not uninstall Vencord.
 
@@ -125,8 +127,11 @@ Feishin and VSCodium have no CSS hook of their own. This version uses the Node i
 - **Writes:** `~/.local/lib/appglass/feishin/` (the hook, the injector, the CSS), the wrapper `~/.local/bin/appglass-feishin`, and a launcher override `org.jeffvli.feishin.desktop` that starts the wrapper. VSCodium: the same under `vscodium/`, `appglass-vscodium` and `com.vscodium.codium.desktop`.
 - **The port:** the inspector listens on 127.0.0.1 only, on a random port. The port is not listed over HTTP: the session id is read only by the wrapper, from a private (0700) folder, and deleted after the injection. Right after the injection the injector closes the inspector, and checks that the port refuses connections ([engine.md](engine.md#feishin-and-vscodium-the-inspector-port-is-closed-after-the-injection)).
 - **Measured:** Feishin on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)); the port gone about 4 s before the screenshot on Feishin 1.17.0. VSCodium (flatpak): 153, text 255 ([apps.md](apps.md)).
+- **Fade, recorded:** Feishin 1.17.0 at 0.80 over a coloured background, three runs (with the `opacity 0.999` below): unfocused, 0.80 to 0.72 in 115 to 135 ms (3 or 4 steps); focused again, back in 70 to 185 ms.
+- **Known issue, the window can go dark:** Chromium creates the window without `transparent: true`, so it marks the whole window opaque (`wl_surface.set_opaque_region`) while its buffer has alpha, and the hook's clear background comes too late to change that. At the glass rule's `opacity 1.0` niri believes the opaque region and does not draw what is behind the window. Recorded with the DMS blur rule and the glass rule: the fade is right, then about 0.2 s after the window gets focus back (when a neighbour repaints) the whole window shows over black, until Feishin repaints. With `opacity 0.999` for Feishin niri blends the window and it stays glass.
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only feishin` (or `vscodium`). The next launch is the plain app.
+TODO(engine): opaque region: write `opacity 0.999` for the Electron hook apps in the niri glass rule, or make the hook create the window transparent.
 TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first where the fuse allows it (Feishin's does); port routes get a "port" badge, and one setting in Settings > Advanced turns them all off.
 
 ## Lian Li (WebKitGTK shim)
@@ -141,6 +146,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 
 - **Writes:** `libjfglass.so` built with the host Qt 6 in `~/.local/lib/appglass/jellyfin/`, the CSS, the wrapper and a launcher override. The shim is preloaded into the main process only. It gives the window an alpha channel, clears the web view background and shows the video layer only while a video plays.
 - **Measured:** in an isolated session at 0.80, the home page background 204 and text 255; a playing, paused or OSD video stays 255, popups 255.
+- **Fade, recorded:** Jellyfin Desktop 2.0.0 at 0.80 on its server address page (no server, no network), three runs: unfocused, the change starts 160 to 240 ms after the focus change and takes 50 to 115 ms (2 steps); focused again, back to 0.80 in about 270 ms (4 to 6 steps).
 - **Needs:** `g++` and host Qt 6.11 or newer (the shim is built with the host Qt and loaded into the flatpak). A runtime update rebuilds the shim.
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only jellyfin`.
@@ -151,6 +157,7 @@ Flutter and egui apps draw everything themselves into one surface. The shim repl
 
 - **Writes:** `appglass-ck.so` built with `gcc`, the wrapper (`appglass-localsend`, `appglass-artcraft`) and a launcher override. For LocalSend (flatpak) the lib folder is passed read-only for that run only, with no `flatpak override`. ArtCraft is moved to Mesa EGL with wgpu's GL backend, which renders on the CPU (software rendering, llvmpipe), and its swaps are capped at 60 fps.
 - **Measured:** LocalSend on the real desktop at 0.80: background 204, text 255. ArtCraft at 0.80: background 204, text 255. See [flutter.md](flutter.md), [gpu.md](gpu.md) and the [issue draft](issue-dms.md#screenshots).
+- **Fade, recorded:** LocalSend 1.18.2 at 0.80 (light theme), three runs: no fade, the background stays 0.80 focused and unfocused. The shim has no focus lever; only "Dim apps that cannot fade" reaches it.
 - **Limit:** the colour keys are per app and per light/dark theme. A colour that is not a key stays opaque: a miss fails safe, it never fades text.
 - **Keys:** the keys are data, one file per app version and dark or light mode (`~/.cache/appglass/keys/`), read by the wrapper through `appglass keys`, so an update or a theme flip needs no wrapper edit.
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
