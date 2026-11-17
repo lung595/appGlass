@@ -95,6 +95,42 @@ class Gtk4(unittest.TestCase):
         d = self.sb.json(fixture("dms", "dms-colors-light.json" if light else "dms-colors.json"))
         return d["colors"][d["mode"]]
 
+    # adopt --rescue after the whole state dir is lost (S1)
+    def test_rescue_records_a_gtk_css_the_user_edited(self):
+        """The user's own rules around appglass's import: with state.json,
+        backup/ and the ring all gone, adopt --rescue records gtk.css as
+        edited (its original is the file without the import), so remove
+        takes exactly the import out and keeps every rule of the user's."""
+        self.apply()
+        gtk = self.sb.cfg("gtk-4.0", "gtk.css")
+        mine = ("/* my rules */\nwindow { border: 1px solid red; }\n" + self.gtk_css()
+                + "label { color: #fff; }\n")
+        with open(gtk, "w") as f:
+            f.write(mine)
+        shutil.rmtree(os.path.join(self.sb.state, "appglass"))
+        out, err = self.apply(ok=False)
+        code, out, err = self.run_ag("adopt", "--rescue", assume="gtk4")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("gtk.css", out + err)
+        self.assertEqual(self.gtk_css(), mine)          # nothing of the user's lost
+        code, out, err = self.run_ag("remove", assume="gtk4")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(self.sb.cfg("gtk-4.0", "dank-glass.css")))
+        self.assertEqual(self.gtk_css(), mine.replace(fam.GLASS_IMPORT + "\n", ""))
+        self.assertIn("window { border: 1px solid red; }", self.gtk_css())
+
+    def test_rescue_leaves_a_lone_import_with_nothing_else_of_appglass(self):
+        """The import alone, no other appglass file on disk: not proof (the
+        user may have typed it), so nothing is rescued and nothing changes."""
+        gtk = self.sb.cfg("gtk-4.0", "gtk.css")
+        mine = "window { border: 1px solid red; }\n" + fam.GLASS_IMPORT + "\n"
+        with open(gtk, "w") as f:
+            f.write(mine)
+        code, out, err = self.run_ag("adopt", "--rescue", assume="gtk4")
+        self.assertNotEqual(code, 0)
+        self.assertIn("nothing to rescue", err)
+        self.assertEqual(self.gtk_css(), mine)
+
     # content
     def test_glass_css_levels(self):
         self.apply()

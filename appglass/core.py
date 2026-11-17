@@ -2656,6 +2656,40 @@ def _edit_is_ours(undo, fn, data, seen):
         return False
 
 
+def _taken_out(undo, data):
+    """The lines undo takes out of data (the user's edits around them stay)."""
+    import collections
+    text = data.decode("utf-8")
+    left = collections.Counter(undo(text).splitlines())
+    out = []
+    for ln in text.splitlines():
+        if left[ln]:
+            left[ln] -= 1
+        else:
+            out.append(ln)
+    return out
+
+
+def _edit_names_ours(claim, claims):
+    """An edited file whose edit the user changed around (the whole-file
+    signature no longer holds) is appglass's when its family's own files
+    are (claims) and every line its undo takes out says appglass (its name,
+    its marker) or names one of those files (gtk4's @import of
+    dank-glass.css): its original is then the file with those lines out."""
+    owner = claim["owner"]
+    names = {os.path.basename(c["path"]) for c in claims
+             if c["owner"] == owner and c["kind"] == "owned"}
+    if not names:
+        return False
+    try:
+        lines = _taken_out(claim["undo"], claim["data"])
+    except Exception:
+        return False
+    return bool(lines) and all(
+        "appglass" in ln.lower() or MARK.search(ln.encode("utf-8"))
+        or any(n in ln for n in names) for ln in lines)
+
+
 def orphans(app):
     """With state.json missing: the files on disk that appglass wrote (its
     marker in them). [] when state.json is there."""
@@ -2806,7 +2840,7 @@ def _rescue_claims(app, backups=()):
 
     def made(p):
         return _made(history, p)
-    out, skipped, builds = [], [], []
+    out, skipped, builds, edits = [], [], [], []
     for p, (owner, kind, undo, fn, planned, keys) in sorted(cand.items()):
         b = _bname(p) if _bname(p) in have else None
         claim = {"path": p, "owner": owner, "kind": kind, "undo": undo, "fn": fn,
@@ -2861,6 +2895,10 @@ def _rescue_claims(app, backups=()):
                 builds.append(dict(claim, kind=kind))
         elif kind == "edit":
             mine = _edit_is_ours(undo, fn, data, p in history)
+            if not mine and undo is not None and _edited(undo, data):
+                # the user edited the file around appglass's lines: decided
+                # once the family's own files are known (below)
+                edits.append(dict(claim, kind=kind))
         else:
             mine = b is not None or bool(MARK.search(data)) or (bool(planned) and data == planned)
         if mine:
@@ -2869,6 +2907,12 @@ def _rescue_claims(app, backups=()):
     for c in builds:
         if c["owner"] in mine_owners:
             out.append(c)
+    for c in edits:
+        if _edit_names_ours(c, out):
+            out.append(c)
+        else:
+            app.warn("adopt --rescue: %s holds a line like appglass's but nothing else "
+                     "proves it is: left as is (not recorded)" % env.tilde(c["path"]))
     out.sort(key=lambda c: c["path"])
     for p in skipped:
         app.warn("adopt --rescue: %s holds keys appglass merged: left as is (not "
