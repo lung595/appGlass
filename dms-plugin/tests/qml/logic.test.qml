@@ -111,6 +111,9 @@ Item {
         t.check("settings file", Logic.settingsFilePath("/run/user/UID/"), "/run/user/UID/appglass-plugin-settings.json");
         t.check("no runtime dir", Logic.settingsFilePath(null), "");
         t.check("sync argv", Logic.syncArgv("/b/appglass", "/run/f.json"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "sync", "--settings-file", "/run/f.json"]);
+        t.check("capitalise free text", Logic.capitalise("cannot read the settings"), "Cannot read the settings");
+        t.check("capitalise keeps the command name", [Logic.capitalise("appglass: sync: boom"), Logic.capitalise("appglass sync failed")], ["appglass: sync: boom", "appglass sync failed"]);
+        t.check("start sync argv", Logic.syncArgv("/b/appglass", "/run/f.json", true), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "sync", "--settings-file", "/run/f.json", "--no-switch"]);
         t.check("status argv", Logic.statusArgv("/b/appglass"), ["/b/appglass", "status", "--json"]);
         t.check("get argv", Logic.getArgv("a"), ["a", "get"]);
         t.check("error: the appglass line", Logic.errorText("apps: 3 glass\nappglass: sync: f rejected\n", 1), "appglass: sync: f rejected");

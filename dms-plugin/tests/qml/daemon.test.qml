@@ -126,7 +126,7 @@ Item {
                     t.ok("syncing shared", root.vars().syncing === true);
                     Proc.flush();       // sync
                     t.check("one sync, with the settings appglass had", root.lastSyncSettings(), cli);
-                    t.check("sync argv", root.syncs()[0].command, Logic.syncArgv(root.bin, root.runFile));
+                    t.check("start sync argv: no switch", root.syncs()[0].command, Logic.syncArgv(root.bin, root.runFile, true));
                     Proc.flush();       // status
                     t.check("status shared", root.vars().status.version, 1);
                     t.check("syncing done", root.vars().syncing, false);
@@ -139,6 +139,7 @@ Item {
                 "run": () => {
                     root.fresh(true);
                     t.check("seeded start syncs", Proc.calls.map(c => c.id), [Logic.SYNC_ID]);
+                    t.check("seeded start: no switch", Proc.calls[0].command, Logic.syncArgv(root.bin, root.runFile, true));
                     Proc.flush();
                     t.check("the defaults", root.lastSyncSettings(), root.defaults);
                     Proc.flush();

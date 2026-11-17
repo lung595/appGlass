@@ -227,8 +227,10 @@ function cliArgv(bin, args) {
     return ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", bin].concat(args);
 }
 
-function syncArgv(bin, file) {
-    return cliArgv(bin, ["sync", "--settings-file", file]);
+// noSwitch: the start sync (the stored plugin data, which may have drifted
+// from settings.json, counts as no switch of the user's: nothing taken out)
+function syncArgv(bin, file, noSwitch) {
+    return cliArgv(bin, ["sync", "--settings-file", file].concat(noSwitch ? ["--no-switch"] : []));
 }
 
 // Record the toolkit of each open window
@@ -530,8 +532,12 @@ function pillText(status, glassOn, uninstalled) {
 }
 
 // An error line as the page shows it: a capital first letter
+// The first letter in upper case, but for the command's own name (an
+// error that starts with "appglass:" or "appglass ...") kept as it is typed
 function capitalise(text) {
     var s = String(text || "");
+    if (/^appglass\b/.test(s))
+        return s;
     return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
 }
 

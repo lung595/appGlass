@@ -57,6 +57,26 @@ class Alacritty(unittest.TestCase):
     def main_text(self):
         return self.sb.read(self.sb.cfg("alacritty", "alacritty.toml"))
 
+    # the config folder moved away for a while
+    def test_folder_away_is_not_made_again(self):
+        self.apply()
+        d = self.sb.cfg("alacritty")
+        away = d + ".away"
+        os.rename(d, away)
+        for argv in (("apply", "--only", "alacritty"), ("apply", "--from-hook")):
+            with self.subTest(argv):
+                code, out, err = self.sb.run(*argv, assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertFalse(os.path.exists(d))
+                if argv[1] == "--only":     # said once (owner "warned")
+                    self.assertIn("folder is away", err)
+                self.assertNotIn("deleted since apply", err)
+        os.rename(away, d)
+        self.apply()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.tree_hash(), self.before)
+
     # content
     def test_content_and_keys(self):
         self.apply()

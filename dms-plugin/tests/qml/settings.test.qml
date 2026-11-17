@@ -361,7 +361,7 @@ Item {
                 "run": () => {
                     const p = root.page;
                     t.check("before a status", [root.find(p, "levelInfo").text, root.find(p, "headerStatus").text, root.shown("summaryInfo")], ["Glass level: not known yet", "Waiting for appglass", false]);
-                    t.check("error shown", [root.find(p, "errorInfo").visible, root.find(p, "errorInfo").text], [true, "Appglass: sync: boom"]);
+                    t.check("error shown", [root.find(p, "errorInfo").visible, root.find(p, "errorInfo").text], [true, "appglass: sync: boom"]);
                     const b = root.find(p, "reapplyButton");
                     t.check("busy button", [b.text, b.enabled], ["Applying...", false]);
                     t.press(root.find(p, "rail-apps"));

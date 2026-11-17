@@ -1015,6 +1015,51 @@ class EventGuard(Base):
         code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
         self.assertEqual(code, 0, err)
 
+    def test_a_start_sync_switches_nothing(self):
+        # the plugin's start sync (--no-switch) hands its stored data, which
+        # may have drifted from settings.json (a restore, a hand edit): it
+        # saves the settings and takes nothing out
+        self.apply()
+        code, out, err = self.sb.run("get")
+        obj = json.loads(out)
+        p = self.sb.path("plugin-settings.json")
+        for name, drift in (("a family off", dict(obj, apps={"alacritty": {"enabled": False}})),
+                            ("glass off", dict(obj, enabled=False))):
+            with self.subTest(name):
+                with open(p, "w") as f:
+                    json.dump(drift, f)
+                code, out, err = self.sb.run("sync", "--no-switch", "--settings-file", p,
+                                             assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertTrue(os.path.exists(self.owned()), out + err)
+                self.assertIn("not a switch", out + err)
+                with open(p, "w") as f:
+                    json.dump(obj, f)
+                code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertTrue(os.path.exists(self.owned()))
+
+    def test_a_start_sync_finishes_a_switch_that_failed(self):
+        # a switch whose sync failed (sync_pending kept) is the user's: the
+        # start sync after it still takes the family out
+        from unittest import mock
+        self.apply()
+        code, out, err = self.sb.run("get")
+        obj = json.loads(out)
+        p = self.sb.path("plugin-settings.json")
+        with open(p, "w") as f:
+            json.dump(dict(obj, apps={"alacritty": {"enabled": False}}), f)
+
+        def boom(*a, **k):
+            raise core.AppglassError("interrupted")
+        with mock.patch.object(core, "cmd_apply_all", boom):
+            code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
+        self.assertNotEqual(code, 0)
+        code, out, err = self.sb.run("sync", "--no-switch", "--settings-file", p,
+                                     assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(self.owned()), out + err)
+
     def test_a_sync_that_failed_switches_the_family_off_on_the_next_one(self):
         # the sync saves the settings, then its apply fails: the next sync
         # with the same settings still takes the family out (the switch is

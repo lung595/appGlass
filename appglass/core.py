@@ -772,8 +772,15 @@ class Ctx:
 
     def _keep_deleted(self, path, what):
         """Plan nothing for a recorded file the user deleted: the record
-        stays (remove still knows it), the file stays deleted."""
+        stays (remove still knows it), the file stays deleted. One whose
+        folder is away (moved, a drive not mounted) is said so."""
         self.kept_absent.add(path)
+        if self.app._folder_gone(path):
+            self.warn_once("away:" + path,
+                           "%s is not there (its folder is away: moved, or a drive not "
+                           "mounted); not written, its record kept until the folder is back"
+                           % self.env.tilde(path))
+            return path
         self.warn_once("deleted:" + path,
                        "%s was deleted since apply; left deleted (%s)"
                        % (self.env.tilde(path), what))
@@ -800,6 +807,9 @@ class Ctx:
             raise Conflict("%s exists and is not appglass's (left untouched)" % path)
         if rec is not None and rec["kind"] != "created" and not rec.get("adopted"):
             raise Conflict("%s is a user file, not an appglass file" % path)
+        if self.deleted_since_apply(path) and self.app._folder_gone(path):
+            # its folder is away (moved for a while): not made again
+            return self._keep_deleted(path, None)
         if self.app.from_hook and self.deleted_since_apply(path):
             # the user deleted a file appglass owns: the theme hook must not
             # bring it back; a manual apply does
@@ -2091,8 +2101,12 @@ def _reload_settings(app, s):
     app.levels = Levels.from_env(app.env, s)
 
 
-def cmd_sync(app, settings_file, dry_run=False):
-    """The DMS plugin's call: validate the full settings, save, apply."""
+def cmd_sync(app, settings_file, dry_run=False, no_switch=False):
+    """The DMS plugin's call: validate the full settings, save, apply.
+    no_switch (the plugin's start sync: its stored data, which may have
+    drifted from settings.json): what differs is no switch of the user's,
+    nothing is taken out; a switch whose sync did not finish (sync_pending)
+    still is one."""
     from . import settings as _settings
     try:
         with open(settings_file, "rb") as f:
@@ -2112,6 +2126,7 @@ def cmd_sync(app, settings_file, dry_run=False):
         "enabled": app.settings.get("enabled", True),
         "on": sorted(n for n in app.families if _family_enabled(app, n))}
     was_on, on = prev["enabled"], set(prev["on"])
+    switch = not no_switch or "sync_pending" in st.data
     if dry_run:
         app.info("settings: would save %s" % app.env.tilde(_settings.path(app.env)))
     else:
@@ -2122,6 +2137,13 @@ def cmd_sync(app, settings_file, dry_run=False):
             app.info("settings: saved %s" % app.env.tilde(_settings.path(app.env)))
     _reload_settings(app, new)
     app.switched_off = {n for n in on if not _family_enabled(app, n)}
+    if not switch and (app.switched_off or (was_on and not new["enabled"])):
+        app.warn("sync: %s off in the plugin's settings: nothing taken out (a start "
+                 "sync is not a switch; switch it off again, or run appglass remove)"
+                 % ("glass" if was_on and not new["enabled"]
+                    else ", ".join(sorted(app.switched_off))))
+        app.switched_off = set()
+        was_on = was_on and new["enabled"]
     if not new["enabled"]:
         # the hook stays: it applies nothing while glass is off, and turning
         # glass on again from the plugin brings the regeneration back with it
@@ -2594,6 +2616,18 @@ def _holds_keys(keys, data):
         k in obj and obj[k] == info.get("set") for k, info in (keys or {}).items())
 
 
+def _only_keys(keys, data):
+    """data (a JSON object) holds the values a merge sets and nothing else:
+    a file the merge made from nothing (no record, no original, no ring
+    needed to tell)."""
+    sets = {k: i["set"] for k, i in (keys or {}).items() if "set" in i}
+    try:
+        obj = json.loads(data.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return bool(sets) and obj == sets
+
+
 def _rescue_claims(app, backups=()):
     """adopt --rescue: [claim] for the files appglass wrote, edited or
     adopted. A claim is a dict: path, owner, kind (owned | edit | json |
@@ -2606,7 +2640,8 @@ def _rescue_claims(app, backups=()):
     wrapper, a unit's repo bytes while the hook is there, or exactly what
     the family renders there), its lines in a file it edited (its undo
     takes something out), the ring's record that a path was absent before
-    appglass first wrote it."""
+    appglass first wrote it, a json file that holds the merge's keys and
+    nothing else."""
     from . import adapters, hook
     from . import settings as _settings
     env = app.env
@@ -2667,7 +2702,7 @@ def _rescue_claims(app, backups=()):
         if not data and b is None:
             continue
         if kind == "json":
-            if b is not None or made(p):
+            if b is not None or made(p) or (owner is not None and _only_keys(keys, data)):
                 if owner is None:
                     owner = _json_owner(app, p)
                 if owner is not None:
@@ -3321,6 +3356,10 @@ def main(argv=None, environ=None, out=None, err=None):
     y.add_argument("--settings-file", required=True)
     y.add_argument("--dry-run", action="store_true")
     y.add_argument("--quiet", action="store_true")
+    y.add_argument("--no-switch", action="store_true",
+                   help="the plugin's start sync: its stored settings are saved and "
+                        "applied, but count as no switch (nothing taken out), unless a "
+                        "switch's sync did not finish")
     pl = sub.add_parser("plugin", help="link the DMS plugin (dms-plugin) into the DMS "
                         "plugins folder, or take the link out")
     pl.add_argument("action", choices=("install", "remove"))
@@ -3395,7 +3434,8 @@ def main(argv=None, environ=None, out=None, err=None):
         elif args.cmd == "set":
             cmd_set(app, args.key, args.value, apply_after=args.apply)
         elif args.cmd == "sync":
-            cmd_sync(app, args.settings_file, dry_run=args.dry_run)
+            cmd_sync(app, args.settings_file, dry_run=args.dry_run,
+                     no_switch=args.no_switch)
         elif args.cmd == "doctor":
             rc = cmd_doctor(app, fix=args.fix)
         elif args.cmd == "restore":

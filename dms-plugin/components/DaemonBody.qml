@@ -46,6 +46,9 @@ PluginComponent {
     property bool seeding: false
     property bool busy: false
     property bool again: false
+    // the sync asked is the start sync (appglass sync --no-switch: the
+    // stored data counts as no switch); any other request clears it
+    property bool startSync: false
     property bool settingsWriteFailed: false
     property string lastSettingsText: ""
     // Re-apply asked: a toast when that sync ends
@@ -134,6 +137,8 @@ PluginComponent {
             return false;
         if (reason === "reapply")
             root.announce = true;
+        // only a start sync with nothing else asked since is no switch
+        root.startSync = reason === "start" && (root.startSync || (!root.busy && !debounce.running));
         root.publish(syncingVar, true);
         if (root.busy) {
             root.again = true;
@@ -173,7 +178,9 @@ PluginComponent {
             return;
         }
         root.busy = true;
-        Proc.runCommand(Logic.SYNC_ID, Logic.syncArgv(root.bin, root.settingsFile), (out, code) => root.syncDone(out, code), 0, Logic.SYNC_TIMEOUT_MS, root);
+        const noSwitch = root.startSync;
+        root.startSync = false;
+        Proc.runCommand(Logic.SYNC_ID, Logic.syncArgv(root.bin, root.settingsFile, noSwitch), (out, code) => root.syncDone(out, code), 0, Logic.SYNC_TIMEOUT_MS, root);
     }
 
     function syncDone(output, exitCode) {

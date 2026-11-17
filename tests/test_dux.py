@@ -46,6 +46,32 @@ class Dux(unittest.TestCase):
     def kdl(self):
         return self.sb.read(self.sb.cfg("niri", "appglass.kdl"))
 
+    # lost state
+    def test_rescue_after_the_whole_state_dir_is_gone(self):
+        # both files made by apply: with no ring and no backup/, a file that
+        # holds only the keys the merge sets is appglass's
+        self.apply()
+        shutil.rmtree(os.path.join(self.sb.state, "appglass"))
+        code, out, err = self.sb.run("adopt", "--rescue", assume="dux")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("ui-settings.json", out + err)
+        self.remove()
+        for which in (DFILES, DCAL):
+            self.assertFalse(os.path.exists(self.sb.cfg(*which)), which)
+
+    def test_rescue_keeps_a_file_with_a_key_of_the_user(self):
+        p = self.sb.cfg(*DFILES)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write('{"iconTheme": "mine"}\n')
+        self.apply()
+        shutil.rmtree(os.path.join(self.sb.state, "appglass"))
+        code, out, err = self.sb.run("adopt", "--rescue", assume="dux")
+        self.assertEqual(code, 0, out + err)
+        self.remove()
+        self.assertEqual(self.settings(DFILES)["iconTheme"], "mine")
+        self.assertFalse(os.path.exists(self.sb.cfg(*DCAL)))
+
     # content
     def test_content_and_keys(self):
         self.apply()
