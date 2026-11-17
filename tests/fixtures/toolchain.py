@@ -28,6 +28,9 @@ CC = textwrap.dedent("""\
     if os.path.exists(os.path.join(d, "fail")):
         print("fake compile error", file=sys.stderr); sys.exit(1)
     out = sys.argv[sys.argv.index("-o") + 1]
+    one = os.path.join(d, "fail-" + os.path.basename(out))
+    if os.path.exists(one):
+        sys.stderr.write(open(one).read()); sys.exit(1)
     h = hashlib.sha256()
     for a in sys.argv[1:]:
         if a.endswith((".c", ".cpp")) and os.path.exists(a):
@@ -103,6 +106,11 @@ class Toolchain:
             open(p, "w").close()
         elif os.path.exists(p):
             os.remove(p)
+
+    def fail_one(self, out, stderr="fake compile error\n"):
+        """only the build whose -o is named out fails, printing stderr"""
+        with open(os.path.join(self.dir, "fail-" + out), "w") as f:
+            f.write(stderr)
 
     def calls(self):
         p = os.path.join(self.dir, "calls")

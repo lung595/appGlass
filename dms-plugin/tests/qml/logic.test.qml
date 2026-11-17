@@ -169,6 +169,31 @@ Item {
                 "kind": "Forced"
             }]);
         t.check("games have no route", byKey["Pinball"].routes, []);
+        // a family that says where it renders (ArtCraft: GPU or CPU route): the row's reason says it
+        const art = JSON.parse(JSON.stringify(status));
+        art.apps = [{
+                "key": "ai.storyteller.artcraft-launcher",
+                "name": "ArtCraft Launcher",
+                "toolkit": "egui",
+                "app_ids": ["^ai\\.storyteller\\.artcraft-launcher$"],
+                "adapter": "ck-shim",
+                "tier": "forced",
+                "family": "artcraft",
+                "enabled": true,
+                "effective": "glass",
+                "render": "cpu",
+                "reason": "family artcraft, renders on the CPU: no Vulkan headers (vulkan-headers)",
+                "routes": ["ck-shim"]
+            }];
+        art.families.artcraft = {
+            "installed": true,
+            "enabled": true,
+            "applied": ["~/.local/bin/appglass-artcraft"],
+            "render": "cpu",
+            "render_why": "no Vulkan headers (vulkan-headers)"
+        };
+        const artRow = Logic.appRows(art, {}, true)[0];
+        t.check("render: the reason says the route", [artRow.status, artRow.reason], ["glass", "family artcraft, renders on the CPU: no Vulkan headers (vulkan-headers)"]);
         // an app with no route at all: switched on it stays on the fallback, and says so
         const routeless = Logic.appRows(status, {
             "md.example.Electron": {

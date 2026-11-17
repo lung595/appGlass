@@ -837,6 +837,14 @@ class Ctx:
         self.ops[path] = op
         return path
 
+    def drop(self, path):
+        """Unplan a write of this run (a build that cannot be used without a
+        later one that failed): a file recorded from an earlier apply is then
+        removed like any file the owner no longer plans."""
+        path = os.path.abspath(path)
+        if self.ops.pop(path, None) is not None:
+            self.order.remove(path)
+
     # writes (planned; the core commits them)
     def write_owned(self, path, text, meta=None, mode=None):
         """A file appglass creates and owns: deleted on remove. An adopted
@@ -2070,20 +2078,23 @@ def cmd_status(app):
     lv = app.levels
     p("levels:   content %.2f (%d)  bars %.2f (%d)  popups 1.0 (255)"
       % (lv.content, lv.content8, lv.bar, lv.bar8))
+    renders = {}
     for name in sorted(app.families):
         fam = app.families[name]
         inst = "installed" if app.installed(fam) else "not installed"
         o = st.owners.get(name)
         if o:
             files = ", ".join(_shown_files(o))
-            p("%-10s %s, applied: %s" % (name, inst, files))
+            r = renders[name] = family_render(app, name)
+            how = " (%s)" % render_says(r) if r else ""
+            p("%-10s %s, applied%s: %s" % (name, inst, how, files))
         else:
             p("%-10s %s, not applied" % (name, inst))
     for name in CORE_OWNERS:
         o = st.owners.get(name)
         p("%-10s %s" % (name, ("applied: " + ", ".join(sorted(o["files"]))) if o else "not applied"))
     try:
-        routes = app_routes(app)
+        routes = app_routes(app, renders=renders)
     except Exception as ex:  # status must not die on a detection bug
         app.warn("detect failed: %s" % ex)
         routes = []
@@ -2097,8 +2108,32 @@ def cmd_status(app):
             p("hand file %s: %s (%s)" % (h["path"], h["status"], h["adapter"] or "no adapter"))
 
 
-def app_routes(app, records=None):
-    """[(record, route)] for every installed, shown app: route = adapters.resolve()."""
+def family_render(app, name):
+    """(gpu | cpu | off, why) for an applied family with a render_route(env, owner)
+    (the route its wrapper takes), else None"""
+    fam, o = app.families.get(name), app.state.owners.get(name)
+    if o is None or not hasattr(fam, "render_route"):
+        return None
+    try:
+        return fam.render_route(app.env, o)
+    except Exception as ex:   # status must not die on it
+        app.warn("%s: render check failed: %s" % (name, ex))
+        return None
+
+
+def render_says(rd):
+    """the words for a family_render() result: "renders on the GPU: why",
+    or for off "starts plain, without glass: why"."""
+    route, why = rd
+    says = "starts plain, without glass" if route == "off" else "renders on the %s" % route.upper()
+    return says + (": " + why if why else "")
+
+
+def app_routes(app, records=None, renders=None):
+    """[(record, route)] for every installed, shown app: route = adapters.resolve();
+    a glass app whose family says where it renders gets "render" and the
+    reason says it. renders: {family: family_render()} already asked (the
+    probe behind it takes about 0.1 s), else asked here."""
     from . import adapters, engine
     records = detected(app) if records is None else records
     g = engine.Gate(app)
@@ -2111,6 +2146,11 @@ def app_routes(app, records=None):
         if fam and route["effective"] == "glass" and not app.installed(app.families[fam]):
             route.update(effective="fallback", reason="family %s: not installed" % fam,
                          state="opaque")
+        rd = None
+        if fam and route["effective"] == "glass":
+            rd = renders[fam] if renders is not None and fam in renders else family_render(app, fam)
+        if rd:
+            route.update(render=rd[0], reason="%s, %s" % (route["reason"], render_says(rd)))
         out.append((r, route))
     return out
 
@@ -2158,12 +2198,15 @@ def _inactive_doc(app):
 def status_doc(app):
     from . import adapters
     st, lv = app.state, app.levels
-    fams = {}
+    fams, renders = {}, {}
     for name in sorted(app.families):
         o = st.owners.get(name)
         fams[name] = {"installed": app.installed(app.families[name]),
                       "enabled": _family_enabled(app, name),
                       "applied": [app.env.tilde(f) for f in _shown_files(o)] if o else []}
+        rd = renders[name] = family_render(app, name)
+        if rd:
+            fams[name].update(render=rd[0], render_why=rd[1])
     core_owners = {n: sorted(app.env.tilde(f) for f in st.owners[n]["files"])
                    if n in st.owners else [] for n in CORE_OWNERS}
     hands = hand_files(app)
@@ -2177,7 +2220,7 @@ def status_doc(app):
                 clash.setdefault(fam, []).append(h["path"])
     apps = []
     counts = {}
-    for r, route in app_routes(app):
+    for r, route in app_routes(app, renders=renders):
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1
         own = (app.settings.get("apps", {}).get(r["key"]) or {}).get("route")
         apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
@@ -3476,7 +3519,15 @@ def doctor_drift(app):
 
 def cmd_doctor(app, fix=False):
     """Lists the drift, one line each; --fix repairs what is the engine's
-    own (the ring keeps what it overwrites). 0 clean, 1 drift left."""
+    own (the ring keeps what it overwrites). 0 clean, 1 drift left. A family
+    that renders on the GPU or the CPU says which first (not drift)."""
+    if not app.state_unreadable and not lost_state_text(app):
+        for name in sorted(app.state.owners):
+            rd = family_render(app, name)
+            if rd:
+                where = "plain, without glass" if rd[0] == "off" else "on the " + rd[0].upper()
+                print("render: %s %s%s" % (name, where, " (%s)" % rd[1] if rd[1] else ""),
+                      file=app.out)
     drift = doctor_drift(app)
     if not drift:
         app.info("doctor: no drift")

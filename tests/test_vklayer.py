@@ -9,8 +9,8 @@
   With the layer and keys, the presented image has the key pixels at their glass alpha
   (premultiplied), the text at 255, and the layer asked for PRE_MULTIPLIED. Without keys,
   or without the layer, the image is untouched;
-* the GPU wrapper prototype only adds the layer through its own env, and a child the
-  launcher starts loses all of it (the ck-shim scrub).
+* the wrapper appglass-artcraft only adds the layer through its own env (GPU route), and a
+  child the launcher starts loses all of it, on both routes (the ck-shim scrub).
 """
 
 import ctypes
@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -103,7 +104,8 @@ class Manifest(unittest.TestCase):
 
 
 CLIENT = r"""
-// client <R|B> : headless OPAQUE swapchain 64x32, fill, present, read the presented image back.
+// client <R|B|S> : headless OPAQUE swapchain 64x32 (RGBA, BGRA or BGRA sRGB), fill, present, read
+// the presented image back.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -133,7 +135,8 @@ static void put(uint8_t *p, int bgr, uint32_t rgb) {
     p[0] = bgr ? b : r; p[1] = g; p[2] = bgr ? r : b; p[3] = 255;
 }
 int main(int argc, char **argv) {
-    int bgr = argv[1][0] == 'B'; VkFormat fmt = bgr ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_R8G8B8A8_UNORM;
+    int bgr = argv[1][0] != 'R';
+    VkFormat fmt = argv[1][0] == 'S' ? VK_FORMAT_B8G8R8A8_SRGB : bgr ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_R8G8B8A8_UNORM;
     const char *ie[] = { "VK_KHR_surface", "VK_EXT_headless_surface" };
     VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO, .apiVersion = VK_API_VERSION_1_1 };
     VkInstanceCreateInfo ici = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, .pApplicationInfo = &app, .enabledExtensionCount = 2, .ppEnabledExtensionNames = ie };
@@ -199,6 +202,24 @@ int main(int argc, char **argv) {
     }
     vkDestroySwapchainKHR(dev, sc, 0); vkDestroyDevice(dev, 0); vkDestroySurfaceKHR(in, surf, 0); vkDestroyInstance(in, 0);
     return 0;
+}
+"""
+
+
+NOMEM = r"""
+// built into a test copy of the layer with -Dcalloc=appglass_test_calloc: APPGLASS_TEST_NOMEM=<n>
+// makes the n-th calloc of the layer fail (1: the instance record, 2: the device record)
+#undef calloc                         /* this file calls the real one */
+#include <stdlib.h>
+#include <pthread.h>
+void *appglass_test_calloc(size_t n, size_t s);
+static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+static int calls;
+void *appglass_test_calloc(size_t n, size_t s) {
+    const char *e = getenv("APPGLASS_TEST_NOMEM");
+    pthread_mutex_lock(&m); int k = ++calls; pthread_mutex_unlock(&m);
+    if (e && atoi(e) == k) return NULL;
+    return calloc(n, s);
 }
 """
 
@@ -329,6 +350,17 @@ class Layer(unittest.TestCase):
         subprocess.run([GCC, "-O2", "-Wall", "-Werror", "-shared", "-fPIC", "-fvisibility=hidden",
                         "-o", cls.so, SRC, "-lpthread"], check=True, capture_output=True, timeout=120)
         shutil.copy(os.path.join(D, "appglass-vk.json"), cls.layer_dir)
+        # the same layer with its calloc()s failing on demand (APPGLASS_TEST_NOMEM=<n>: the n-th)
+        cls.nomem_dir = os.path.join(cls.dir, "vk-nomem")
+        os.mkdir(cls.nomem_dir)
+        c = os.path.join(cls.dir, "nomem.c")
+        with open(c, "w") as f:
+            f.write(NOMEM)
+        subprocess.run([GCC, "-O2", "-Wall", "-Werror", "-shared", "-fPIC", "-fvisibility=hidden",
+                        "-Dcalloc=appglass_test_calloc", "-o",
+                        os.path.join(cls.nomem_dir, "libappglass-vk.so"), SRC, c, "-lpthread"],
+                       check=True, capture_output=True, timeout=120)
+        shutil.copy(os.path.join(D, "appglass-vk.json"), cls.nomem_dir)
         c = os.path.join(cls.dir, "client.c")
         with open(c, "w") as f:
             f.write(CLIENT)
@@ -353,14 +385,16 @@ class Layer(unittest.TestCase):
         self.assertEqual(syms, ["vkGetDeviceProcAddr", "vkGetInstanceProcAddr",
                                 "vkNegotiateLoaderLayerInterfaceVersion"])
 
-    def run_client(self, fmt, layer=True, keys="121316:0.60,060607:0.65"):
+    def run_client(self, fmt, layer=True, keys="121316:0.60,060607:0.65", **extra):
         env = {"PATH": "/usr/bin:/bin", "HOME": self.dir, "XDG_CACHE_HOME": self.dir,
                "VK_DRIVER_FILES": LVP, "VK_LOADER_LAYERS_DISABLE": "~implicit~",
                "APPGLASS_DEBUG": "1", "LP_NUM_THREADS": "1"}
         if layer:
-            env.update(VK_ADD_LAYER_PATH=self.layer_dir, VK_INSTANCE_LAYERS=LAYER)
+            env.update(VK_ADD_LAYER_PATH=layer if isinstance(layer, str) else self.layer_dir,
+                       VK_INSTANCE_LAYERS=LAYER)
         if keys:
             env["APPGLASS_KEYS"] = keys
+        env.update(extra)
         r = subprocess.run([self.client, fmt], env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         px = [tuple(map(int, l.split())) for l in r.stdout.split("\n") if l.strip()]
@@ -398,12 +432,50 @@ class Layer(unittest.TestCase):
         self.assertNotIn("PRE_MULTIPLIED", log)
 
     @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_srgb_stays_opaque(self):
+        """a format the pass does not key (sRGB: the shader would see linear values): the
+        swapchain is made exactly as asked (OPAQUE, no extra usage) and the pixels are untouched"""
+        px, log = self.run_client("S")
+        self.assertIn("stays opaque: format is not 8-bit UNORM with alpha", log)
+        self.assertNotIn("PRE_MULTIPLIED", log)
+        self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
+        self.assertEqual(px[1], (0x06, 0x06, 0x07, 255))
+        self.assertEqual(px[2], (255, 255, 255, 255))
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_no_instance_record_passes_through(self):
+        """no memory for the instance record: the app still gets its instance, device, swapchain
+        and presents, opaque and untouched"""
+        px, log = self.run_client("B", layer=self.nomem_dir, APPGLASS_TEST_NOMEM="1")
+        self.assertIn("no memory for the instance record", log)
+        self.assertNotIn("PRE_MULTIPLIED", log)
+        self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
+        self.assertEqual(px[1], (0x06, 0x06, 0x07, 255))
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_no_device_record_passes_through(self):
+        """no memory for the device record: vkGetDeviceQueue, the swapchain and the present all
+        reach the driver as the app made them"""
+        px, log = self.run_client("B", layer=self.nomem_dir, APPGLASS_TEST_NOMEM="2")
+        self.assertIn("no memory for the device record", log)
+        self.assertNotIn("PRE_MULTIPLIED", log)
+        self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
+        self.assertEqual(px[1], (0x06, 0x06, 0x07, 255))
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_nomem_build_keys_when_nothing_fails(self):
+        """the test build is the same layer: with no calloc failing it keys as usual"""
+        (content, *_), log = self.run_client("B", layer=self.nomem_dir)
+        self.assertIn("PRE_MULTIPLIED", log)
+        self.assertAlmostEqual(content[3], 153, delta=1)
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
     def test_untouched_without_layer(self):
         px, log = self.run_client("R", layer=False)
         self.assertEqual(px[0], (0x12, 0x13, 0x16, 255))
         self.assertNotIn("[appglass-vk]", log)
 
-    def run_multi(self, *args):
+    def run_multi(self, *args, extra=None):
         """the lifecycle client with the layer and keys, and the Khronos validation layer (with
         sync validation) under it when one is installed: (stdout + stderr)"""
         env = {"PATH": "/usr/bin:/bin", "HOME": self.dir, "XDG_CACHE_HOME": self.dir,
@@ -415,6 +487,7 @@ class Layer(unittest.TestCase):
             env["VK_ADD_LAYER_PATH"] += ":" + vvl
             env["VK_INSTANCE_LAYERS"] += ":VK_LAYER_KHRONOS_validation"   # under the glass layer
             env["VK_KHRONOS_VALIDATION_VALIDATE_SYNC"] = "true"
+        env.update(extra or {})
         r = subprocess.run([self.multi, *args], env=env, capture_output=True, text=True, timeout=300)
         out = r.stdout + r.stderr
         self.assertEqual(r.returncode, 0, out[-4000:])
@@ -453,9 +526,95 @@ class Layer(unittest.TestCase):
     def test_logs_the_device(self):
         log = self.run_multi("stress", "2")
         self.assertRegex(log, r"\[appglass-vk\] device: .*llvmpipe")
+        self.assertNotIn("capped", log)          # no APPGLASS_MAXFPS: no cap
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_cpu_device_capped(self):
+        """on a CPU device (wgpu fell back to lavapipe) presents keep to APPGLASS_MAXFPS"""
+        t0 = time.monotonic()
+        log = self.run_multi("stress", "21", extra={"APPGLASS_MAXFPS": "20"})
+        took = time.monotonic() - t0
+        self.assertIn("a CPU device: presents capped at 20 fps", log)
+        self.assertGreaterEqual(took, 20 / 20.0 - 0.05)    # 21 presents, 20 gaps of 50 ms
 
 
-WRAPPER = os.path.join(D, "appglass-artcraft-gpu")
+class Probe(unittest.TestCase):
+    """appglass-vkprobe: 0 with a device that is not the CPU, 1 with only lavapipe, else 2 (or a crash)"""
+
+    @classmethod
+    def setUpClass(cls):
+        if not have_vulkan_dev():
+            raise unittest.SkipTest("no gcc or Vulkan headers")
+        cls.dir = tempfile.mkdtemp(prefix="appglass-vkp-")
+        cls.probe = os.path.join(cls.dir, "appglass-vkprobe")
+        subprocess.run([GCC, "-O2", "-Wall", "-Werror", "-o", cls.probe,
+                        os.path.join(D, "appglass-vkprobe.c"), "-ldl"],
+                       check=True, capture_output=True, timeout=120)
+        cls.layer_dir = os.path.join(cls.dir, "vk")
+        os.mkdir(cls.layer_dir)
+        subprocess.run([GCC, "-O2", "-Wall", "-shared", "-fPIC", "-fvisibility=hidden", "-o",
+                        os.path.join(cls.layer_dir, "libappglass-vk.so"), SRC, "-lpthread"],
+                       check=True, capture_output=True, timeout=120)
+        shutil.copy(os.path.join(D, "appglass-vk.json"), cls.layer_dir)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def run_probe(self, layer_dir=None, **env):
+        e = {"PATH": "/usr/bin:/bin", "HOME": self.dir, "XDG_CACHE_HOME": self.dir}
+        if layer_dir:
+            e.update(VK_ADD_LAYER_PATH=layer_dir, VK_INSTANCE_LAYERS=LAYER)
+        e.update(env)
+        return subprocess.run([self.probe], env=e, capture_output=True, text=True, timeout=60)
+
+    def test_loader_dlopened(self):
+        r = subprocess.run(["nm", "-D", "--undefined-only", self.probe], capture_output=True,
+                           text=True, check=True)
+        self.assertNotIn("vkCreateInstance", r.stdout)      # the loader is dlopen'd
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_lavapipe_only_is_cpu(self):
+        r = self.run_probe(VK_DRIVER_FILES=LVP)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertRegex(r.stdout, r"(?m)^cpu llvmpipe")
+        self.assertNotRegex(r.stdout, r"(?m)^gpu ")
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_with_the_layer(self):
+        r = self.run_probe(self.layer_dir, VK_DRIVER_FILES=LVP)
+        self.assertEqual(r.returncode, 1, r.stderr)
+
+    def test_no_driver(self):
+        r = self.run_probe(VK_DRIVER_FILES="/nonexistent/icd.json")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+
+    @unittest.skipUnless(os.path.exists(LVP), "no lavapipe")
+    def test_damaged_layer(self):
+        """a truncated layer takes the probe down (or the loader refuses it), never exit 0"""
+        bad = os.path.join(self.dir, "bad")
+        os.makedirs(bad, exist_ok=True)
+        with open(os.path.join(self.layer_dir, "libappglass-vk.so"), "rb") as f:
+            head = f.read(4096)
+        with open(os.path.join(bad, "libappglass-vk.so"), "wb") as f:
+            f.write(head)
+        shutil.copy(os.path.join(D, "appglass-vk.json"), bad)
+        r = subprocess.run(["sh", "-c", "ulimit -c 0; exec \"$0\"", self.probe], timeout=60,
+                           env={"PATH": "/usr/bin:/bin", "HOME": self.dir, "VK_DRIVER_FILES": LVP,
+                                "VK_ADD_LAYER_PATH": bad, "VK_INSTANCE_LAYERS": LAYER},
+                           capture_output=True, text=True)
+        self.assertNotIn(r.returncode, (0, 1))
+
+
+WRAPPER = os.path.join(REPO, "shims", "ck-shim", "appglass-artcraft")
+
+
+def stub_appglass(text):
+    """the wrapper with the appglass calls stubbed: no levels, the family's default dark keys,
+    no launch-check"""
+    return (text.replace('"@APPGLASS@" levels', "false")
+            .replace('"@APPGLASS@" keys "$AGKEY" dark', "echo 121316:0.6,151517:0.6,060607:0.65")
+            .replace('setsid -f "@APPGLASS@" launch-check', "true"))
 
 
 class Wrapper(unittest.TestCase):
@@ -468,18 +627,28 @@ class Wrapper(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_private_layer_only(self):
-        self.assertIn('VK_ADD_LAYER_PATH="$LIB/vk', self.text)
-        self.assertIn("VK_INSTANCE_LAYERS=" + LAYER, self.text)
+        self.assertIn('LAYERS="$LIB/vk${VK_ADD_LAYER_PATH:+:', self.text)
+        self.assertIn('VK_ADD_LAYER_PATH="$LAYERS"', self.text)
+        self.assertIn("INST=" + LAYER, self.text)
         self.assertIn("WGPU_BACKEND=vulkan", self.text)
-        for g in ("/usr/share/vulkan", "/etc/vulkan", ".local/share/vulkan", "implicit_layer"):
+        for g in ("explicit_layer", "implicit_layer", ".local/share/vulkan"):
             self.assertNotIn(g, self.text)
+        # no system Vulkan dir at all: the probe asks the loader
+        self.assertEqual([l for l in self.text.splitlines() if "/vulkan" in l and not l.startswith("#")], [])
 
-    def run_wrapped(self, **user):
-        """the wrapper around a fake launcher, with the user's env plus `user`: (parent env, child env)"""
+    def run_wrapped(self, gpu=True, probe=None, **user):
+        """the wrapper around a fake launcher on a host where the Vulkan probe finds a GPU (or, gpu
+        False, only lavapipe; probe: the stub probe's own shell code), with the user's env plus
+        `user`: (parent env, child env); the probe's env is in self.probe_env"""
         d = tempfile.mkdtemp(prefix="appglass-vkw-")
         try:
             lib = os.path.join(d, ".local", "lib", "appglass", "artcraft")
             os.makedirs(os.path.join(lib, "vk"))
+            open(os.path.join(d, "mesa.json"), "w").close()
+            with open(os.path.join(lib, "vk", "appglass-vkprobe"), "w") as f:
+                f.write("#!/bin/sh\n/usr/bin/env > \"$HOME/probe.env\"\n%s\n"
+                        % (probe or ("echo 'gpu Fake GPU'" if gpu else "echo 'cpu llvmpipe'; exit 1")))
+            os.chmod(os.path.join(lib, "vk", "appglass-vkprobe"), 0o755)
             subprocess.run([GCC, "-O2", "-shared", "-fPIC", "-o", os.path.join(lib, "appglass-ck.so"),
                             os.path.join(REPO, "shims", "ck-shim", "appglass-ck.c"), "-ldl", "-lpthread"],
                            check=True, capture_output=True, timeout=120)
@@ -490,14 +659,24 @@ class Wrapper(unittest.TestCase):
                 # the parent's own env through shell builtins (an exec'd env would already be a child)
                 f.write("#!/bin/sh\nprintf '%s\\n' \"VK_INSTANCE_LAYERS=${VK_INSTANCE_LAYERS:-}\" "
                         "\"VK_ADD_LAYER_PATH=${VK_ADD_LAYER_PATH:-}\" \"WGPU_BACKEND=${WGPU_BACKEND:-}\" "
-                        "\"APPGLASS_KEYS=${APPGLASS_KEYS:-}\" > \"$HOME/parent.env\"\n"
+                        "\"APPGLASS_KEYS=${APPGLASS_KEYS:-}\" \"APPGLASS_MAXFPS=${APPGLASS_MAXFPS:-}\" "
+                        "\"__EGL_VENDOR_LIBRARY_FILENAMES=${__EGL_VENDOR_LIBRARY_FILENAMES:-}\" "
+                        "\"LP_NUM_THREADS=${LP_NUM_THREADS:-}\" > \"$HOME/parent.env\"\n"
                         "/usr/bin/env > \"$HOME/child.env\"\n")
             os.chmod(app, 0o755)
             w = os.path.join(d, "wrapper")
+            text = stub_appglass(self.text)
+            for var, val in (("BIN", app), ("MESA", os.path.join(d, "mesa.json"))):
+                text, n = re.subn(r"(?m)^%s=.*$" % var, "%s='%s'" % (var, val), text)
+                self.assertEqual(n, 1, var)
+            os.makedirs(os.path.join(d, "bin"))
+            with open(os.path.join(d, "bin", "gsettings"), "w") as f:
+                f.write("#!/bin/sh\necho \"'prefer-dark'\"\n")
+            os.chmod(os.path.join(d, "bin", "gsettings"), 0o755)
             with open(w, "w") as f:
-                f.write(self.text.replace("BIN=/usr/bin/artcraft-launcher", "BIN=" + app)
-                        .replace('"@APPGLASS@" levels', "false"))
-            env = {"PATH": "/usr/bin:/bin", "HOME": d, "XDG_CACHE_HOME": os.path.join(d, "c")}
+                f.write(text)
+            env = {"PATH": os.path.join(d, "bin") + ":/usr/bin:/bin", "HOME": d,
+                   "XDG_CACHE_HOME": os.path.join(d, "c")}
             env.update(user)
             r = subprocess.run(["sh", w], env=env, capture_output=True, text=True, timeout=60)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -505,6 +684,10 @@ class Wrapper(unittest.TestCase):
                 parent = f.read()
             with open(os.path.join(d, "child.env")) as f:
                 child = f.read()
+            self.probe_env = None
+            if os.path.exists(os.path.join(d, "probe.env")):
+                with open(os.path.join(d, "probe.env")) as f:
+                    self.probe_env = dict(l.split("=", 1) for l in f.read().splitlines() if "=" in l)
             return parent, child
         finally:
             shutil.rmtree(d, ignore_errors=True)
@@ -523,18 +706,86 @@ class Wrapper(unittest.TestCase):
     def test_child_gets_the_users_own_values(self):
         """values the user had set reach the children as they were, without the layer in them"""
         user = {"VK_INSTANCE_LAYERS": "VK_LAYER_MINE", "VK_ADD_LAYER_PATH": "/opt/mine",
-                "WGPU_BACKEND": "gl", "VK_DRIVER_FILES": "/opt/icd.json"}
+                "WGPU_BACKEND": "gl", "VK_DRIVER_FILES": "/opt/icd.json",
+                "__EGL_VENDOR_LIBRARY_FILENAMES": "/opt/50_mesa.json", "LP_NUM_THREADS": "2",
+                "APPGLASS_MAXFPS": "30"}
         parent, child = self.run_wrapped(**user)
+        self.assertIn("__EGL_VENDOR_LIBRARY_FILENAMES=\n", parent)   # NVIDIA's Vulkan WSI needs its EGL
+        self.assertIn("LP_NUM_THREADS=2\n", parent)
         self.assertIn("VK_INSTANCE_LAYERS=%s:VK_LAYER_MINE\n" % LAYER, parent)
         self.assertIn("/vk:/opt/mine\n", parent)
         self.assertIn("WGPU_BACKEND=vulkan\n", parent)
         env = dict(l.split("=", 1) for l in child.splitlines() if "=" in l)
         for k, v in user.items():
             self.assertEqual(env.get(k), v, k)
-        self.assertFalse([k for k in env if k.startswith("APPGLASS_")])
+        self.assertFalse([k for k in env if k.startswith("APPGLASS_") and k != "APPGLASS_MAXFPS"])
         self.assertNotIn(LAYER, child)
         self.assertNotIn("appglass-ck.so", child)
         self.assertNotIn("artcraft/vk", child)
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_gpu_route_env(self):
+        """GPU route: the cap is there for the layer, which keeps to it only on a CPU device, and
+        llvmpipe is held to 4 threads (in case wgpu still lands on lavapipe); no EGL vendor
+        override; a child gets none of it"""
+        parent, child = self.run_wrapped()
+        for line in ("WGPU_BACKEND=vulkan", "APPGLASS_MAXFPS=60", "LP_NUM_THREADS=4",
+                     "__EGL_VENDOR_LIBRARY_FILENAMES="):
+            self.assertIn(line + "\n", parent)
+        for v in ("LP_NUM_THREADS", "__EGL_VENDOR_LIBRARY_FILENAMES", "APPGLASS_"):
+            self.assertNotIn(v, child)
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_probe_env(self):
+        """the probe sees the launcher's Vulkan env with the glass layer on, no keys"""
+        self.run_wrapped(VK_INSTANCE_LAYERS="VK_LAYER_MINE", __EGL_VENDOR_LIBRARY_FILENAMES="/x.json")
+        e = self.probe_env
+        self.assertEqual(e["VK_INSTANCE_LAYERS"], LAYER + ":VK_LAYER_MINE")
+        self.assertTrue(e["VK_ADD_LAYER_PATH"].endswith("/.local/lib/appglass/artcraft/vk"), e)
+        for k in ("__EGL_VENDOR_LIBRARY_FILENAMES", "APPGLASS_KEYS", "LD_PRELOAD"):
+            self.assertNotIn(k, e)
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_probe_fails_cpu_route(self):
+        """no device, only lavapipe or a crash (a damaged layer: SIGBUS): the CPU route, not a
+        launcher without a window"""
+        for code in ("exit 2", "kill -BUS $$", "echo 'gpu x'; kill -SEGV $$"):
+            parent, child = self.run_wrapped(probe=code)
+            self.assertIn("WGPU_BACKEND=gl\n", parent, code)
+        parent, child = self.run_wrapped(gpu=False)
+        self.assertIn("WGPU_BACKEND=gl\n", parent)
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_cpu_route_child_gets_the_users_own_values(self):
+        user = {"WGPU_BACKEND": "vulkan", "__EGL_VENDOR_LIBRARY_FILENAMES": "/opt/10_nvidia.json",
+                "LP_NUM_THREADS": "2", "APPGLASS_MAXFPS": "30"}
+        parent, child = self.run_wrapped(gpu=False, **user)
+        for line in ("WGPU_BACKEND=gl", "LP_NUM_THREADS=2", "APPGLASS_MAXFPS=30"):
+            self.assertIn(line + "\n", parent)
+        self.assertNotIn("__EGL_VENDOR_LIBRARY_FILENAMES=/opt/10_nvidia.json\n", parent)
+        env = dict(l.split("=", 1) for l in child.splitlines() if "=" in l)
+        for k, v in user.items():
+            self.assertEqual(env.get(k), v, k)
+        self.assertFalse([k for k in env if k.startswith("APPGLASS_") and k != "APPGLASS_MAXFPS"])
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_cpu_route_child_scrubbed(self):
+        """the CPU route (no Vulkan GPU): the launcher gets llvmpipe and the cap, a child none of it"""
+        parent, child = self.run_wrapped(gpu=False)
+        self.assertIn("WGPU_BACKEND=gl\n", parent)
+        self.assertIn("APPGLASS_MAXFPS=60\n", parent)
+        self.assertIn("LP_NUM_THREADS=4\n", parent)
+        self.assertIn("VK_INSTANCE_LAYERS=\n", parent)
+        for v in ("VK_INSTANCE_LAYERS", "VK_ADD_LAYER_PATH", "WGPU_BACKEND", "APPGLASS_",
+                  "__EGL_VENDOR_LIBRARY_FILENAMES", "LP_NUM_THREADS", "appglass-ck.so"):
+            self.assertNotIn(v, child)
+
+    @unittest.skipUnless(GCC, "no gcc")
+    def test_cpu_knob(self):
+        parent, child = self.run_wrapped(APPGLASS_ARTCRAFT="cpu")
+        self.assertIn("WGPU_BACKEND=gl\n", parent)
+        self.assertIn("VK_INSTANCE_LAYERS=\n", parent)
+        self.assertNotIn("APPGLASS_", child)
 
 
 if __name__ == "__main__":

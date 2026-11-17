@@ -324,7 +324,7 @@ class CkShim(Tmp):
 
 @unittest.skipUnless(GCC, "no gcc")
 class VkLayer(Tmp):
-    """appglass-artcraft-gpu: the Vulkan layer env and the shim reach the
+    """appglass-artcraft, GPU route: the Vulkan layer env and the shim reach the
     launcher; appglass-ck.so (APPGLASS_SCRUB) keeps them from its children."""
 
     def test_children_lose_the_layer(self):
@@ -335,18 +335,29 @@ class VkLayer(Tmp):
                        check=True, capture_output=True, timeout=120)
         for n in ("libappglass-vk.so", "appglass-vk.json"):
             open(os.path.join(lib, "vk", n), "w").close()
+        bindir = os.path.join(self.dir, "bin")
+        os.makedirs(bindir)
+        # the GPU route: the probe finds a GPU, the system theme is dark
+        for path, body in ((os.path.join(lib, "vk", "appglass-vkprobe"), "echo 'gpu Fake GPU'"),
+                           (os.path.join(bindir, "gsettings"), "echo \"'prefer-dark'\"")):
+            with open(path, "w") as f:
+                f.write("#!/bin/sh\n%s\n" % body)
+            os.chmod(path, 0o755)
         app = os.path.join(self.dir, "app")
         with open(app, "w") as f:
             f.write("#!/bin/sh\n/usr/bin/env\n")
         os.chmod(app, 0o755)
-        with open(shim("vklayer", "appglass-artcraft-gpu")) as f:
+        with open(shim("ck-shim", "appglass-artcraft")) as f:
             text = f.read()
         w = os.path.join(self.dir, "wrapper")
         with open(w, "w") as f:
             f.write(text.replace("BIN=/usr/bin/artcraft-launcher", "BIN=" + app)
-                    .replace('"@APPGLASS@" levels', "false"))
-        r = subprocess.run(["sh", w], env=self.base_env(XDG_CACHE_HOME=os.path.join(self.dir, "c")),
-                           capture_output=True, text=True, timeout=60)
+                    .replace('"@APPGLASS@" levels', "false")
+                    .replace('"@APPGLASS@" keys "$AGKEY" dark', "echo 121316:0.6,060607:0.65")
+                    .replace('setsid -f "@APPGLASS@" launch-check', "true"))
+        env = self.base_env(XDG_CACHE_HOME=os.path.join(self.dir, "c"))
+        env["PATH"] = bindir + ":" + env["PATH"]
+        r = subprocess.run(["sh", w], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
         e = parse_env(r.stdout)
         self.assertEqual(leaks(e), [])

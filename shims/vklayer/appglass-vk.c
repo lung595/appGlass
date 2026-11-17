@@ -15,11 +15,16 @@
 // attachment and the colour attachment, each fragment reads its own pixel and writes the keyed,
 // premultiplied value. One submit per keyed swapchain, chained on the app's wait semaphores; the
 // present waits on the last one. Without APPGLASS_KEYS the layer only passes calls through.
+// [APPGLASS_MAXFPS=60] caps presents per second, but only on a CPU device (wgpu fell back to lavapipe:
+// on a 240 Hz output it would otherwise render every frame on the CPU). A GPU is never capped.
+// An instance or device the layer has no record for (no memory for one, or a physical device it
+// cannot match to an instance) still works: its calls pass straight through, opaque and untouched.
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -82,7 +87,9 @@ typedef struct pipe { VkFormat fmt; VkRenderPass rp; VkDescriptorSetLayout dsl; 
 typedef struct dev {
     void *key; VkDevice h; VkPhysicalDevice pd; inst *in; struct dev *next;
     PFN_vkGetDeviceProcAddr gdpa; PFN_vkSetDeviceLoaderData set_data;
+    int pass;                            /* no keyed state (no instance record, or the fallback): pass through */
     int graphics_only;                   /* every queue family the app asked for can do graphics */
+    int cpu;                             /* VK_PHYSICAL_DEVICE_TYPE_CPU (lavapipe): presents are capped */
     struct { VkQueue q; uint32_t fam; } qs[MAXQ]; int nq;
     pipe *pipes;                         /* one pass per swapchain format, kept until vkDestroyDevice */
 #define X(n) PFN_vk##n n;
@@ -93,6 +100,13 @@ static dev *devs;
 
 static inst *inst_by_key(void *k) { for (inst *i = insts; i; i = i->next) if (i->key == k) return i; return NULL; }
 static dev *dev_by_key(void *k) { for (dev *d = devs; d; d = d->next) if (d->key == k) return d; return NULL; }
+
+/* No memory for a record: the next layer's entry points still have to reach the app. An instance
+ * keeps the next vkGetInstanceProcAddr, a device a static pass-through table (the last device that
+ * had no record; the next layer's entry points do not depend on which device asks). Under mu. */
+static PFN_vkGetInstanceProcAddr fb_gipa; static VkInstance fb_inst;
+static dev fb; static int fb_on;
+static dev *dev_get(void *k) { dev *d = dev_by_key(k); return d ? d : fb_on ? &fb : NULL; }
 
 /* ---------------- swapchains ---------------- */
 #define MAXI 16
@@ -271,9 +285,10 @@ static const char *refuse(dev *d, const VkSwapchainCreateInfoKHR *ci) {
 static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *ci,
                                                            const VkAllocationCallbacks *al, VkSwapchainKHR *out) {
     pthread_mutex_lock(&mu);
-    dev *d = dev_by_key(key_of(device));
+    dev *d = dev_get(key_of(device));
     pthread_mutex_unlock(&mu);
-    if (!d) return VK_ERROR_INITIALIZATION_FAILED;
+    if (!d) return VK_ERROR_INITIALIZATION_FAILED;     /* a device that never went through the layer */
+    if (d->pass) return d->CreateSwapchainKHR(device, ci, al, out);
     if (!keys()) { LOG("no keys: swapchain passed through"); return d->CreateSwapchainKHR(device, ci, al, out); }
     const char *why = refuse(d, ci);
     if (why) { LOG("swapchain %ux%u stays opaque: %s", ci->imageExtent.width, ci->imageExtent.height, why); return d->CreateSwapchainKHR(device, ci, al, out); }
@@ -307,7 +322,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, con
 
 static VKAPI_ATTR void VKAPI_CALL hk_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR h, const VkAllocationCallbacks *al) {
     pthread_mutex_lock(&mu);
-    dev *d = dev_by_key(key_of(device));
+    dev *d = dev_get(key_of(device));
     sc *s = NULL;
     for (sc **p = &scs; *p; p = &(*p)->next) if ((*p)->h == h) { s = *p; *p = s->next; break; }
     pthread_mutex_unlock(&mu);
@@ -316,9 +331,24 @@ static VKAPI_ATTR void VKAPI_CALL hk_DestroySwapchainKHR(VkDevice device, VkSwap
 }
 
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
-static FILE *trace_f; static double last_present;
+static FILE *trace_f; static double last_present, min_gap, last_slot;
 static pthread_once_t trace_once = PTHREAD_ONCE_INIT;
-static void trace_init(void) { const char *e = getenv("APPGLASS_TRACE"); if (e && *e) trace_f = fopen(e, "ae"); }
+static void trace_init(void) {
+    const char *e = getenv("APPGLASS_TRACE"); if (e && *e) trace_f = fopen(e, "ae");
+    e = getenv("APPGLASS_MAXFPS"); double f = e ? strtod(e, NULL) : 0; min_gap = f > 0 ? 1000.0 / f : 0;
+}
+/* the cap on a CPU device, per process like appglass-ck.so's: each present reserves the next free
+ * slot (last + 1/MAXFPS) under the lock and sleeps outside it */
+static void pace(void) {
+    double t0 = now_ms();
+    pthread_mutex_lock(&mu);
+    double at = last_slot > 0 && t0 - last_slot < min_gap ? last_slot + min_gap : t0;
+    last_slot = at;
+    pthread_mutex_unlock(&mu);
+    if (at <= t0) return;
+    double w = at - t0; struct timespec ts = { (time_t)(w / 1e3), (long)(((long long)(w * 1e6)) % 1000000000LL) };
+    while (nanosleep(&ts, &ts) && errno == EINTR) ;
+}
 
 static int fam_of(dev *d, VkQueue q, uint32_t *fam) {
     for (int i = 0; i < d->nq; i++) if (d->qs[i].q == q) { *fam = d->qs[i].fam; return 1; }
@@ -330,10 +360,13 @@ static int fam_of(dev *d, VkQueue q, uint32_t *fam) {
  * run unlocked and a slow present never stalls another thread. */
 static VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue q, const VkPresentInfoKHR *pi) {
     pthread_mutex_lock(&mu);
-    dev *d = dev_by_key(key_of(q));
+    dev *d = dev_get(key_of(q));
     uint32_t fam = 0; int known = d && fam_of(d, q, &fam);
     pthread_mutex_unlock(&mu);
-    if (!d) return VK_ERROR_DEVICE_LOST;
+    if (!d) return VK_ERROR_DEVICE_LOST;               /* a queue of a device that never went through the layer */
+    if (d->pass) return d->QueuePresentKHR(q, pi);
+    pthread_once(&trace_once, trace_init);
+    if (d->cpu && min_gap > 0) pace();
     double t0 = now_ms();
     uint32_t nw = pi->waitSemaphoreCount; const VkSemaphore *w = pi->pWaitSemaphores;
     VkPipelineStageFlags stb[64], *st = nw <= 64 ? stb : malloc(nw * sizeof *st);
@@ -362,7 +395,6 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue q, const VkPres
     }
     if (st != stb) free(st);
     if (r) return r;
-    pthread_once(&trace_once, trace_init);
     if (keyed) {
         pthread_mutex_lock(&mu);
         if (trace_f) { fprintf(trace_f, "%.2f %.2f %.2f\n", t0, last_present > 0 ? t0 - last_present : 0, now_ms() - t0); fflush(trace_f); }
@@ -385,12 +417,12 @@ static void note_queue(VkDevice device, uint32_t fam, VkQueue q) {
     pthread_mutex_unlock(&mu);
 }
 static VKAPI_ATTR void VKAPI_CALL hk_GetDeviceQueue(VkDevice device, uint32_t fam, uint32_t idx, VkQueue *q) {
-    pthread_mutex_lock(&mu); dev *d = dev_by_key(key_of(device)); pthread_mutex_unlock(&mu);
+    pthread_mutex_lock(&mu); dev *d = dev_get(key_of(device)); pthread_mutex_unlock(&mu);
     if (!d) return;
     d->GetDeviceQueue(device, fam, idx, q); note_queue(device, fam, *q);
 }
 static VKAPI_ATTR void VKAPI_CALL hk_GetDeviceQueue2(VkDevice device, const VkDeviceQueueInfo2 *qi, VkQueue *q) {
-    pthread_mutex_lock(&mu); dev *d = dev_by_key(key_of(device)); pthread_mutex_unlock(&mu);
+    pthread_mutex_lock(&mu); dev *d = dev_get(key_of(device)); pthread_mutex_unlock(&mu);
     if (!d || !d->GetDeviceQueue2) return;
     d->GetDeviceQueue2(device, qi, q); note_queue(device, qi->queueFamilyIndex, *q);
 }
@@ -408,7 +440,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateInstance(const VkInstanceCreateIn
     VkResult r = create(ci, al, out);
     if (r) return r;
     inst *i = calloc(1, sizeof *i);
-    if (!i) return VK_SUCCESS;          /* no memory: the layer just stays out of the way */
+    if (!i) {                           /* no memory: the layer stays out of the way, calls pass through */
+        pthread_mutex_lock(&mu); fb_gipa = next; fb_inst = *out; pthread_mutex_unlock(&mu);
+        LOG("instance: no memory for the instance record: its calls pass through");
+        return VK_SUCCESS;
+    }
     i->h = *out; i->key = key_of(*out); i->gipa = next;
     i->DestroyInstance = (PFN_vkDestroyInstance)next(*out, "vkDestroyInstance");
     i->GetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)next(*out, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
@@ -423,8 +459,14 @@ static VKAPI_ATTR void VKAPI_CALL hk_DestroyInstance(VkInstance h, const VkAlloc
     pthread_mutex_lock(&mu);
     inst *i = NULL;
     for (inst **p = &insts; *p; p = &(*p)->next) if ((*p)->h == h) { i = *p; *p = i->next; break; }
+    PFN_vkGetInstanceProcAddr g = i ? NULL : fb_gipa;
+    if (!i && fb_inst == h) fb_inst = VK_NULL_HANDLE;
     pthread_mutex_unlock(&mu);
-    if (!i) return;
+    if (!i) {                                   /* an instance with no record */
+        PFN_vkDestroyInstance f = g ? (PFN_vkDestroyInstance)g(h, "vkDestroyInstance") : NULL;
+        if (f) f(h, al);
+        return;
+    }
     i->DestroyInstance(h, al);
     free(i);
 }
@@ -440,18 +482,35 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice pd, const
     PFN_vkGetInstanceProcAddr ngipa = li->u.pLayerInfo->pfnNextGetInstanceProcAddr;
     PFN_vkGetDeviceProcAddr ngdpa = li->u.pLayerInfo->pfnNextGetDeviceProcAddr;
     li->u.pLayerInfo = li->u.pLayerInfo->pNext;
-    pthread_mutex_lock(&mu); inst *in = inst_by_key(key_of(pd)); pthread_mutex_unlock(&mu);
-    PFN_vkCreateDevice create = (PFN_vkCreateDevice)ngipa(in ? in->h : NULL, "vkCreateDevice");
+    /* no instance record for pd: ask the next layer through any instance it made (its
+     * vkCreateDevice does not depend on which), and pass the device's calls through */
+    pthread_mutex_lock(&mu);
+    inst *in = inst_by_key(key_of(pd));
+    VkInstance ih = in ? in->h : insts ? insts->h : fb_inst;
+    pthread_mutex_unlock(&mu);
+    PFN_vkCreateDevice create = (PFN_vkCreateDevice)ngipa(ih, "vkCreateDevice");
     if (!create) return VK_ERROR_INITIALIZATION_FAILED;
     VkResult r = create(pd, ci, al, out);
-    if (r || !in) return r;
-    dev *d = calloc(1, sizeof *d);
-    if (!d) return VK_SUCCESS;
+    if (r) return r;
+    dev t = { 0 }, *d = calloc(1, sizeof *d);
+    if (!d) d = &t;                             /* no memory: the static pass-through table below */
     d->h = *out; d->key = key_of(*out); d->pd = pd; d->in = in; d->gdpa = ngdpa;
     d->set_data = cb ? cb->u.pfnSetDeviceLoaderData : NULL;
 #define X(n) d->n = (PFN_vk##n)ngdpa(*out, "vk" #n);
     DEV_FNS(X)
 #undef X
+    if (d == &t) {
+        t.pass = 1; t.key = NULL;
+        pthread_mutex_lock(&mu); fb = t; fb_on = 1; pthread_mutex_unlock(&mu);
+        LOG("device: no memory for the device record: its calls pass through");
+        return VK_SUCCESS;
+    }
+    if (!in) {
+        d->pass = 1;
+        LOG("device: no instance record for it: its calls pass through");
+        pthread_mutex_lock(&mu); d->next = devs; devs = d; pthread_mutex_unlock(&mu);
+        return VK_SUCCESS;
+    }
     /* the pass is a draw: every queue the app can present on must do graphics */
     VkQueueFamilyProperties qf[32]; uint32_t nf = 32;
     in->GetPhysicalDeviceQueueFamilyProperties(pd, &nf, qf);
@@ -460,10 +519,13 @@ static VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice pd, const
         uint32_t f = ci->pQueueCreateInfos[i].queueFamilyIndex;
         if (f >= nf || !(qf[f].queueFlags & VK_QUEUE_GRAPHICS_BIT)) d->graphics_only = 0;
     }
-    if (dbg() && in->GetPhysicalDeviceProperties) {   /* which adapter the app picked */
+    if (in->GetPhysicalDeviceProperties) {   /* which adapter the app picked */
         VkPhysicalDeviceProperties pr; in->GetPhysicalDeviceProperties(pd, &pr);
+        d->cpu = pr.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+        pthread_once(&trace_once, trace_init);
         LOG("device: %s (vendor 0x%04x device 0x%04x, driver 0x%x, Vulkan %u.%u)", pr.deviceName, pr.vendorID, pr.deviceID,
             pr.driverVersion, VK_API_VERSION_MAJOR(pr.apiVersion), VK_API_VERSION_MINOR(pr.apiVersion));
+        if (d->cpu && min_gap > 0) LOG("device: a CPU device: presents capped at %g fps", 1000.0 / min_gap);
     }
     pthread_mutex_lock(&mu); d->next = devs; devs = d; pthread_mutex_unlock(&mu);
     return VK_SUCCESS;
@@ -476,8 +538,9 @@ static VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice h, const VkAllocatio
     for (sc **p = &scs; d && *p;) {            /* swapchains the app never destroyed */
         if ((*p)->d == d) { sc *s = *p; *p = s->next; sc_free(s); } else p = &(*p)->next;
     }
+    PFN_vkDestroyDevice f = !d && fb_on ? fb.DestroyDevice : NULL;
     pthread_mutex_unlock(&mu);
-    if (!d) return;
+    if (!d) { if (f) f(h, al); return; }      /* the device of the pass-through table */
     for (pipe *p = d->pipes, *n; p; p = n) { n = p->next; pipe_free(d, p); }
     d->DestroyDevice(h, al);
     free(d);
@@ -492,7 +555,7 @@ static PFN_vkVoidFunction dev_hook(const char *n) {
 
 static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL layer_gdpa(VkDevice device, const char *n) {
     if (!strcmp(n, "vkGetDeviceProcAddr")) return (PFN_vkVoidFunction)layer_gdpa;
-    pthread_mutex_lock(&mu); dev *d = device ? dev_by_key(key_of(device)) : NULL; pthread_mutex_unlock(&mu);
+    pthread_mutex_lock(&mu); dev *d = device ? dev_get(key_of(device)) : NULL; pthread_mutex_unlock(&mu);
     if (!d) return NULL;
     PFN_vkVoidFunction h = dev_hook(n);
     if (h) {
@@ -510,8 +573,11 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL layer_gipa(VkInstance instance, 
     if (!strcmp(n, "vkGetDeviceProcAddr")) return (PFN_vkVoidFunction)layer_gdpa;
     PFN_vkVoidFunction h = dev_hook(n);
     if (h) return h;
-    pthread_mutex_lock(&mu); inst *i = instance ? inst_by_key(key_of(instance)) : NULL; pthread_mutex_unlock(&mu);
-    return i ? i->gipa(instance, n) : NULL;
+    pthread_mutex_lock(&mu);
+    inst *i = instance ? inst_by_key(key_of(instance)) : NULL;
+    PFN_vkGetInstanceProcAddr g = i ? i->gipa : instance ? fb_gipa : NULL;   /* no record: the next layer's */
+    pthread_mutex_unlock(&mu);
+    return g ? g(instance, n) : NULL;
 }
 
 EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char *n) { return layer_gipa(instance, n); }
