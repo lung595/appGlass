@@ -47,6 +47,12 @@ def rendered(w):
                 if rel.startswith(("home/.config/dms/", "home/.config/gtk-3.0/dank-colors",
                                    "home/.config/gtk-4.0/dank-colors")):
                     continue
+                if fn.endswith(".so"):
+                    # a build: its bytes follow the style's source and the
+                    # compiler, not the routing (6da0e06 moved its hash for
+                    # the QT_PLUGIN_PATH scrub); there, not byte-compared
+                    out[rel] = "built"
+                    continue
                 data = sb.readb(p) if not os.path.islink(p) else os.readlink(p).encode()
                 data = data.replace(sb.root.encode(), b"@ROOT@")
                 out[rel] = hashlib.sha256(data).hexdigest()
