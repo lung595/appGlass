@@ -442,10 +442,17 @@ class Units(unittest.TestCase):
                   "/var/lib/flatpak/.changed", "%h/.local/share/flatpak/.changed",
                   "%h/.local/share/applications"):
             self.assertIn("PathChanged=" + p, t)
-        self.assertIn("TriggerLimitIntervalSec=", t)
-        self.assertIn("TriggerLimitBurst=", t)
+        # systemd.path(5): a hit trigger limit puts the path unit into a
+        # failure mode that stops every watch until a restart (the DMS follow
+        # too). A burst must never stop it: no limit; the service settles
+        # and coalesces (flock, the rpm db quiet wait)
+        self.assertRegex(t, r"(?m)^TriggerLimitBurst=0$")
+        self.assertNotRegex(t, r"(?m)^TriggerLimitBurst=[1-9]")
         s = self.read("appglass-sync.service")
-        self.assertIn("StartLimitBurst=", s)
+        # a start limit hit on the service also fails the path unit
+        # (unit-start-limit-hit): none either
+        self.assertRegex(s, r"(?m)^StartLimitIntervalSec=0$")
+        self.assertNotRegex(s, r"(?m)^StartLimitBurst=")
         self.assertIn("OnCalendar=daily", self.read("appglass-sync.timer"))
         v = self.read("appglass-verify.service")
         self.assertIn("IOSchedulingClass=idle", v)

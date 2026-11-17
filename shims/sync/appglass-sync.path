@@ -12,10 +12,12 @@ PathChanged=/var/lib/flatpak/.changed
 PathChanged=%h/.local/share/flatpak/.changed
 PathChanged=%h/.local/share/applications
 PathChanged=%h/Applications
-# a dnf transaction touches these many times: the service settles and
-# coalesces (flock); past the burst the path unit waits, it never fails
-TriggerLimitIntervalSec=10s
-TriggerLimitBurst=50
+# a dnf transaction (and appglass's own launcher writes) touch these many
+# times. A hit trigger limit would put this unit into a failure mode that
+# stops every watch here, the DMS follow too, until the next login
+# (systemd.path(5)): no limit. The service coalesces (one run at a time,
+# flock, a 1 s settle, the rpm db quiet wait)
+TriggerLimitBurst=0
 Unit=appglass-sync.service
 [Install]
 WantedBy=default.target

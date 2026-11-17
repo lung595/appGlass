@@ -30,9 +30,9 @@ a stand-in). Hand-made units and script are Conflicts until ``appglass adopt``.
 
 The engine (docs/engine.md) adds: PathChanged lines on the application dirs
 (user, system, flatpak exports) and the rpm database, so a new or updated app
-is handled with no command run; TriggerLimit/StartLimit settings so a burst
-of rpm writes starts the service a few times at most (the script also waits
-for the rpm database to stay quiet); appglass-sync.timer (daily, enabled
+is handled with no command run; no trigger or start limit (a hit limit
+would stop the path unit until the next login): one run at a time, and the
+script settles and waits for the rpm database to stay quiet; appglass-sync.timer (daily, enabled
 with the path units) for apps that update themselves; and
 appglass-verify.service (``appglass verify --queue``, idle priority, 60 s
 cap), started --no-block by a hook run that queued an app to check.

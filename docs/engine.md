@@ -9,9 +9,10 @@ is needed. After an app update the glass is checked again before an injected rou
 - `appglass-sync.path` watches the launcher dirs (`/usr/share/applications`, `~/.local/share/applications`,
   `~/Applications`), the rpm database, and the flatpak `.changed` stamps (system and user). It also watches the
   DMS colours and the DMS window rules, as before.
-- A dnf transaction touches the rpm database many times. `TriggerLimitIntervalSec=10s` with
-  `TriggerLimitBurst=50` and the service's lock coalesce the burst. The path unit stays active, and the
-  service runs a few times at most.
+- A dnf transaction touches the rpm database many times. The path unit has no trigger limit
+  (`TriggerLimitBurst=0`) and the service no start limit: a hit limit would put the path unit into a failure
+  mode that stops every watch, the DMS follow included, until the next login. The service coalesces the burst
+  instead: one run at a time, a 1 s settle, then it waits until the rpm database has been quiet for 5 s.
 - `appglass-sync.timer` runs once a day, for apps that update themselves and for a missed event.
 - `appglass hook install` installs all three units (path, service, timer) and the verify service.
 

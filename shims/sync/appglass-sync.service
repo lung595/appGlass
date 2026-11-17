@@ -1,7 +1,8 @@
 [Unit]
 Description=appGlass: re-apply the glass to every app (level, colours, new apps)
-StartLimitIntervalSec=60
-StartLimitBurst=30
+# a start limit hit here fails the path unit too (unit-start-limit-hit):
+# none; each run settles 1 s first, so a burst never spins
+StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 Nice=10
