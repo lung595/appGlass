@@ -70,6 +70,11 @@ for entry in "$root"/*.qml "$root"/*.js "$root"/*.json "$root"/components; do
         cp -R "$entry" "$work/reload"/
     fi
 done
+# with a copy of each shell this engine first compiles at ?revision=1 (a
+# stale revision in the file's URL)
+for shell in AppGlassDaemon AppGlassSettings AppGlassWidget; do
+    cp "$root/$shell.qml" "$work/reload/Stale$shell.qml"
+done
 # The tests and their helpers (Harness.qml...) beside it, and the CLI
 # contract fixtures (Harness.readFile("contract/status.json"))
 cp "$here"/*.qml "$work"/

@@ -608,7 +608,7 @@ Item {
                         "syncing": false,
                         "action": "",
                         "uninstallState": "",
-                        "uninstallError": "Uninstall failed, nothing was removed: boom"
+                        "uninstallError": "Uninstall stopped: boom. Glass is set up again from the current settings"
                     });
                 }
             },

@@ -21,11 +21,13 @@ PluginSettings {
     // DMS's reload counter for the plugin, the N it loaded this file with.
     // Read from PluginService: this file's own URL is no help, as quickshell
     // keeps the QML disk cache and a file it loads again unchanged comes
-    // back with the URL it was first compiled under (?revision=<the first>)
+    // back with the URL it was first compiled under (?revision=<the first>).
+    // No entry in the counter is revision 0, never the URL's; the URL only
+    // for a DMS without the counter
     function revision() {
         const revs = PluginService._componentRevisions;
-        if (revs && revs["appGlass"] !== undefined)
-            return Number(revs["appGlass"]);
+        if (revs !== undefined && revs !== null)
+            return revs["appGlass"] !== undefined ? Number(revs["appGlass"]) || 0 : 0;
         const m = /[?&]revision=(\d+)/.exec(String(Qt.resolvedUrl("#r")));
         return m ? Number(m[1]) : 0;
     }

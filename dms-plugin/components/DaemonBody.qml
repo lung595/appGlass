@@ -299,13 +299,15 @@ PluginComponent {
 
     function removeDone(output, exitCode) {
         if (exitCode !== 0) {
-            // nothing was taken out: the glass and the syncs go on, from a
-            // sync now (what changed meanwhile, `again`, goes with it)
+            // remove stopped (what it restored before stopping is back to
+            // the original): the glass and the syncs go on, from a sync now
+            // that sets the glass up again (what changed meanwhile, `again`,
+            // goes with it)
             root.sweeping = false;
             root.again = false;
             root.publish(actionVar, "");
             root.fail(Logic.errorText(output, exitCode));
-            root.publish(uninstallErrorVar, "Uninstall failed, nothing was removed: " + Logic.errorText(output, exitCode));
+            root.publish(uninstallErrorVar, "Uninstall stopped: " + Logic.errorText(output, exitCode) + ". Glass is set up again from the current settings");
             if (!root.requestSync("uninstall", 0))
                 root.refreshStatus();
             return;

@@ -365,6 +365,29 @@ class GlassOffOn(unittest.TestCase):
             self.assertEqual(self.read(p), data, p)
         self.assertFalse(os.path.exists(os.path.join(self.w.sb.state, "appglass")))
 
+    def test_a_remove_that_stops_keeps_the_parked_files(self):
+        # Uninstall's `appglass remove` failing half way: the plugin sets
+        # the glass up again from its settings, which adopts the parked hand
+        # files again only while state.json still names them
+        from unittest import mock
+        from appglass import core
+        self.run_ok("apply", "--all", "--adopt")
+        on = self.json.loads(self.run_ok("get"))
+        self.sync(dict(on, enabled=False))
+        parked = dict(self.w.state()["parked"])
+        real = core.App.remove_owner
+
+        def stops(app, name):
+            if name == "hook":
+                raise PermissionError(13, "Permission denied", "unit")
+            return real(app, name)
+        with mock.patch.object(core.App, "remove_owner", stops):
+            code, out, err = self.w.run("remove")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.w.state().get("parked"), parked)
+        out = self.sync(on)
+        self.assertIn("adopted again", out)
+
     def test_on_skips_a_hand_file_changed_while_off(self):
         self.run_ok("apply", "--all", "--adopt")
         on = self.json.loads(self.run_ok("get"))

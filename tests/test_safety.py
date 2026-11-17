@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import time
 import unittest
 
@@ -182,7 +183,7 @@ class Ring(Base):
 
 
 class Refusal(Base):
-    HINT = ("appglass adopt", "appglass restore")
+    HINT = ("appglass doctor", "appglass restore")
 
     def assertHint(self, err):
         for h in self.HINT:
@@ -263,7 +264,8 @@ class Refusal(Base):
         first = self.entries()[0]
         code, out, err = self.sb.run("restore", first)
         self.assertEqual(code, 0, err)
-        self.assertFalse(os.path.exists(self.state_json))
+        with open(self.state_json) as f:
+            self.assertEqual(json.load(f)["owners"], {}, "an empty state, nothing lost")
         self.assertFalse(os.listdir(os.path.join(self.state_dir, "backup"))
                          if os.path.isdir(os.path.join(self.state_dir, "backup")) else [])
         self.apply()
@@ -555,6 +557,223 @@ class Doctor(Base):
             readme = f.read()
         self.assertIn("appglass doctor", readme)
         self.assertIn("appglass restore", readme)
+
+
+class LostStaysLost(Base):
+    """A lost state (state.json gone, the ring or backup/ still there) is
+    sticky: no command saves a fresh state.json over it, so no later apply
+    edits the files twice and no remove takes the originals out with the
+    state dir."""
+
+    def test_commands_that_save_state_refuse_while_lost(self):
+        for argv in (("set", "fallback.mode", "opaque"), ("hook", "install"),
+                     ("hook", "remove")):
+            with self.subTest(argv=argv):
+                self.tearDown()
+                self.setUp()
+                self.sb.set_level(0.6)
+                before = self.sb.tree_hash()
+                hand, mine, backup = Refusal.lost_state_with_an_adopted_file(self)
+                origs = sorted(os.listdir(backup))
+                code, out, err = self.sb.run(*argv, assume="alacritty")
+                self.assertNotEqual(code, 0, argv)
+                self.assertIn("appglass restore", err)
+                self.assertFalse(os.path.exists(self.state_json), argv)
+                for later in (("apply", "--only", "alacritty"), ("remove",)):
+                    code, out, err = self.sb.run(*later, assume="alacritty")
+                    self.assertNotEqual(code, 0, later)
+                self.assertEqual(sorted(os.listdir(backup)), origs, argv)
+                code, out, err = self.sb.run("restore", assume="alacritty")
+                self.assertEqual(code, 0, err)
+                code, out, err = self.sb.run("remove")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.sb.readb(hand), mine)
+                os.remove(hand)         # written after `before`
+                self.assertEqual(self.sb.tree_hash(), before, (argv, self.sb.files()))
+
+    def test_a_backup_never_overwrites_an_original_no_record_names(self):
+        p = self.sb.cfg("alacritty", "alacritty.toml")
+        os.makedirs(os.path.join(self.state_dir, "backup"))
+        bpath = os.path.join(self.state_dir, "backup",
+                             hashlib.sha1(p.encode()).hexdigest()[:16] + ".orig")
+        with open(bpath, "wb") as f:
+            f.write(b"the only original\n")
+        with open(self.state_json, "w") as f:
+            json.dump({"version": core.STATE_VERSION, "owners": {}, "state_parents": []}, f)
+        app = core.App(self.sb.env, out=io.StringIO(), err=io.StringIO())
+        with self.assertRaises(core.AppglassError) as cm:
+            app.backup(p, b"something else\n")
+        self.assertIn("appglass restore", str(cm.exception))
+        self.assertEqual(self.sb.readb(bpath), b"the only original\n")
+        # the same bytes again (a run stopped right after its backup): fine
+        app.backup(p, b"the only original\n")
+
+    def test_full_remove_keeps_originals_no_record_names(self):
+        self.apply()
+        stray = os.path.join(self.state_dir, "backup", "0123456789abcdef.orig")
+        with open(stray, "wb") as f:
+            f.write(b"precious\n")
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.readb(stray), b"precious\n")
+        self.assertTrue(self.entries(), "the ring stays with it")
+        self.assertIn("0123456789abcdef.orig", err)
+
+
+class EditMarkers(Base):
+    """The files appglass edits (not only the ones it writes) count as its
+    files when their record is gone."""
+
+    def test_edited_files_refuse_after_the_owned_ones_are_gone(self):
+        self.apply()
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        cfg = self.sb.cfg("niri", "config.kdl")
+        shutil.rmtree(self.state_dir)       # the whole state dir moved away
+        code, out, err = self.apply(ok=False)
+        self.assertNotEqual(code, 0)
+        named = [p for p in (self.owned(), self.sb.cfg("niri", niri.FILE))
+                 if self.env.tilde(p) in err]
+        self.assertEqual(len(named), 2, err)
+        for p in named:
+            os.remove(p)
+        data = {p: self.sb.readb(p) for p in (main, cfg)}
+        code, out, err = self.apply(ok=False)
+        self.assertNotEqual(code, 0, "an edited file is still on disk")
+        for p in (main, cfg):
+            self.assertIn(self.env.tilde(p), err)
+            self.assertEqual(self.sb.readb(p), data[p])
+        self.assertFalse(os.path.exists(self.state_json))
+
+    def test_a_clean_edited_file_does_not_count(self):
+        self.apply()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.apply()
+
+    def test_launcher_overrides_carry_a_marker(self):
+        from appglass import shims
+        from appglass.families import qtstyle
+        qt = qtstyle.launcher(self.env, "[Desktop Entry]\nExec=vlc %U\n", "vlc", 0.6)
+        wrapped = shims.exec_to("[Desktop Entry]\nExec=/usr/bin/foo %U\n",
+                                self.sb.home + "/.local/bin/appglass-foo", command="foo")
+        for text in (qt, wrapped):
+            self.assertTrue(core.MARK.search(text.encode()), text)
+        self.assertFalse(core.MARK.search(b"[Desktop Entry]\nExec=vlc %U\n"))
+
+
+class RestoreOlder(Base):
+    def test_restoring_an_older_entry_undoes_every_newer_one(self):
+        self.sb.set_level(0.6)
+        before = self.sb.tree_hash()
+        self.sb.set_level(0.5)
+        self.apply()
+        self.sb.set_level(0.6)
+        self.apply()
+        older = self.entries()[-1]
+        state = self.sb.readb(self.state_json)
+        code, out, err = self.sb.run("hook", "install")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.entries()), 3)
+        code, out, err = self.sb.run("restore", older)
+        self.assertEqual(code, 0, err)
+        # the state before `older`: the hook's files went with its entry
+        self.assertFalse(os.path.exists(hook.unit_path(self.env, hook.PATH_UNIT)))
+        self.assertNotEqual(self.sb.readb(self.state_json), state)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.tree_hash(), before)
+
+    def test_restoring_the_first_entry_leaves_a_valid_state(self):
+        self.apply()
+        self.sb.set_level(0.6)
+        self.apply()
+        code, out, err = self.sb.run("restore", self.entries()[0])
+        self.assertEqual(code, 0, err)
+        with open(self.state_json) as f:
+            self.assertEqual(json.load(f)["owners"], {})
+        # nothing lost: remove and glass off run
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        code, out, err = self.sb.run("sync", "--settings-file", self.sync_file(False),
+                                     assume="alacritty")
+        self.assertEqual(code, 0, err)
+
+    def test_an_event_after_a_restore_keeps_the_ring(self):
+        self.apply()
+        self.sb.set_level(0.6)
+        self.apply()
+        code, out, err = self.sb.run("restore", self.entries()[0])
+        self.assertEqual(code, 0, err)
+        entries = self.entries()
+        # the matugen hook wrote nothing: the way back stays
+        code, out, err = self.sb.run("apply", "--from-hook", "--quiet")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.entries(), entries)
+        # the user's remove ends it
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(self.ring))
+
+    def test_every_entry_has_a_manifest(self):
+        self.apply()
+        self.sb.set_level(0.6)
+        self.apply()
+        os.makedirs(os.path.join(self.ring, "20000101-000000-000000"))
+        code, out, err = self.sb.run("restore")
+        self.assertEqual(code, 0, err)
+        for e in os.listdir(self.ring):
+            self.assertTrue(os.path.isfile(os.path.join(self.ring, e, "manifest.json")), e)
+
+
+class DoctorRound2(Base):
+    def doctor(self, *extra):
+        return self.sb.run("doctor", *extra, assume="alacritty")
+
+    def test_missing_niri_include_is_drift_for_the_user(self):
+        self.apply()
+        cfg = self.sb.cfg("niri", "config.kdl")
+        text = niri.strip_include(self.sb.read(cfg))
+        with open(cfg, "w") as f:
+            f.write(text)
+        code, out, err = self.doctor()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("config.kdl", out)
+        self.assertIn(niri.FILE, out)
+        code, out, err = self.doctor("--fix")
+        self.assertEqual(code, 1)
+        self.assertIn("yours to decide", out)
+        self.assertEqual(self.sb.read(cfg), text)
+
+    def test_fix_saves_the_hand_version_aside(self):
+        self.apply()
+        with open(self.owned(), "a") as f:
+            f.write("# hand\n")
+        hand = self.sb.readb(self.owned())
+        code, out, err = self.doctor("--fix")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.readb(self.owned() + ".appglass-changed"), hand)
+
+    def test_relink_snapshots_the_link(self):
+        self.apply()
+        dst = plugin.target(self.env)
+        os.makedirs(os.path.dirname(dst))
+        gone = self.sb.path("gone")
+        os.symlink(gone, dst)
+        code, out, err = self.doctor("--fix")
+        self.assertEqual(code, 0, out + err)
+        rec = self.manifest(self.entries()[-1])["files"][dst]
+        self.assertEqual(rec, {"link": gone})
+
+
+class Hints(Base):
+    def test_the_hint_names_only_what_works(self):
+        self.apply()
+        os.remove(self.state_json)
+        code, out, err = self.apply(ok=False)
+        self.assertNotIn("appglass adopt <file>", err)
+        self.assertIn("appglass doctor", err)
+        code, out, err = self.sb.run("adopt", self.owned())
+        self.assertNotEqual(code, 0)
 
 
 if __name__ == "__main__":

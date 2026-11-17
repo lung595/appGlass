@@ -442,7 +442,7 @@ Item {
             },
             {
                 "run": () => {
-                    // --- `remove` failed: nothing was removed, syncing goes on
+                    // --- `remove` failed: it stopped, syncing goes on
                     root.fresh(true);
                     Proc.flush();
                     Proc.flush();
@@ -458,6 +458,9 @@ Item {
                     Proc.flush();
                     t.check("the sync carries the change made during the remove", root.lastSyncSettings().inactive.factor, 0.89);
                     t.ok("the remove error stays after that sync", (root.vars().uninstallError || "").indexOf("boom") >= 0);
+                    // a remove that stops can have restored some files already:
+                    // the text says it stopped, not that nothing was removed
+                    t.check("the remove error says it stopped and glass is back", root.vars().uninstallError, "Uninstall stopped: " + Logic.errorText("appglass: remove: boom\n", 1) + ". Glass is set up again from the current settings");
                     t.check("the IPC works again", IpcRegistry.call("appGlass", "pause"), "glass off");
                     Proc.flush();
                 }

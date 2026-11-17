@@ -215,7 +215,9 @@ def plan(app, ctx=None):
 
 
 def install(app, dry_run=False):
+    from .core import refuse_orphans
     env = app.env
+    refuse_orphans(app)
     for p in (template_path(), bin_path()):
         if not os.path.exists(p):
             app.error("hook: %s is missing" % p)
@@ -267,7 +269,9 @@ def install(app, dry_run=False):
 
 
 def remove(app):
+    from .core import refuse_orphans
     env = app.env
+    refuse_orphans(app)
     out = output_path(env)
     o = app.state.owners.get("hook") or {}
     sd = o.get("systemd") or {}

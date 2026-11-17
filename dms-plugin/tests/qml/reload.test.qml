@@ -213,6 +213,41 @@ Item {
                     t.ok("reload 2: the daemon", root.binsRun().indexOf("/probe/v3") >= 0);
                     root.unload();
                 }
+            },
+            {
+                // DMS's counter is the revision even when it has no entry for
+                // the plugin (0): the file's URL can be a stale ?revision=<n>,
+                // the one the disk cache first compiled it under, and a body
+                // at that revision's URL would be the old one compiled again.
+                // The shells run.sh copied (Stale*.qml), first compiled here
+                // at ?revision=1:
+                "run": () => {
+                    root.load(0);
+                    root.unload();
+                    PluginService._componentRevisions = {};
+                    const shells = [["daemon", "StaleAppGlassDaemon.qml", "components/DaemonBody.qml", {
+                                "pluginId": "appGlass",
+                                "pluginService": PluginService
+                            }], ["settings", "StaleAppGlassSettings.qml", "components/SettingsBody.qml", {
+                                "pluginService": PluginService,
+                                "width": 600
+                            }], ["widget", "StaleAppGlassWidget.qml", "components/PillText.qml", {
+                                "pluginId": "appGlass",
+                                "pluginService": PluginService
+                            }]];
+                    for (const [name, file, rel, props] of shells) {
+                        PluginService._componentRevisions = {};
+                        const shell = root.create(file, 1, props);
+                        const none = shell ? shell.freshUrl(rel) : "";
+                        PluginService._componentRevisions = {
+                            "appGlass": 1
+                        };
+                        const one = shell ? shell.freshUrl(rel) : "";
+                        t.ok(name + ": no counter entry is revision 0, not the URL's 1", none !== "" && none.indexOf("/proc/") < 0);
+                        t.ok(name + ": revision 0 and revision 1 load different body URLs", none !== one);
+                    }
+                    root.unload();
+                }
             }
         ]);
     }

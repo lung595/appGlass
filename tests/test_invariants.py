@@ -23,9 +23,16 @@ PKG = os.path.join(REPO, "appglass")
 # `if (root.holding) <statement>`: holding is the Uninstall token, set only
 # in runAction's uninstall branch (test_holding_is_set_by_uninstall_only)
 GATED = re.compile(r"if\s*\(\s*root\.holding\s*\)\s*(\{[^{}]*\}|[^;\n]*;?)")
-# (and a literal argv with a "remove" word in it: [root.bin, "remove"])
+# (and a literal argv with a "remove" word in it: [root.bin, "remove"]; a
+# string that is the remove word, to join or concat: root.bin + " remove";
+# a remove word in a string handed to a process: execDetached(["sh", "-c",
+# "appglass remove"]), command: [..]. Text shown to the user, "run
+# appglass remove in a terminal", is none of these)
 QML_SINKS = re.compile(r"\b(uninstallArgv|unlinkArgv|launchRemove)\b|ACTION_IDS\.uninstall\b"
-                       r"|\[[^\[\]]*[\"']remove[\"']")
+                       r"|\[[^\[\]]*[\"']remove[\"']"
+                       r"|[\"'`]\s*(?:(?:plugin|hook)\s+)?remove\s*[\"'`]"
+                       r"|(?:\b(?:execDetached|startDetached|runCommand)\s*\(|\bcommand\s*[:=])"
+                       r"[^;\n]*[\"'`][^\"'`\n]*\bremove\b")
 LOGIC_CALL = re.compile(r"\bLogic\.(\w+)\s*\(")
 
 
@@ -105,17 +112,31 @@ def _handler_body(text, j):
     return text[j:len(text) if e < 0 else e]
 
 
-def qml_units(text):
+def qml_units(text, js=False):
     """(functions, roots): functions {name: (params, body)} and the event
-    roots [(label, body)]: every on<Signal> handler and every function
-    declared in an IpcHandler, Timer or Connections object."""
+    roots [(label, body)]: every on<Signal> handler, every function declared
+    in an IpcHandler, Timer or Connections object, and the declarations (the
+    file without its functions and handlers: every property binding and
+    object, a Process's command among them, is evaluated when it loads; a
+    .js library's top level (js) is data: its search keywords, its tables)."""
     text = _strip_comments(text)
-    funcs, roots = {}, []
+    funcs, roots, spans = {}, [], []
     for m in FUNC.finditer(text):
-        body = text[m.end() - 1:_block_end(text, m.end() - 1)]
+        end = _block_end(text, m.end() - 1)
+        body = text[m.end() - 1:end]
         funcs.setdefault(m.group(1), (m.group(2), body))
+        spans.append((m.start(), end))
     for m in HANDLER.finditer(text):
-        roots.append((m.group(1), _handler_body(text, m.end())))
+        body = _handler_body(text, m.end())
+        roots.append((m.group(1), body))
+        spans.append((m.start(), m.end() + len(body)))
+    decl, i = [], 0
+    for a, b in sorted(spans):
+        if a >= i:
+            decl.append(text[i:a])
+        i = max(i, b)
+    if not js:
+        roots.append(("<declarations>", "".join(decl) + text[i:]))
     for m in OBJECT.finditer(text):
         if m.group(1) in ("IpcHandler", "Timer", "Connections", "FileView", "Process"):
             start = m.end() - 1
@@ -140,7 +161,7 @@ def qml_violations(sources):
         if path.endswith("logic.js"):
             logic = qml_units(text)[0]
     for path, text in sources.items():
-        funcs, roots = qml_units(text)
+        funcs, roots = qml_units(text, js=path.endswith(".js"))
         for label, body in roots:
             seen, todo = set(), [(body, funcs)]
             while todo:
@@ -307,9 +328,11 @@ PY_SINKS = {("core", "cmd_remove"), ("hook", "remove"), ("plugin", "remove"),
             ("core", "App.remove_owner"), ("core", "App._revert"), ("core", "State.destroy")}
 # event entry points: the matugen post_hook and the sync units (apply
 # --from-hook), the plugin's sync and status runs (its start too), the
-# vibrancy daemon, and doctor (it repairs, it never takes anything out)
+# vibrancy daemon, and doctor (it repairs, it never takes anything out); the
+# dispatcher every one of them goes through (main) and its lock release
 PY_ROOTS = [("core", "cmd_apply"), ("core", "cmd_apply_all"), ("core", "cmd_sync"),
-            ("core", "status_doc"), ("core", "cmd_doctor"), ("vibrancy", "run")]
+            ("core", "status_doc"), ("core", "cmd_doctor"), ("vibrancy", "run"),
+            ("core", "main"), ("core", "_unlock")]
 # The edges to a sink that are the user's own switch, each allowed only when
 # every use of the sink in the caller sits under a guard (an `if` test, one
 # of its `and` terms) that matches:
@@ -321,12 +344,23 @@ PY_ROOTS = [("core", "cmd_apply"), ("core", "cmd_apply_all"), ("core", "cmd_sync
 #    hook (the next apply or sync does it);
 #  - niri.sync: the rule with no glass app left, never from the hook; and the
 #    rule niri validate rejects (its own write taken back: S7, every failure
-#    ends opaque).
+#    ends opaque);
+#  - main: the remove commands the user typed (appglass remove, hook remove,
+#    plugin remove);
+#  - _unlock: the state dir of a run that ended with nothing owned.
+# A guard is a regex or a tuple of regexes that each match one guard term.
 GUARDED = {
     (("core", "cmd_sync"), ("core", "cmd_remove")): r"not .*\benabled\b.*",
     (("core", "cmd_apply"), ("core", "App.remove_owner")): r"_user_removes\(app, why\)",
     (("core", "App.commit"), ("core", "App._revert")): r"not self\.from_hook",
     (("niri", "sync"), ("core", "App.remove_owner")): r"not app\.from_hook|ok is False",
+    (("core", "main"), ("core", "cmd_remove")): r"args\.cmd == 'remove'",
+    (("core", "main"), ("hook", "remove")): (
+        r"args\.cmd == 'hook'", r"not \(args\.action == 'install'\)", r"not \(args\.dry_run\)"),
+    (("core", "main"), ("plugin", "remove")): (
+        r"args\.cmd == 'plugin'", r"not \(args\.action == 'install'\)"),
+    (("core", "_unlock"), ("core", "State.destroy")): (
+        r"not \(st\.owners or st\.data\.get\('parked'\) or app\.keep_state_dir\)",),
 }
 
 
@@ -334,11 +368,13 @@ def _function(mods, mod, name):
     return next(n for q, n in _functions(mods[mod]) if q == name)
 
 
-def _guarded_uses(fn, attr):
+def _guarded_uses(fn, attr, module=None):
     """[(use text, [guard terms])] for every reference to attr (a name or
-    .attr) in fn; guard terms are the `and` terms of the enclosing if tests
-    (an else branch adds not (test))."""
+    .attr; with module, a module-level function: the name or module.attr)
+    in fn; guard terms are the `and` terms of the enclosing if tests (an
+    else branch adds not (test))."""
     out = []
+    base = module.rsplit(".", 1)[-1] if module else None
 
     def terms(test, negate):
         if negate:
@@ -349,7 +385,9 @@ def _guarded_uses(fn, attr):
 
     def visit(node, guards):
         if ((isinstance(node, ast.Name) and node.id == attr)
-                or (isinstance(node, ast.Attribute) and node.attr == attr)):
+                or (isinstance(node, ast.Attribute) and node.attr == attr
+                    and (base is None or (isinstance(node.value, ast.Name)
+                                          and node.value.id == base)))):
             out.append((ast.unparse(node), guards))
         if isinstance(node, (ast.If, ast.IfExp)):
             visit(node.test, guards)
@@ -372,23 +410,70 @@ def allowed_edges(mods, graph):
     for (caller, sink), rx in GUARDED.items():
         if caller not in graph or sink not in graph[caller]:
             continue
-        uses = _guarded_uses(_function(mods, *caller), sink[1].rsplit(".", 1)[-1])
-        if uses and all(any(re.fullmatch(rx, g) for g in gs) for _, gs in uses):
+        mod = None if "." in sink[1] else (None if sink[0] == caller[0] else sink[0])
+        uses = _guarded_uses(_function(mods, *caller), sink[1].rsplit(".", 1)[-1], mod)
+        rxs = (rx,) if isinstance(rx, str) else rx
+        if uses and all(all(any(re.fullmatch(r, g) for g in gs) for r in rxs)
+                        for _, gs in uses):
             ok.add((caller, sink))
     return ok
 
 
+# the names a sink is reached by without a reference: getattr(hook,
+# "remove"), an argv word
+SINK_NAMES = {q.rsplit(".", 1)[-1] for _, q in PY_SINKS}
+# what runs a command line: a "remove" word in one of its strings
+RUNNERS = re.compile(r"system|popen|Popen|run|call|check_call|check_output|getoutput"
+                     r"|getstatusoutput|exec\w*|spawn\w*")
+# the parser's own words: the subcommand names and choices, the cmd tests
+PARSER_CALLS = ("add_parser", "add_argument")
+
+
 def remove_argv(mods, nodes):
-    """A list or tuple literal holding "remove" (an argv for appglass remove,
-    plugin remove or hook remove) in a function of nodes: [(node, text)]."""
+    """In a function of nodes: a list or tuple literal holding "remove" (an
+    argv for appglass remove, plugin remove or hook remove), a string that is
+    a sink's name ("remove", "remove_owner": getattr, an argv word kept in a
+    variable) and a command line string with a remove word in a call that
+    runs one (os.system("appglass remove")). The parser's own words (its
+    subcommands and choices, args.cmd == "remove") are not. [(node, text)]"""
     out = []
     for m, q in sorted(nodes):
         if m not in mods:
             continue
-        for node in ast.walk(_function(mods, m, q)):
+        fn = _function(mods, m, q)
+        skip = set()
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Compare):
+                # the compared words themselves (args.cmd in ("apply",
+                # "remove")), not a call compared (run([.., "remove"]).returncode)
+                for c in [node.left] + node.comparators:
+                    skip.add(id(c))
+                    if isinstance(c, (ast.Tuple, ast.List, ast.Set)):
+                        skip.update(id(e) for e in c.elts)
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in PARSER_CALLS):
+                skip.update(id(n) for a in node.args[:1] for n in ast.walk(a))
+                skip.update(id(n) for k in node.keywords if k.arg == "choices"
+                            for n in ast.walk(k.value))
+        for node in ast.walk(fn):
+            if id(node) in skip:
+                continue
             if isinstance(node, (ast.List, ast.Tuple)) and any(
                     isinstance(e, ast.Constant) and e.value == "remove" for e in node.elts):
                 out.append(((m, q), ast.unparse(node)))
+            elif isinstance(node, ast.Constant) and node.value in SINK_NAMES:
+                out.append(((m, q), repr(node.value)))
+            elif isinstance(node, ast.Call):
+                f = node.func
+                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+                if not RUNNERS.fullmatch(name):
+                    continue
+                for a in list(node.args) + [k.value for k in node.keywords]:
+                    for c in ast.walk(a):
+                        if (isinstance(c, ast.Constant) and isinstance(c.value, str)
+                                and c.value != "remove"
+                                and re.search(r"\bremove\b", c.value)):
+                            out.append(((m, q), ast.unparse(node)))
     return out
 
 
@@ -510,6 +595,27 @@ class QmlInvariant(unittest.TestCase):
                 self.assertEqual([(p, r) for p, r, _ in hits],
                                  [(path, "Component.onDestruction")], hits)
 
+    def test_checker_catches_declared_and_built_argvs(self):
+        # a remove argv in a declaration (a Process object, a property) run
+        # from the teardown, and an argv built from a " remove" string
+        src = plugin_sources()
+        path = os.path.join("components", "DaemonBody.qml")
+        body = src[path]
+        teardown = "    Component.onDestruction: {\n"
+        plants = (
+            '    Process { id: wipe; command: [root.bin, "remove"] }\n'
+            + teardown + '        wipe.running = true;\n',
+            '    property var wipeArgv: [root.bin, "remove"]\n'
+            + teardown + '        Proc.runCommand("x", root.wipeArgv, null);\n',
+            teardown + '        Proc.runCommand("x", (root.bin + " remove").split(" "), null);\n',
+            teardown + '        Quickshell.execDetached(["sh", "-c", root.bin + " remove"]);\n',
+            teardown + '        const verb = "remove";\n        Proc.runCommand("x", [root.bin].concat(verb), null);\n',
+        )
+        for plant in plants:
+            with self.subTest(plant=plant):
+                hits = qml_violations(dict(src, **{path: body.replace(teardown, plant)}))
+                self.assertTrue([h for h in hits if h[0] == path], plant)
+
 
 class PythonInvariant(unittest.TestCase):
     def setUp(self):
@@ -561,6 +667,17 @@ class PythonInvariant(unittest.TestCase):
             ("core", "status_doc", "list(map(cmd_remove, [app]))"),
             ("vibrancy", "run", "subprocess.run(['appglass', 'remove'])"),
             ("core", "cmd_apply_all", "app.state.destroy()"),
+            # the dispatcher and the lock release run on every event too
+            ("core", "main", "if args.from_hook: cmd_remove(app)"),
+            ("core", "main", "if args.from_hook: hook.remove(app)"),
+            ("core", "_unlock", "app.state.destroy()"),
+            # a sink named, not referenced
+            ("core", "cmd_sync", "getattr(hook, 'remove')(app)"),
+            ("core", "cmd_sync", "getattr(app, 'remove_owner')('hook')"),
+            # a remove command built, not written as a list
+            ("vibrancy", "run", "a = 'remove'; subprocess.run([sys.argv[0], a])"),
+            ("vibrancy", "run", "os.system('appglass remove')"),
+            ("vibrancy", "run", "os.system('%s remove' % sys.argv[0])"),
         ]
         for mod, func, line in plants:
             with self.subTest(line=line):
@@ -580,7 +697,10 @@ class PythonInvariant(unittest.TestCase):
         for mod, old, new in (
                 ("core", "if not self.from_hook:", "if True:"),
                 ("core", "if name in app.state.owners and _user_removes(app, why):",
-                 "if name in app.state.owners:")):
+                 "if name in app.state.owners:"),
+                ("core", 'elif args.cmd == "remove":', "elif True:"),
+                ("core", "if not (st.owners or st.data.get(\"parked\") or app.keep_state_dir) and (",
+                 "if (")):
             with self.subTest(old=old):
                 self.assertTrue(old in src[mod], old)
                 sinks, _ = py_violations(dict(src, **{mod: src[mod].replace(old, new, 1)}))
