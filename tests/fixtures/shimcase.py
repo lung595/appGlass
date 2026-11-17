@@ -168,3 +168,42 @@ class ShimCase:
             f.write(b"changed by hand")
         self.apply()
         self.assertEqual(len(self.w.tc.builds()), 2 * self.BUILDS)
+
+    # adopt --rescue: every file the family wrote is recorded again, so
+    # remove gives the tree back (state.json lost, then the whole state dir)
+    def rescue_tree(self):
+        sd = os.path.join(self.w.sb.state, "appglass")
+        out = {}
+        for dp, dns, fns in os.walk(self.w.sb.root):
+            if dp == sd or dp.startswith(sd + os.sep):
+                continue
+            out[os.path.relpath(dp, self.w.sb.root) + "/"] = None
+            for fn in fns:
+                q = os.path.join(dp, fn)
+                with open(q, "rb") as f:
+                    out[os.path.relpath(q, self.w.sb.root)] = (f.read(), os.stat(q).st_mode)
+        return out
+
+    def check_rescue(self, whole):
+        import shutil
+        self.enable()
+        before = self.rescue_tree()
+        self.apply()
+        sd = os.path.join(self.w.sb.state, "appglass")
+        if whole:
+            shutil.rmtree(sd)
+        else:
+            os.remove(os.path.join(sd, "state.json"))
+        out, err = self.run_ok("adopt", "--rescue")
+        for rel in list(self.FILES) + [self.LAUNCHER]:
+            self.assertIn(os.path.basename(rel), out + err, rel)
+        out2, err2 = self.run_ok("remove")
+        after = self.rescue_tree()
+        diff = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+        self.assertEqual(diff, [], out + err + out2 + err2)
+
+    def test_rescue_after_state_json_lost(self):
+        self.check_rescue(False)
+
+    def test_rescue_after_state_dir_lost(self):
+        self.check_rescue(True)

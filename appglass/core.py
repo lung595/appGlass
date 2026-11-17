@@ -2359,12 +2359,23 @@ class _ProbeCtx(Ctx):
         return self._add(os.path.abspath(path), Op("owned", data))
 
     def desktop_override(self, desktop_id, fn):
-        if self.system_desktop(desktop_id) is None:
+        # the launcher as apply renders it from the system one: a hand path
+        # holding exactly these bytes is appglass's (adopt --rescue)
+        src = self.system_desktop(desktop_id)
+        if src is None:
             return None
-        return self.write_owned(os.path.join(self.env.data_home, "applications", desktop_id), "")
+        try:
+            text = fn(_read(src).decode("utf-8", "replace"))
+        except Exception:
+            text = ""
+        return self.write_owned(os.path.join(self.env.data_home, "applications", desktop_id),
+                                text)
 
     def artifact(self, name, build, stamp, dest=None, mode=None):
-        return self.write_owned(dest or os.path.join(self.cache_dir, name), "")
+        # never built here: the bytes are not known (data None in _engine_ops)
+        path = self.write_owned(dest or os.path.join(self.cache_dir, name), "")
+        self.ops[path].meta = {"artifact": True}
+        return path
 
     def edit_text(self, path, fn, undo=None):
         # the fn too: what it makes of an empty file is what a file
@@ -2391,7 +2402,7 @@ def _engine_ops(app):
     """{path: (owner, kind, undo, fn, data, keys)} for every path appglass
     would write here: kind owned | edit | json | retire; for an edit,
     undo(text) takes appglass's lines out and fn(text) puts them in; data
-    is what an owned file would hold (b"" when not known), keys the keys a
+    is what an owned file would hold (b"" when not known, None for a build), keys the keys a
     json merge sets."""
     from . import hook, niri
     env = app.env
@@ -2411,8 +2422,10 @@ def _engine_ops(app):
                      "not checked" % (name, type(ex).__name__, ex))
             for p, op in ctx.ops.items():
                 undo = (op.undo or app._undo_for(name, p)) if op.kind == "edit" else None
-                paths[p] = (name, op.kind, undo, getattr(ctx, "fns", {}).get(p),
-                            op.data if op.kind == "owned" else b"", op.keys)
+                data = op.data if op.kind == "owned" else b""
+                if (op.meta or {}).get("artifact"):
+                    data = None     # a build: its bytes are not known here
+                paths[p] = (name, op.kind, undo, getattr(ctx, "fns", {}).get(p), data, op.keys)
     finally:
         app.warn, app.dry_run = warn, dry
     cfg = niri.config_path(env)
@@ -2438,6 +2451,37 @@ def _edited(undo, data):
         return False
 
 
+def _made(history, p):
+    """The oldest ring record of p says it was absent: appglass made it."""
+    recs = history.get(p) or []
+    return bool(recs) and bool(recs[0].get("absent"))
+
+
+def _hand_made(history, p, data, planned):
+    """A hand path appglass made itself (not adopted): the ring saw it
+    absent before appglass first wrote it, and it holds appglass's text (its
+    marker, what the family renders there) or a build of its own (planned
+    None: the bytes of a build are not known)."""
+    return _made(history, p) and (planned is None or data == planned
+                                  or bool(MARK.search(data)))
+
+
+def _edit_is_ours(undo, fn, data, seen):
+    """A file holds appglass's edit: its undo takes something out and, with
+    no ring record of the path (seen), the edit put back on what is left
+    gives the file again (the whole signature: a lone line that looks like
+    appglass's is the user's)."""
+    if undo is None or not _edited(undo, data):
+        return False
+    if seen or fn is None:
+        return True
+    try:
+        text = data.decode("utf-8")
+        return fn(undo(text)) == text
+    except Exception:
+        return False
+
+
 def orphans(app):
     """With state.json missing: the files on disk that appglass wrote (its
     marker in them). [] when state.json is there."""
@@ -2446,8 +2490,9 @@ def orphans(app):
     if app._orphans is None:
         from . import adapters
         hand = {os.path.join(app.env.home, rel) for rel, _, _ in adapters.HAND_FILES}
+        history = _ring_history(app.env)
         out = []
-        for p, undo in sorted(_engine_plan(app).items()):
+        for p, (owner, kind, undo, fn, planned, keys) in sorted(_engine_ops(app).items()):
             if not os.path.isfile(p):
                 continue
             try:
@@ -2456,13 +2501,17 @@ def orphans(app):
                 continue
             if not data:
                 continue
+            if kind != "edit":
+                undo = None
             if p in hand:
-                # a hand file appglass took over, or the hook's own wrapper
-                mine = ADOPTED_MARK in data or HOOK_MARK in data
+                # a hand file appglass took over, the hook's own wrapper, or
+                # one appglass made (the ring saw it absent)
+                mine = (ADOPTED_MARK in data or HOOK_MARK in data
+                        or _hand_made(history, p, data, planned))
             elif undo is not None:
                 # the user's file, appglass's lines in it; not a JSON file
                 # (an app's settings: the user may have set the same key)
-                mine = not p.endswith(".json") and _edited(undo, data)
+                mine = not p.endswith(".json") and _edit_is_ours(undo, fn, data, p in history)
             else:
                 mine = bool(MARK.search(data))
             if mine:
@@ -2569,10 +2618,8 @@ def _rescue_claims(app, backups=()):
     units = {hook.unit_path(env, n) for n in hook.UNITS}
 
     def made(p):
-        # the oldest ring record of p says it was absent: appglass made it
-        recs = history.get(p) or []
-        return bool(recs) and bool(recs[0].get("absent"))
-    out, skipped = [], []
+        return _made(history, p)
+    out, skipped, builds = [], [], []
     for p, (owner, kind, undo, fn, planned, keys) in sorted(cand.items()):
         b = _bname(p) if _bname(p) in have else None
         claim = {"path": p, "owner": owner, "kind": kind, "undo": undo, "fn": fn,
@@ -2618,14 +2665,24 @@ def _rescue_claims(app, backups=()):
             kind = "owned"
         elif p in hand:
             mine = (b is not None or ADOPTED_MARK in data or HOOK_MARK in data
-                    or (bool(planned) and data == planned))
+                    or (bool(planned) and data == planned)
+                    or _hand_made(history, p, data, planned))
             kind = "owned"
+            if not mine and planned is None:
+                # a build of the family: appglass's when the family's other
+                # files are (a family applies whole or not at all)
+                builds.append(dict(claim, kind=kind))
         elif kind == "edit":
-            mine = undo is not None and _edited(undo, data)
+            mine = _edit_is_ours(undo, fn, data, p in history)
         else:
             mine = b is not None or bool(MARK.search(data)) or (bool(planned) and data == planned)
         if mine:
             out.append(dict(claim, kind=kind))
+    mine_owners = {c["owner"] for c in out if c["kind"] == "owned"}
+    for c in builds:
+        if c["owner"] in mine_owners:
+            out.append(c)
+    out.sort(key=lambda c: c["path"])
     for p in skipped:
         app.warn("adopt --rescue: %s holds keys appglass merged: left as is (not "
                  "recorded, no original in backup/; set them back by hand if you want "

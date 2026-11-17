@@ -104,6 +104,36 @@ class QtStyle(unittest.TestCase):
         self.assertIn("would build", out + err)
         self.assertEqual(self.w.sb.tree_hash(), self.before)
 
+    def check_rescue(self, whole):
+        import shutil
+        sd = os.path.join(self.w.sb.state, "appglass")
+        self.apply()
+        if whole:
+            shutil.rmtree(sd)
+        else:
+            os.remove(os.path.join(sd, "state.json"))
+        code, out, err = self.w.run("adopt", "--rescue")
+        self.assertEqual(code, 0, err)
+        self.assertIn("vlc.desktop", out + err)
+        self.assertIn("libappglass.so", out + err)
+        code, out2, err2 = self.w.run("remove")
+        self.assertEqual(code, 0, err2)
+        self.assertEqual(self.w.sb.tree_hash(), self.before, out + err + out2 + err2)
+
+    def test_rescue_after_state_json_lost(self):
+        self.check_rescue(False)
+
+    def test_rescue_after_state_dir_lost(self):
+        self.check_rescue(True)
+
+    def test_lost_state_guard_names_the_launcher(self):
+        self.apply()
+        os.remove(os.path.join(self.w.sb.state, "appglass", "state.json"))
+        code, out, err = self.apply()
+        self.assertNotEqual(code, 0)
+        self.assertIn("vlc.desktop", err)
+        self.assertIn("libappglass.so", err)
+
     def test_not_installed(self):
         os.remove(os.path.join(self.w.bin, "vlc"))
         self.apply()

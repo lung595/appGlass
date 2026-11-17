@@ -1157,6 +1157,32 @@ class RescueHand(unittest.TestCase):
                 self.assertNotIn(b"@name appGlass", data, q)
 
 
+class LookalikeLine(Base):
+    """A user's own comment that starts like appglass's commented-out line
+    is not appglass's edit: a fresh install applies, and remove gives the
+    file back as it was."""
+
+    def setUp(self):
+        super().setUp()
+        self.main = self.sb.cfg("alacritty", "alacritty.toml")
+        with open(self.main, "a") as f:
+            f.write("# appglass-off: my own note\n")
+        self.text = self.sb.read(self.main)
+
+    def test_fresh_install_applies_and_removes(self):
+        code, out, err = self.apply(ok=False)
+        self.assertEqual(code, 0, err)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.read(self.main), self.text)
+
+    def test_rescue_finds_nothing(self):
+        code, out, err = self.sb.run("adopt", "--rescue", assume="alacritty")
+        self.assertNotEqual(code, 0)
+        self.assertIn("nothing to rescue", err)
+        self.assertEqual(self.sb.read(self.main), self.text)
+
+
 class Hints(Base):
     def test_the_hint_names_only_what_works(self):
         self.apply()
