@@ -491,6 +491,105 @@ class Obsidian(unittest.TestCase):
         self.assertFalse(os.path.exists(self.snippet_path(b)))
         self.assertEqual(self.sb.tree_hash(), before)
 
+    def two_vaults_synced(self):
+        self.tmp_settings = tempfile.mkdtemp(prefix="appglass-obs-")
+        self.addCleanup(shutil.rmtree, self.tmp_settings, True)
+        b = os.path.join(self.sb.home, "Drive", "VaultB")
+        self.sb.write("b.md", "# b\n", base=b)
+        self.sb.write(os.path.join(".obsidian", "appearance.json"), APPEARANCE, base=b)
+        self.obsidian_json([self.vault, b])
+        before = self.sb.tree_hash()
+        self.sync()
+        return b, before
+
+    def records(self):
+        st = json.loads(self.sb.read(os.path.join(self.sb.state, "appglass", "state.json")))
+        return sorted(st["owners"]["obsidian"]["files"])
+
+    def back_and_removed(self, b, away, before):
+        os.rename(away, b)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.read(self.appearance_path(b)), APPEARANCE)
+        self.assertFalse(os.path.exists(self.snippet_path(b)))
+        self.assertEqual(self.sb.tree_hash(), before)
+
+    def test_a_typed_apply_keeps_the_records_of_a_vault_not_mounted(self):
+        # a user action is no reason to forget a vault whose drive is away:
+        # its folder is gone, not its files
+        b, before = self.two_vaults_synced()
+        recs = self.records()
+        away = b + ".unmounted"
+        os.rename(b, away)
+        code, out, err = self.sb.run("apply", "--all", assume="obsidian")
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("left deleted", err)
+        self.assertIn("VaultB", err)
+        self.assertEqual(self.records(), recs)
+        self.assertFalse(os.path.exists(b))
+        self.back_and_removed(b, away, before)
+
+    def test_glass_off_keeps_the_records_of_a_vault_not_mounted(self):
+        b, before = self.two_vaults_synced()
+        recs = self.records()
+        away = b + ".unmounted"
+        os.rename(b, away)
+        code, out, err = self.sb.run("get")
+        p = os.path.join(self.tmp_settings, "off.json")
+        with open(p, "w") as f:
+            json.dump(dict(json.loads(out), enabled=False), f)
+        code, out, err = self.sb.run("sync", "--settings-file", p, assume="obsidian")
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("left deleted", err)
+        self.assertEqual([r for r in self.records() if r.startswith(b)],
+                         [r for r in recs if r.startswith(b)])
+        self.assertFalse(os.path.exists(b))
+        self.back_and_removed(b, away, before)
+
+    def test_an_event_keeps_every_byte_and_record_of_a_vault_no_longer_listed(self):
+        # B is taken out of obsidian.json, its files all still there: the
+        # plugin's sync and the hook's apply (events) leave B's bytes and
+        # records as they are; the typed apply gives B back
+        b, before = self.two_vaults_synced()
+        state = os.path.join(self.sb.state, "appglass", "state.json")
+        recs = json.loads(self.sb.read(state))["owners"]["obsidian"]["files"]
+        self.obsidian_json([self.vault])
+        snap = self.sb.tree_hash(b)
+        for run in (self.sync, lambda: self.sb.run("apply", "--from-hook", "--quiet")):
+            run()
+            self.assertEqual(self.sb.tree_hash(b), snap)
+            now = json.loads(self.sb.read(state))["owners"]["obsidian"]["files"]
+            self.assertEqual(sorted(now), sorted(recs))
+            for p, rec in recs.items():
+                self.assertEqual({k: v for k, v in now[p].items() if k != "unplanned"},
+                                 {k: v for k, v in rec.items() if k != "unplanned"}, p)
+        code, out, err = self.sb.run("apply", "--all", assume="obsidian")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.read(self.appearance_path(b)), APPEARANCE)
+        self.assertFalse(os.path.exists(self.snippet_path(b)))
+
+    def test_a_vault_whose_snippets_dir_the_user_deleted_is_forgotten(self):
+        # the vault is there: a snippets folder appglass made and the user
+        # deleted is their opt-out, not a drive that went away
+        self.apply()
+        shutil.rmtree(os.path.dirname(self.snippet_path()))
+        self.obsidian_json([])
+        self.apply()
+        self.assertNotIn(self.snippet_path(),
+                         self.sb.json(os.path.join(self.sb.state, "appglass", "state.json"))
+                         .get("owners", {}).get("obsidian", {}).get("files", {}))
+
+    def test_rescue_takes_the_folders_appglass_made_out_again(self):
+        self.apply()
+        shutil.rmtree(os.path.join(self.sb.state, "appglass"))
+        code, out, err = self.sb.run("adopt", "--rescue", assume="obsidian")
+        self.assertEqual(code, 0, out + err)
+        self.apply()
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(os.path.dirname(self.snippet_path())))
+        self.assertEqual(self.sb.tree_hash(), self.before)
+
     def test_vault_outside_sandbox_refused(self):
         outside = os.path.realpath(tempfile.mkdtemp(prefix="appglass-outside-"))
         try:

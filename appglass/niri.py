@@ -297,17 +297,29 @@ def sync(app, dry_run=False, extra_ids=()):
         if changed:
             app.info("niri: would write %s" % ", ".join(changed))
         return changed
-    if changed and os.path.isfile(cfg):
+    o = app.state.owners.get("niri") or {}
+    if (changed or o.get("validate_failed")) and os.path.isfile(cfg):
         ok, out = validate(app.env, cfg)
-        if ok is False:
-            # the rule this run wrote breaks the niri config: taken out again
-            # (the ring holds the files as they were), an event run too
-            with app.user_action():
-                app.remove_owner("niri")
+        if ok is False and app.event:
+            # an event (the hook, the plugin's sync) takes nothing out: the
+            # user's own config may be what fails. The next command the user
+            # types validates again and takes the rule out
+            o["validate_failed"] = True
+            app.state.save()
+            app.error("niri validate failed; an event run leaves the rule as is (appglass "
+                      "apply validates again and takes it out, appglass remove does):\n%s"
+                      % out)
+            return changed
+        if ok is False and not app.event:
+            # the rule breaks the niri config: taken out again (the ring
+            # holds the files as they were)
+            app.remove_owner("niri")
             app.error("niri validate failed, rule removed again:\n%s" % out)
             return []
         if ok is None:
             app.warn("niri: not on PATH, config not validated")
+        elif o.pop("validate_failed", None):
+            app.state.save()
     if changed:
         app.info("niri: wrote %s" % ", ".join(changed))
     return changed

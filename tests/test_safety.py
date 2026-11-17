@@ -864,6 +864,29 @@ class HandHookFiles(Base):
         code, out, err = self.sb.run("doctor")
         self.assertEqual(code, 0, out + err)
 
+    def test_the_named_adopt_runs_with_other_hand_units(self):
+        # one hand unit adopted by path, a sibling hand unit there too: the
+        # hook install that follows must not stop at the sibling
+        p = self.sb.cfg("systemd", "user", hook.VIBRANCY_UNIT)
+        os.makedirs(os.path.dirname(p))
+        with open(p, "w") as f:
+            f.write("[Service]\nExecStart=%h/.local/bin/appglass-vibrancy\n")
+        q = self.sb.cfg("systemd", "user", "appglass-discord.service")
+        with open(q, "w") as f:
+            f.write("[Service]\nExecStart=/usr/bin/true\n")
+        code, out, err = self.sb.run("doctor")
+        cmd = "appglass adopt %s" % self.env.tilde(p)
+        self.assertIn(cmd, out)
+        code, out, err = self.sb.run(*cmd.split()[1:])
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(hook.installed(core.App(self.sb.env, out=io.StringIO(),
+                                                err=io.StringIO())))
+        code, out, err = self.sb.run("doctor")
+        self.assertEqual(code, 0, out + err)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.read(q), "[Service]\nExecStart=/usr/bin/true\n")
+
 
 class EventGuard(Base):
     """S6 at run time: a run that is an event (the plugin's sync, the hook,
@@ -944,6 +967,45 @@ class EventGuard(Base):
         code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
         self.assertEqual(code, 0, err)
 
+    def test_a_sync_that_failed_switches_the_family_off_on_the_next_one(self):
+        # the sync saves the settings, then its apply fails: the next sync
+        # with the same settings still takes the family out (the switch is
+        # against what the last finished sync applied)
+        from unittest import mock
+        self.apply()
+        code, out, err = self.sb.run("get")
+        obj = json.loads(out)
+        p = self.sb.path("plugin-settings.json")
+        for apps, fn in (({"alacritty": {"enabled": False}}, "cmd_apply_all"),
+                         (None, "cmd_remove")):
+            with self.subTest(fn=fn):
+                if apps is None:
+                    self.apply()
+                    on = dict(obj, enabled=False)
+                else:
+                    on = dict(obj, apps=dict(obj.get("apps") or {}, **apps))
+                with open(p, "w") as f:
+                    json.dump(on, f)
+
+                def boom(*a, **k):
+                    raise core.AppglassError("interrupted")
+                with mock.patch.object(core, fn, boom):
+                    code, out, err = self.sb.run("sync", "--settings-file", p,
+                                                 assume="alacritty")
+                self.assertNotEqual(code, 0)
+                self.assertTrue(os.path.exists(self.owned()))
+                code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertFalse(os.path.exists(self.owned()), out + err)
+                # and the one after that switches nothing
+                code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertFalse(os.path.exists(self.owned()))
+                with open(p, "w") as f:
+                    json.dump(obj, f)
+                code, out, err = self.sb.run("sync", "--settings-file", p, assume="alacritty")
+                self.assertEqual(code, 0, err)
+
 
 class Rescue(Base):
     """adopt --rescue: state.json and the ring both gone, the appglass files
@@ -1014,6 +1076,85 @@ class Rescue(Base):
         code, out, err = self.sb.run("adopt", "--rescue", assume="alacritty")
         self.assertNotEqual(code, 0)
         self.assertIn("nothing to rescue", err)
+
+
+HAND_UNIT = b"[Unit]\nDescription=my own sync\n[Service]\nExecStart=/usr/bin/true\n"
+
+
+class RescueHand(unittest.TestCase):
+    """adopt --rescue with backup/ still there: the hand files appglass
+    adopted (a unit, a retired script, a theme it renders over) and the
+    JSON it merged into get their originals back on remove."""
+
+    def setUp(self):
+        from fixtures.shimworld import ShimWorld
+        from test_vencord import THEME, SETTINGS, OLD_SETTINGS
+        self.w = w = ShimWorld()
+        res = w.user(".config/discord/app-1.0.10/resources")
+        os.makedirs(res)
+        for n in ("app.asar", "_app.asar"):
+            open(os.path.join(res, n), "w").close()
+        w.hand(SETTINGS, OLD_SETTINGS)
+        self.script = w.hand(".local/bin/appglass-vencord", "#!/bin/sh\nold\n", 0o755)
+        self.theme = w.hand(THEME, "hand theme\n")
+        self.unit = w.hand(".config/systemd/user/appglass-sync.service", HAND_UNIT)
+        self.sd = os.path.join(w.sb.state, "appglass")
+
+    def tearDown(self):
+        self.w.cleanup()
+
+    def run_ok(self, *a):
+        code, out, err = self.w.run(*a)
+        self.assertEqual(code, 0, out + err)
+        return out + err
+
+    def tree(self):
+        out = {}
+        for dp, dns, fns in os.walk(self.w.sb.root):
+            if dp.startswith(self.sd):
+                continue
+            out[os.path.relpath(dp, self.w.sb.root) + "/"] = None
+            for fn in fns:
+                q = os.path.join(dp, fn)
+                with open(q, "rb") as f:
+                    out[os.path.relpath(q, self.w.sb.root)] = (f.read(), os.stat(q).st_mode)
+        return out
+
+    def adopt_apply_lose(self, whole):
+        before = self.tree()
+        self.run_ok("set", "apps.vencord.enabled", "true")
+        self.run_ok("adopt")
+        self.run_ok("apply", "--only", "vencord")
+        self.assertFalse(os.path.exists(self.script))
+        if whole:
+            shutil.rmtree(self.sd)
+        else:
+            os.remove(os.path.join(self.sd, "state.json"))
+        return before
+
+    def test_rescue_with_backup_gives_every_original_back(self):
+        before = self.adopt_apply_lose(False)
+        out = self.run_ok("adopt", "--rescue")
+        self.run_ok("apply", "--only", "vencord")
+        out += self.run_ok("remove")
+        after = self.tree()
+        diff = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+        self.assertEqual(diff, [], out)
+
+    def test_rescue_without_the_state_dir_leaves_no_appglass_file(self):
+        self.adopt_apply_lose(True)
+        out = self.run_ok("adopt", "--rescue")
+        self.run_ok("apply", "--only", "vencord")
+        out += self.run_ok("remove")
+        for dp, dns, fns in os.walk(self.w.sb.root):
+            for fn in fns:
+                q = os.path.join(dp, fn)
+                if os.path.islink(q) or "/usr/" in q:
+                    continue
+                with open(q, "rb") as f:
+                    data = f.read()
+                self.assertFalse(core.MARK.search(data), q)
+                self.assertNotIn(b"@name appGlass", data, q)
 
 
 class Hints(Base):

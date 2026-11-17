@@ -181,6 +181,32 @@ Item {
             }
         }, true).filter(r => r.key === "md.example.Electron")[0];
         t.check("no route: the same label switched on, off or never", [routeless.statusLabel, routelessOff.statusLabel, byKey["md.example.Electron"].statusLabel], ["Fallback", "Fallback", "Fallback"]);
+        // glass paused: every row says so, a routeless one too
+        const pausedRows = {};
+        for (const r of Logic.appRows(status, {}, false))
+            pausedRows[r.key] = r;
+        t.check("glass off: routeless rows paused too", ["md.example.Electron", "org.example.Flutter", "Alacritty", "discord"].map(k => pausedRows[k].statusLabel), ["Paused", "Paused", "Paused", "Paused"]);
+        // a switch that applies nothing (its family not installed), or an
+        // opt-in app off (its default): one label, whatever the toggle history
+        const label = (key, saved) => Logic.appRows(status, saved, true).filter(r => r.key === key)[0].statusLabel;
+        t.check("family not installed: the same label on, off or never", [label("herdr-app", {}), label("herdr-app", {
+                    "herdr-app": {
+                        "enabled": true
+                    }
+                }), label("herdr-app", {
+                    "herdr-app": {
+                        "enabled": false
+                    }
+                })], ["Fallback", "Fallback", "Fallback"]);
+        t.check("an opt-in app off: the same label never touched or switched off", [label("discord", {}), label("discord", {
+                    "discord": {
+                        "enabled": false
+                    }
+                }), label("steam", {
+                    "steam": {
+                        "enabled": false
+                    }
+                })], ["Fallback", "Fallback", "Fallback"]);
         // the saved choices win until the next status has them
         const saved = {
             "Alacritty": {

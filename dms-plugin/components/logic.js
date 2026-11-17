@@ -395,24 +395,35 @@ function _routeless(a) {
 }
 
 // glass | fallback | delegated | opaque | paused | conflict
-//   paused: glass is off for every app, or the app's own switch is off
+//   paused: glass is off for every app, or the user switched off an app
+//     that is on by default
 //   conflict: a hand-made file appglass does not own is in the way
-//   a routeless app is always fallback (one state, one label)
-function appStatus(app, saved, glassOn) {
+//   a row whose switch applies nothing (no route, or its family not
+//   installed) and an opt-in app (a mod or forced route) that is off, its
+//   default, read fallback: one state, one label, whatever the toggle history
+function _familyMissing(a, status) {
+    var fams = status && status.families && typeof status.families === "object" ? status.families : {};
+    var f = a.family ? fams[a.family] : null;
+    return !!(f && f.installed === false);
+}
+
+function appStatus(app, saved, glassOn, status) {
     var a = app || {};
     var eff = a.effective;
     if (eff === "delegated" || eff === "excluded")
         return "delegated";
     if (typeof a.enabled !== "boolean")
         return eff === "glass" ? "glass" : "opaque";
-    if (_routeless(a) && !(Array.isArray(a.conflicts) && a.conflicts.length))
-        return "fallback";
     if (glassOn === false)
         return "paused";
     if (Array.isArray(a.conflicts) && a.conflicts.length)
         return "conflict";
-    if (_saved(saved, a.key).enabled === false)
-        return "paused";
+    if (_routeless(a) || _familyMissing(a, status))
+        return "fallback";
+    var own = _saved(saved, a.key);
+    var on = typeof own.enabled === "boolean" ? own.enabled : a.enabled;
+    if (!on)
+        return needsConfirm(a.tier) ? "fallback" : "paused";
     if (eff === "glass" || eff === "opaque")
         return eff;
     return "fallback";
@@ -443,7 +454,7 @@ function appRows(status, saved, glassOn) {
         var route = names.indexOf(own.route) >= 0 ? own.route : (names.indexOf(a.route) >= 0 ? a.route : String(a.adapter || ""));
         var savedRoute = typeof own.route === "string" ? own.route : "";
         var tier = routeInfo(status, route).tier || a.tier;
-        var st = appStatus(a, saved, glassOn);
+        var st = appStatus(a, saved, glassOn, status);
         var on = typeof own.enabled === "boolean" ? own.enabled : a.enabled === true;
         var reason = String(a.reason || "");
         // on, but nothing to apply: the switch saved, the app stays as it was

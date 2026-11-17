@@ -120,6 +120,36 @@ class Sync(unittest.TestCase):
         self.sb.run("remove")
         self.assertEqual(self.sb.tree_hash(), before)
 
+    def test_an_event_leaves_the_rule_when_validate_fails(self):
+        # the hook (an event) wrote the rule and niri validate fails: the
+        # event takes nothing out (the user's own config may be what fails)
+        fake = self.sb.path("fakebin")
+        os.makedirs(fake)
+        ok = self.sb.path("niri-ok")
+        with open(os.path.join(fake, "niri"), "w") as f:
+            f.write("#!/bin/sh\n[ -e %s ] && exit 0\necho broken >&2\nexit 1\n" % ok)
+        os.chmod(os.path.join(fake, "niri"), 0o755)
+        open(ok, "w").close()
+        self.sb.env["PATH"] = fake + os.pathsep + self.sb.env["PATH"]
+        code, out, err = self.sb.run("apply", "--only", "alacritty", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        rules = self.sb.cfg("niri", "appglass.kdl")
+        with open(rules, "a") as f:
+            f.write("// stale\n")
+        os.remove(ok)
+        cfg = self.sb.read(self.sb.cfg("niri", "config.kdl"))
+        code, out, err = self.sb.run("apply", "--from-hook", assume="alacritty")
+        self.assertNotEqual(code, 0, out + err)
+        self.assertIn("niri validate failed", err)
+        self.assertTrue(os.path.isfile(rules))
+        self.assertEqual(self.sb.read(self.sb.cfg("niri", "config.kdl")), cfg)
+        self.assertIn("niri", self.sb.json(os.path.join(self.sb.state, "appglass",
+                                                        "state.json"))["owners"])
+        # a command the user types still takes it out
+        code, out, err = self.sb.run("apply", "--only", "alacritty", assume="alacritty")
+        self.assertEqual(code, 1, out + err)
+        self.assertNotIn("appglass.kdl", self.sb.read(self.sb.cfg("niri", "config.kdl")))
+
     def test_user_edit_of_config_kdl_kept_on_remove(self):
         self.sb.run("apply", assume="alacritty")
         p = self.sb.cfg("niri", "config.kdl")

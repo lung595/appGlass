@@ -350,7 +350,8 @@ def reach(graph, roots, cut=()):
 # what takes glass files out: the remove commands, an owner's removal, a
 # file's revert to its original, the state dir's removal
 PY_SINKS = {("core", "cmd_remove"), ("hook", "remove"), ("plugin", "remove"),
-            ("core", "App.remove_owner"), ("core", "App._revert"), ("core", "State.destroy")}
+            ("core", "App.remove_owner"), ("core", "App._revert"), ("core", "App._revert_stale"),
+            ("core", "State.destroy")}
 # event entry points: the matugen post_hook and the sync units (apply
 # --from-hook), the plugin's sync and status runs (its start too), the
 # vibrancy daemon, and doctor (it repairs, it never takes anything out); the
@@ -368,9 +369,9 @@ PY_ROOTS = [("core", "cmd_apply"), ("core", "cmd_apply_all"), ("core", "cmd_sync
 #    appglass apply (_user_removes);
 #  - commit: a file the owner no longer writes is reverted, never in an
 #    event run (the record is kept, marked unplanned);
-#  - niri.sync: the rule with no glass app left, never in an event run; and
-#    the rule niri validate rejects (its own write taken back: S7, every
-#    failure ends opaque);
+#  - niri.sync: the rule with no glass app left, and the rule niri validate
+#    rejects (S7, every failure ends opaque), never in an event run (the
+#    owner is marked, the next typed command validates again);
 #  - main: the remove commands the user typed (appglass remove, hook remove,
 #    plugin remove);
 #  - _unlock: the state dir of a run, not an event, that ended with nothing
@@ -379,8 +380,8 @@ PY_ROOTS = [("core", "cmd_apply"), ("core", "cmd_apply_all"), ("core", "cmd_sync
 GUARDED = {
     (("core", "cmd_sync"), ("core", "cmd_remove")): r"not .*\benabled\b.*",
     (("core", "cmd_apply"), ("core", "App.remove_owner")): r"_user_removes\(app, why, name\)",
-    (("core", "App.commit"), ("core", "App._revert")): r"not self\.event",
-    (("niri", "sync"), ("core", "App.remove_owner")): r"not app\.event|ok is False",
+    (("core", "App.commit"), ("core", "App._revert_stale")): r"not self\.event",
+    (("niri", "sync"), ("core", "App.remove_owner")): r"not app\.event",
     (("core", "main"), ("core", "cmd_remove")): r"args\.cmd == 'remove'",
     (("core", "main"), ("hook", "remove")): (
         r"args\.cmd == 'hook'", r"not \(args\.action == 'install'\)", r"not \(args\.dry_run\)"),
@@ -480,7 +481,7 @@ DELETES = {("shutil", "rmtree"), ("os", "remove"), ("os", "unlink"), ("os", "rmd
            ("os", "removedirs")}
 # the event-path functions allowed to delete, each for its own files only:
 DELETE_SITES = {
-    ("core", "App.commit"),        # a retired hand file (its backup kept for remove)
+    ("core", "App._retire_file"),  # a retired hand file (adopted, its backup kept)
     ("core", "App._drop_backup"),  # a backup no record names (after a user's revert)
     ("core", "App._ring_entry"),   # ring entries past RING_KEEP, half-written ones
     ("core", "_unlock"),           # its own lock and the dirs the lock made
@@ -503,6 +504,38 @@ def deletes(mods, nodes):
             f = getattr(node, "func", None)
             if (isinstance(node, ast.Call) and isinstance(f, ast.Attribute)
                     and isinstance(f.value, ast.Name) and (f.value.id, f.attr) in DELETES):
+                out.append(((m, q), ast.unparse(node)))
+    return out
+
+
+def _files_subscript(node):
+    """node is X["files"] or X.get("files", ..) (an owner's records)."""
+    if isinstance(node, ast.Subscript):
+        return _str_value(node.slice) == "files"
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get" and node.args and _str_value(node.args[0]) == "files")
+
+
+# the event-path functions allowed to forget a record: none (remove_owner,
+# _revert_stale and the restore and rescue commands are sinks or typed)
+FORGET_SITES = set()
+
+
+def forgets(mods, nodes):
+    """Records forgotten in a function of nodes: X["files"].pop(..),
+    .clear(), .popitem(), del X["files"][..]. [(node, text)]"""
+    out = []
+    for m, q in sorted(nodes):
+        if m not in mods or (m, q) in FORGET_SITES:
+            continue
+        for node in ast.walk(_function(mods, m, q)):
+            f = getattr(node, "func", None)
+            if (isinstance(node, ast.Call) and isinstance(f, ast.Attribute)
+                    and f.attr in ("pop", "clear", "popitem") and _files_subscript(f.value)):
+                out.append(((m, q), ast.unparse(node)))
+            elif isinstance(node, ast.Delete) and any(
+                    isinstance(t, ast.Subscript) and _files_subscript(t.value)
+                    for t in node.targets):
                 out.append(((m, q), ast.unparse(node)))
     return out
 
@@ -562,7 +595,8 @@ def py_violations(sources=None):
     mods = _modules(sources)
     graph = call_graph(mods)
     seen = reach(graph, PY_ROOTS, allowed_edges(mods, graph))
-    return sorted(seen & PY_SINKS), remove_argv(mods, seen) + deletes(mods, seen)
+    return sorted(seen & PY_SINKS), (remove_argv(mods, seen) + deletes(mods, seen)
+                                     + forgets(mods, seen))
 
 
 def pause_calls_ok(mods):
@@ -726,7 +760,8 @@ class PythonInvariant(unittest.TestCase):
         self.assertIn(("core", "cmd_apply"), g[("core", "cmd_apply_all")])
         # methods, attribute dispatch and the families
         self.assertIn(("core", "App.commit"), g[("core", "cmd_apply")])
-        self.assertIn(("core", "App._revert"), g[("core", "App.commit")])
+        self.assertIn(("core", "App._revert_stale"), g[("core", "App.commit")])
+        self.assertIn(("core", "App._revert"), g[("core", "App._revert_stale")])
         self.assertIn(("families.alacritty", "apply"), g[("core", "cmd_apply")])
         self.assertIn(("core", "Ctx.write_owned"), g[("families.alacritty", "apply")])
         for r in PY_ROOTS:
@@ -785,6 +820,13 @@ class PythonInvariant(unittest.TestCase):
             ("core", "cmd_apply_all",
              "[os.remove(p) for o in app.state.owners.values() for p in o['files']]"),
             ("core", "cmd_sync", "os.unlink(app.state.path)"),
+            # in commit, the write path of every event: a file deleted by
+            # hand, a record forgotten
+            ("core", "App.commit", "os.remove(next(iter(ctx.ops)))"),
+            ("core", "App.commit",
+             "self.state.owners[ctx.owner]['files'].pop(next(iter(ctx.ops)))"),
+            ("core", "App.commit", "del self.state.owners[ctx.owner]['files'][ctx.order[0]]"),
+            ("core", "cmd_sync", "app.state.owners['niri'].get('files', {}).clear()"),
         ]
         for mod, func, line in plants:
             with self.subTest(line=line):
@@ -807,6 +849,7 @@ class PythonInvariant(unittest.TestCase):
                  "if name in app.state.owners:"),
                 ("niri", 'if "niri" in app.state.owners and not dry_run and not app.event:',
                  'if "niri" in app.state.owners and not dry_run:'),
+                ("niri", "if ok is False and not app.event:", "if ok is False:"),
                 ("core", 'elif args.cmd == "remove":', "elif True:"),
                 ("core", "if not (st.owners or st.data.get(\"parked\") or app.keep_state_dir) "
                  "and not app.event and (", "if not (st.owners or st.data.get(\"parked\") "
