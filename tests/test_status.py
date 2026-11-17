@@ -63,6 +63,29 @@ class Status(unittest.TestCase):
         self.assertEqual(routes["solaar"]["effective"], "fallback")
         self.assertIn("not installed", routes["solaar"]["reason"])
 
+    def test_route_choices(self):
+        apps = {a["key"]: a for a in self.doc()["apps"]}
+        # the family's adapter first, then the app-id route, then the toolkit's
+        self.assertEqual(apps["discord"]["routes"], ["electron-vencord", "electron-hook"])
+        self.assertEqual(apps["steam"]["routes"], ["steam-cdp"])
+        self.assertEqual(apps["vlc"]["routes"], ["qt-style"])
+        self.assertEqual(apps["Alacritty"]["routes"], ["terminal"])
+        for key in ("org.mozilla.firefox", "Pinball"):
+            self.assertEqual(apps[key]["routes"], [], key)
+        self.assertIsNone(apps["discord"]["route"])
+        self.assertEqual(self.sb.run("set", "apps.discord.route", "electron-hook")[0], 0)
+        apps = {a["key"]: a for a in self.doc()["apps"]}
+        self.assertEqual(apps["discord"]["route"], "electron-hook")
+        self.assertEqual(apps["discord"]["adapter"], "electron-hook")
+        self.assertEqual(apps["discord"]["routes"], ["electron-vencord", "electron-hook"])
+
+    def test_conflicts(self):
+        apps = {a["key"]: a for a in self.doc()["apps"]}
+        # a hand-made VLC launcher appglass does not own: vlc shows it
+        self.assertEqual(apps["vlc"]["conflicts"], ["~/.local/share/applications/vlc.desktop"])
+        self.assertEqual(apps["solaar"]["conflicts"], [])
+        self.assertEqual(apps["Pinball"]["conflicts"], [])
+
     def test_catalogue(self):
         fams = core.discover()
         for a in adapters.CATALOGUE:

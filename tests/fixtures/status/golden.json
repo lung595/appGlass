@@ -285,6 +285,7 @@
       "app_ids": [
         "^Alacritty$"
       ],
+      "conflicts": [],
       "effective": "glass",
       "enabled": true,
       "family": "alacritty",
@@ -293,6 +294,10 @@
       "name": "Alacritty",
       "reason": "family alacritty",
       "risk": "none",
+      "route": null,
+      "routes": [
+        "terminal"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "terminal"
@@ -302,6 +307,7 @@
       "app_ids": [
         "^com\\.github\\.tchx84\\.Flatseal$"
       ],
+      "conflicts": [],
       "effective": "glass",
       "enabled": true,
       "family": "gtk4",
@@ -310,6 +316,10 @@
       "name": "Flatseal",
       "reason": "family gtk4",
       "risk": "low",
+      "route": null,
+      "routes": [
+        "gtk4"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "gtk4"
@@ -319,6 +329,7 @@
       "app_ids": [
         "^dev\\.duxlabs\\.files$"
       ],
+      "conflicts": [],
       "effective": "glass",
       "enabled": true,
       "family": "dux",
@@ -327,6 +338,10 @@
       "name": "Files",
       "reason": "family dux",
       "risk": "none",
+      "route": null,
+      "routes": [
+        "dux-json"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "go-launcher"
@@ -336,6 +351,7 @@
       "app_ids": [
         "^discord$"
       ],
+      "conflicts": [],
       "effective": "fallback",
       "enabled": false,
       "family": "vencord",
@@ -344,6 +360,11 @@
       "name": "Discord",
       "reason": "mod adapter, off until enabled (risk medium)",
       "risk": "medium",
+      "route": null,
+      "routes": [
+        "electron-vencord",
+        "electron-hook"
+      ],
       "source": "desktop",
       "tier": "mod",
       "toolkit": "electron"
@@ -353,6 +374,7 @@
       "app_ids": [
         "^herdr-app$"
       ],
+      "conflicts": [],
       "effective": "fallback",
       "enabled": true,
       "family": "herdr",
@@ -361,6 +383,10 @@
       "name": "herdr",
       "reason": "family herdr: not installed",
       "risk": "none",
+      "route": null,
+      "routes": [
+        "gpui-json"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "gpui"
@@ -370,6 +396,7 @@
       "app_ids": [
         "^md\\.example\\.Electron$"
       ],
+      "conflicts": [],
       "effective": "fallback",
       "enabled": false,
       "family": null,
@@ -378,6 +405,10 @@
       "name": "md.example.Electron",
       "reason": "family feishin does not list this app",
       "risk": "medium",
+      "route": null,
+      "routes": [
+        "electron-hook"
+      ],
       "source": "desktop",
       "tier": "forced",
       "toolkit": "electron"
@@ -387,6 +418,7 @@
       "app_ids": [
         "^nvidia-settings$"
       ],
+      "conflicts": [],
       "effective": "glass",
       "enabled": true,
       "family": "gtk3",
@@ -395,6 +427,10 @@
       "name": "NVIDIA",
       "reason": "family gtk3",
       "risk": "low",
+      "route": null,
+      "routes": [
+        "gtk3"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "gtk3"
@@ -404,6 +440,7 @@
       "app_ids": [
         "^org\\.example\\.Flutter$"
       ],
+      "conflicts": [],
       "effective": "fallback",
       "enabled": false,
       "family": null,
@@ -412,6 +449,10 @@
       "name": "org.example.Flutter",
       "reason": "family localsend does not list this app",
       "risk": "high",
+      "route": null,
+      "routes": [
+        "ck-shim"
+      ],
       "source": "desktop",
       "tier": "forced",
       "toolkit": "flutter"
@@ -421,6 +462,7 @@
       "app_ids": [
         "^org\\.gnome\\.Nautilus$"
       ],
+      "conflicts": [],
       "effective": "glass",
       "enabled": true,
       "family": "gtk4",
@@ -429,6 +471,10 @@
       "name": "Files",
       "reason": "family gtk4",
       "risk": "low",
+      "route": null,
+      "routes": [
+        "gtk4"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "gtk4-adw"
@@ -438,6 +484,7 @@
       "app_ids": [
         "^org\\.mozilla\\.firefox$"
       ],
+      "conflicts": [],
       "effective": "delegated",
       "enabled": null,
       "family": null,
@@ -446,6 +493,8 @@
       "name": "Firefox",
       "reason": "browserGlass owns this browser",
       "risk": "none",
+      "route": null,
+      "routes": [],
       "source": "desktop",
       "tier": "delegated",
       "toolkit": "gecko"
@@ -455,6 +504,7 @@
       "app_ids": [
         "^steam_app_480$"
       ],
+      "conflicts": [],
       "effective": "opaque",
       "enabled": null,
       "family": null,
@@ -463,6 +513,8 @@
       "name": "Pinball",
       "reason": "game: always opaque",
       "risk": "none",
+      "route": null,
+      "routes": [],
       "source": "desktop",
       "tier": "opaque",
       "toolkit": "game"
@@ -472,6 +524,7 @@
       "app_ids": [
         "^solaar$"
       ],
+      "conflicts": [],
       "effective": "glass",
       "enabled": true,
       "family": "gtk3",
@@ -480,6 +533,10 @@
       "name": "Solaar",
       "reason": "family gtk3",
       "risk": "low",
+      "route": null,
+      "routes": [
+        "gtk3"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "gtk3"
@@ -489,6 +546,7 @@
       "app_ids": [
         "^steam$"
       ],
+      "conflicts": [],
       "effective": "fallback",
       "enabled": false,
       "family": null,
@@ -497,6 +555,10 @@
       "name": "Steam",
       "reason": "forced adapter, off until enabled (risk medium)",
       "risk": "medium",
+      "route": null,
+      "routes": [
+        "steam-cdp"
+      ],
       "source": "desktop",
       "tier": "forced",
       "toolkit": "cef"
@@ -506,6 +568,9 @@
       "app_ids": [
         "^vlc$"
       ],
+      "conflicts": [
+        "~/.local/share/applications/vlc.desktop"
+      ],
       "effective": "glass",
       "enabled": true,
       "family": "qtstyle",
@@ -514,6 +579,10 @@
       "name": "VLC",
       "reason": "family qtstyle",
       "risk": "low",
+      "route": null,
+      "routes": [
+        "qt-style"
+      ],
       "source": "desktop",
       "tier": "native",
       "toolkit": "qt-widgets"

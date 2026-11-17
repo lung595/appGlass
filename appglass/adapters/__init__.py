@@ -194,6 +194,26 @@ def family_for(rec, families):
     return None
 
 
+def routes(rec, families):
+    """The adapters an app may take (apps.<key>.route), the default first:
+    its family's adapter, the app-id route, then the toolkit's glass
+    adapters. None for a delegated, excluded or game app."""
+    names = rec.get("names") or []
+    if any(niri.delegated("^%s$" % re.escape(n)) for n in names) or _any(EXCLUDED_IDS, names) \
+            or rec.get("toolkit") == "game":
+        return []
+    out = []
+    fam = family_for(rec, families)
+    a = next((x for x in CATALOGUE if fam in x.FAMILIES), None) if fam else None
+    if a:
+        out.append(a.NAME)
+    out += [ad for rx, ad in APP_ROUTES if _any([rx], names)]
+    out += [x.NAME for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
+            and x.TIER in (NATIVE, FORCED, MOD)]
+    seen = set()
+    return [n for n in out if not (n in seen or seen.add(n))]
+
+
 def resolve(rec, families, settings=None):
     """{"adapter", "tier", "risk", "implemented", "family", "enabled",
     "effective", "reason"} for one detect record."""

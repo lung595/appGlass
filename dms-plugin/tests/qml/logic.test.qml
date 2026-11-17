@@ -116,7 +116,7 @@ Item {
         // --- status
         t.check("status parsed", Logic.parseStatus(JSON.stringify(status)).version, 1);
         t.check("junk status", [Logic.parseStatus("nope"), Logic.parseStatus("[]"), Logic.parseStatus("{\"version\": 2}")], [null, null, null]);
-        const rows = Logic.appRows(status, "");
+        const rows = Logic.appRows(status, {}, true);
         t.check("one row per app", rows.length, status.apps.length);
         const names = rows.map(r => r.name.toLowerCase());
         t.check("sorted by name", names, names.slice().sort());
@@ -125,17 +125,65 @@ Item {
             "key": "Alacritty",
             "name": "Alacritty",
             "appId": "Alacritty",
+            "toolkit": "terminal",
             "badge": "Native",
+            "kind": "Native",
             "effective": "glass",
             "reason": "family alacritty",
             "risk": "none",
             "switchable": true,
-            "on": true
+            "on": true,
+            "route": "terminal",
+            "routes": [{
+                    "name": "terminal",
+                    "tier": "native",
+                    "kind": "Native"
+                }],
+            "status": "glass",
+            "statusLabel": "Glass",
+            "conflicts": []
         });
-        const flatseal = rows.filter(r => r.key === "com.github.tchx84.Flatseal")[0];
-        t.check("app-id unescaped", flatseal.appId, "com.github.tchx84.Flatseal");
+        const byKey = {};
+        for (const r of rows)
+            byKey[r.key] = r;
+        t.check("app-id unescaped", byKey["com.github.tchx84.Flatseal"].appId, "com.github.tchx84.Flatseal");
         const delegated = rows.filter(r => r.effective === "delegated");
-        t.ok("a delegated row has no switch", delegated.length > 0 && delegated.every(r => !r.switchable && r.badge === "Delegated"));
+        t.ok("a delegated row has no switch", delegated.length > 0 && delegated.every(r => !r.switchable && r.badge === "Delegated" && r.status === "delegated"));
+        t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => byKey[k].status), ["glass", "conflict", "opaque", "delegated", "fallback", "fallback"]);
+        t.check("the conflict names the file", byKey["vlc"].conflicts, ["~/.local/share/applications/vlc.desktop"]);
+        t.check("discord: two routes, the mod first", byKey["discord"].routes, [{
+                "name": "electron-vencord",
+                "tier": "mod",
+                "kind": "Mod"
+            }, {
+                "name": "electron-hook",
+                "tier": "forced",
+                "kind": "Forced"
+            }]);
+        t.check("games have no route", byKey["Pinball"].routes, []);
+        // the saved choices win until the next status has them
+        const saved = {
+            "Alacritty": {
+                "enabled": false
+            },
+            "discord": {
+                "enabled": true,
+                "route": "electron-hook"
+            },
+            "steam": {
+                "route": "no-such-route"
+            }
+        };
+        const rows2 = {};
+        for (const r of Logic.appRows(status, saved, true))
+            rows2[r.key] = r;
+        t.check("switched off: paused", [rows2["Alacritty"].on, rows2["Alacritty"].status, rows2["Alacritty"].statusLabel], [false, "paused", "Paused"]);
+        t.check("saved route", [rows2["discord"].on, rows2["discord"].route, rows2["discord"].kind], [true, "electron-hook", "Forced"]);
+        t.check("an unknown saved route is ignored", rows2["steam"].route, "steam-cdp");
+        const off = {};
+        for (const r of Logic.appRows(status, {}, false))
+            off[r.key] = r;
+        t.check("glass off: every switchable app paused", ["Alacritty", "vlc", "steam", "Pinball", "org.mozilla.firefox"].map(k => off[k].status), ["paused", "paused", "paused", "opaque", "delegated"]);
         t.check("badges", [Logic.badge({
                 "effective": "glass",
                 "tier": "forced"
@@ -145,8 +193,33 @@ Item {
             }), Logic.badge({
                 "effective": "opaque"
             }), Logic.badge({})], ["Forced", "Fallback", "Opaque", "Fallback"]);
-        t.check("filter", Logic.appRows(status, "flatSEAL").map(r => r.key), ["com.github.tchx84.Flatseal"]);
-        t.check("no status, no rows", Logic.appRows(null, ""), []);
+        t.check("no status, no rows", Logic.appRows(null, {}, true), []);
+        t.check("confirm for mod and forced only", ["mod", "forced", "native", "fallback", ""].map(Logic.needsConfirm), [true, true, false, false, false]);
+        t.check("route info", [Logic.routeInfo(status, "electron-vencord").risk, Logic.routeInfo(status, "nope").tier], ["medium", ""]);
+        t.check("withRoute", Logic.withRoute({
+            "discord": {
+                "enabled": true
+            }
+        }, "discord", "electron-hook"), {
+            "discord": {
+                "enabled": true,
+                "route": "electron-hook"
+            }
+        });
+        t.check("withRoute ignores a bad route", Logic.withRoute({}, "discord", "../x"), {});
+        t.check("glass count", [Logic.glassCount(status, true), Logic.glassCount(status, false), Logic.glassCount(null, true)], [7, 0, 0]);
+        t.check("pill text", [Logic.pillText(status, true), Logic.pillText(status, false), Logic.pillText(null, true)], ["7", "off", ""]);
+        const report = Logic.reportText(status, saved, true);
+        t.ok("report: header", report.indexOf("appGlass " + Logic.VERSION) === 0);
+        t.ok("report: one line per app", status.apps.every(a => report.indexOf("\n  " + a.key + " ") >= 0));
+        t.ok("report: the conflict", report.indexOf("vlc.desktop") > 0);
+        t.check("report before a status", Logic.reportText(null, {}, true), "appGlass " + Logic.VERSION + "\nno status yet\n");
+        t.check("version = plugin.json", Logic.VERSION, JSON.parse(t.readFile("plugin.json")).version);
+        // the actions: the CLI's own commands, its messages on stdout
+        t.check("learn argv", Logic.learnArgv("/b/appglass"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "learn"]);
+        t.check("adopt argv", Logic.adoptArgv("/b/appglass"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "adopt"]);
+        t.check("uninstall argv", Logic.uninstallArgv("/b/appglass"), ["sh", "-c", "exec 2>&1; \"$0\" remove && \"$0\" plugin remove", "/b/appglass"]);
+        t.check("action argv by name", [Logic.actionArgv("learn", "b"), Logic.actionArgv("rm -rf", "b")], [Logic.learnArgv("b"), null]);
         t.check("withApp", Logic.withApp({
             "steam": {
                 "enabled": false,

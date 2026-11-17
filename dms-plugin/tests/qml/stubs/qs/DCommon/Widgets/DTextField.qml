@@ -8,6 +8,14 @@ Item {
     property string placeholderText: ""
     property string leftIconName: ""
     property bool showClearButton: false
+    property var keyForwardTargets: []
+
+    signal accepted
+    signal cleared
+
+    function forceActiveFocus() {
+        input.forceActiveFocus();
+    }
 
     implicitWidth: 200
     implicitHeight: 40
@@ -15,5 +23,6 @@ Item {
         id: input
         anchors.fill: parent
         color: "white"
+        onAccepted: field.accepted()
     }
 }

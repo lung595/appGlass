@@ -1610,12 +1610,24 @@ def status_doc(app):
                       "applied": sorted(app.env.tilde(f) for f in o.get("files", {})) if o else []}
     core_owners = {n: sorted(app.env.tilde(f) for f in st.owners[n]["files"])
                    if n in st.owners else [] for n in CORE_OWNERS}
+    hands = hand_files(app)
+    # family -> its hand-made files appglass does not own (the plugin shows
+    # them as a conflict on the app's row)
+    clash = {}
+    for (rel, adapter, _), h in zip(adapters.HAND_FILES, hands):
+        if h["status"] == "conflict" and adapter in adapters.BY_NAME:
+            fam = adapters.hand_family(adapters.BY_NAME[adapter], rel, app.families)
+            if fam:
+                clash.setdefault(fam, []).append(h["path"])
     apps = []
     counts = {}
     for r, route in app_routes(app):
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1
+        own = (app.settings.get("apps", {}).get(r["key"]) or {}).get("route")
         apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
-                          "app_ids": r["app_ids"], "source": r.get("source", "desktop")},
+                          "app_ids": r["app_ids"], "source": r.get("source", "desktop"),
+                          "routes": adapters.routes(r, app.families), "route": own or None,
+                          "conflicts": clash.get(adapters.family_for(r, app.families), [])},
                          **route))
     return {
         "version": 1,
@@ -1628,7 +1640,7 @@ def status_doc(app):
         "core": core_owners,
         "apps": apps,
         "summary": dict(sorted(counts.items())),
-        "hand_files": hand_files(app),
+        "hand_files": hands,
         "adapters": [a.as_dict() for a in adapters.CATALOGUE],
     }
 

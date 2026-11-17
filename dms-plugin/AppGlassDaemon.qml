@@ -18,8 +18,13 @@ import "components/logic.js" as Logic
 // First start: the plugin data is taken from `appglass get`, so what the
 // CLI had set stays. Disabling, re-enabling or reloading the plugin changes
 // no file and no unit: only `appglass remove` (an explicit uninstall) takes
-// the glass files and the hook out.
-// `dms ipc call appGlass sync | status | toggle | app <key> on|off`
+// the glass files and the hook out, and it only runs from Settings >
+// Advanced > Uninstall (confirmed there) or a terminal.
+//
+// Settings > Advanced runs its actions here (runAction: learn, adopt,
+// uninstall; copyReport), one at a time, so the settings page and the bar
+// pill run no command themselves.
+// `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> on|off`
 PluginComponent {
     id: root
 
@@ -40,6 +45,9 @@ PluginComponent {
     property string lastSettingsText: ""
     // Re-apply asked: a toast when that sync ends
     property bool announce: false
+    // Settings > Advanced > Uninstall ran: nothing is synced any more (the
+    // plugin link is gone; DMS drops the plugin)
+    property bool uninstalled: false
 
     PluginGlobalVar {
         id: statusVar
@@ -61,6 +69,12 @@ PluginComponent {
         varName: "lastSync"
         defaultValue: ""
     }
+    // The Settings > Advanced action running ("" for none)
+    PluginGlobalVar {
+        id: actionVar
+        varName: "action"
+        defaultValue: ""
+    }
 
     function publish(variable, value) {
         if (JSON.stringify(variable.value) !== JSON.stringify(value))
@@ -77,6 +91,8 @@ PluginComponent {
     // Asks for a sync: changes close together collapse into one (debounce),
     // and one that comes while a sync runs gets one more after it
     function requestSync(reason, waitMs) {
+        if (root.uninstalled)
+            return false;
         if (!root.ready) {
             if (!root.seeding && root.bin)
                 root.seed();
@@ -126,6 +142,10 @@ PluginComponent {
 
     function syncDone(output, exitCode) {
         root.busy = false;
+        if (root.uninstalled) {
+            root.publish(syncingVar, false);
+            return;
+        }
         if (exitCode === 0) {
             root.publish(lastErrorVar, "");
             root.publish(lastSyncVar, new Date().toISOString());
@@ -197,6 +217,49 @@ PluginComponent {
         root.save("apps", Logic.withApp(root.pluginData.apps, key, on));
     }
 
+    // --- Settings > Advanced ----------------------------------------------------
+
+    // learn | adopt | uninstall: false when another one runs, the name is
+    // unknown, or appglass was uninstalled. learn and adopt end with a sync
+    // (what they found gets its glass), uninstall with none.
+    function runAction(name) {
+        const argv = root.bin ? Logic.actionArgv(name, root.bin) : null;
+        if (!argv || root.uninstalled || actionVar.value)
+            return false;
+        root.publish(actionVar, name);
+        Proc.runCommand(Logic.ACTION_IDS[name], argv, (out, code) => root.actionDone(name, out, code), 0, Logic.ACTION_TIMEOUT_MS, root);
+        return true;
+    }
+
+    function actionDone(name, output, exitCode) {
+        root.publish(actionVar, "");
+        if (exitCode !== 0) {
+            root.fail(Logic.errorText(output, exitCode));
+            root.refreshStatus();
+            return;
+        }
+        root.publish(lastErrorVar, "");
+        if (name === "uninstall") {
+            debounce.stop();
+            root.uninstalled = true;
+            root.ready = false;
+            // a later install starts again from `appglass get`
+            root.save("seeded", false);
+            ToastService.showInfo("appGlass: uninstalled, every file restored");
+            return;
+        }
+        ToastService.showInfo("appGlass: " + (Logic.lastLine(output) || name + " done"));
+        if (!root.requestSync(name, 0))
+            root.refreshStatus();
+    }
+
+    // The last status as text, on the clipboard (DMS's own copy command)
+    function copyReport() {
+        Quickshell.execDetached([Proc.dmsBin, "cl", "copy", Logic.reportText(statusVar.value, root.pluginData.apps, root.pluginData.glassEnabled !== false)]);
+        ToastService.showInfo("appGlass: report copied");
+        return true;
+    }
+
     onPluginDataChanged: {
         if (!root.ready)
             return;
@@ -240,6 +303,8 @@ PluginComponent {
         target: "appGlass"
 
         function sync(): string {
+            if (root.uninstalled)
+                return "uninstalled";
             return root.requestSync("reapply", 0) ? "OK" : "not ready";
         }
         function status(): string {
@@ -253,6 +318,14 @@ PluginComponent {
             const on = root.pluginData.glassEnabled !== false;
             return root.setGlass(!on) ? "glass on" : "glass off";
         }
+        function pause(): string {
+            root.setGlass(false);
+            return "glass off";
+        }
+        function resume(): string {
+            root.setGlass(true);
+            return "glass on";
+        }
         function app(key: string, state: string): string {
             const on = Logic.parseOnOff(state);
             if (on === null)
@@ -264,6 +337,7 @@ PluginComponent {
 
     Component.onCompleted: {
         root.publish(syncingVar, false);
+        root.publish(actionVar, "");
         const dir = PluginService.getPluginPath(root.pluginId) || Paths.strip(Qt.resolvedUrl("."));
         root.pluginDir = String(dir).replace(/\/+$/, "");
         if (root.service.loadPluginData(Logic.PLUGIN_ID, "seeded", false) === true) {
@@ -279,5 +353,8 @@ PluginComponent {
         // adopted files and the hook (the enable's sync does not adopt)
         for (const id of [Logic.SYNC_ID, Logic.STATUS_ID, Logic.SEED_ID])
             Proc.release(id);
+        // an action not launched yet is dropped; one already running finishes
+        for (const name of Object.keys(Logic.ACTION_IDS))
+            Proc.release(Logic.ACTION_IDS[name]);
     }
 }

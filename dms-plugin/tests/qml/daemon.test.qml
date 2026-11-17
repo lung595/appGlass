@@ -245,6 +245,67 @@ Item {
                 }
             },
             {
+                // --- pause / resume (the bar pill and the page do the same)
+                "run": () => {
+                    t.check("IPC pause", IpcRegistry.call("appGlass", "pause"), "glass off");
+                    t.check("paused saved", root.pdata().glassEnabled, false);
+                    t.check("IPC resume", IpcRegistry.call("appGlass", "resume"), "glass on");
+                    t.check("resumed saved", root.pdata().glassEnabled, true);
+                }
+            },
+            {
+                "wait": 700,
+                "run": () => {
+                    t.check("pause then resume: one sync", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    Proc.flush();
+                    t.check("synced on", root.lastSyncSettings().enabled, true);
+                    Proc.flush();
+                    // --- Settings > Advanced: the CLI's commands, one at a time
+                    Proc.setResult(Logic.ACTION_IDS.learn, "Alacritty  terminal  libvte\nlearned 3 windows: ~/.cache/appglass/learned.json\n", 0);
+                    t.check("learn starts", root.d.runAction("learn"), true);
+                    t.check("one action at a time", root.d.runAction("adopt"), false);
+                    t.check("action shared", root.vars().action, "learn");
+                    Proc.flush();
+                    t.check("learn argv", Proc.lastCommand(Logic.ACTION_IDS.learn), Logic.learnArgv(root.bin));
+                    t.check("action done", root.vars().action, "");
+                    t.check("learn toast", ToastService.ofLevel("info").map(x => x.message).slice(-1), ["appGlass: learned 3 windows: ~/.cache/appglass/learned.json"]);
+                    t.check("learned apps get applied", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    Proc.flush();
+                    Proc.flush();
+                    t.check("an unknown action runs nothing", [root.d.runAction("rm -rf"), Proc.pendingIds()], [false, []]);
+                    Proc.setResult(Logic.ACTION_IDS.adopt, "appglass: adopt: ~/x changed since\n", 1);
+                    root.d.runAction("adopt");
+                    Proc.flush();
+                    t.check("adopt argv", Proc.lastCommand(Logic.ACTION_IDS.adopt), Logic.adoptArgv(root.bin));
+                    t.check("adopt error shared", root.vars().lastError, "appglass: adopt: ~/x changed since");
+                    t.check("a failed action: the status only", Proc.pendingIds(), [Logic.STATUS_ID]);
+                    Proc.flush();
+                    // --- the report: copied with DMS's own clipboard command
+                    Quickshell.reset();
+                    root.d.copyReport();
+                    t.check("report copied", Quickshell.detached, [["dms", "cl", "copy", Logic.reportText(root.vars().status, root.pdata().apps, true)]]);
+                    t.check("report toast", ToastService.ofLevel("info").map(x => x.message).slice(-1), ["appGlass: report copied"]);
+                    Quickshell.reset();
+                    // --- uninstall: everything out, then no sync
+                    root.mark = root.syncs().length;
+                    Proc.setResult(Logic.ACTION_IDS.uninstall, "settings: removed\nplugin: removed ~/.config/DankMaterialShell/plugins/appGlass\n", 0);
+                    root.d.runAction("uninstall");
+                    Proc.flush();
+                    t.check("uninstall argv", Proc.lastCommand(Logic.ACTION_IDS.uninstall), Logic.uninstallArgv(root.bin));
+                    t.check("seed again on a new install", root.pdata().seeded, false);
+                    t.check("uninstall toast", ToastService.ofLevel("info").map(x => x.message).slice(-1), ["appGlass: uninstalled, every file restored"]);
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 5);
+                    t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
+                    t.check("no other action after it", root.d.runAction("learn"), false);
+                }
+            },
+            {
+                "wait": 700,
+                "run": () => {
+                    t.check("no sync after an uninstall", [Proc.pendingIds(), root.syncs().length - root.mark], [[], 0]);
+                }
+            },
+            {
                 // --- teardown
                 "run": () => {
                     root.d.destroy();

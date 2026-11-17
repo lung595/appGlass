@@ -2,17 +2,25 @@
     "$schema": "https://github.com/AvengeMedia/DankMaterialShell/raw/refs/heads/master/PLUGINS/plugin-schema.json",
     "id": "appGlass",
     "name": "App Glass",
-    "description": "Translucent glass backgrounds for desktop apps under niri, in step with DMS: the level follows the DMS window opacity, text and icons stay opaque, unfocused windows fade a little more",
-    "version": "0.1.0",
+    "description": "Translucent glass backgrounds for desktop apps under niri, in step with DMS: the level follows the DMS window opacity, text and icons stay opaque, unfocused windows fade a little more. Per-app switches and routes, a bar pill with a pause.",
+    "version": "0.2.0",
     "author": "lung595",
     "license": "MIT",
     "icon": "blur_on",
     "type": "composite",
-    "capabilities": ["daemon"],
+    "capabilities": [
+        "daemon",
+        "dankbar-widget"
+    ],
     "components": {
-        "daemon": "./AppGlassDaemon.qml"
+        "daemon": "./AppGlassDaemon.qml",
+        "widget": "./AppGlassWidget.qml"
     },
     "settings": "./AppGlassSettings.qml",
     "requires_dms": ">=2.0.0",
-    "permissions": ["settings_read", "settings_write", "process"]
+    "permissions": [
+        "settings_read",
+        "settings_write",
+        "process"
+    ]
 }

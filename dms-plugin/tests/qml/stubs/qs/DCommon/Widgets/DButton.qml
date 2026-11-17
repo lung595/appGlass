@@ -7,6 +7,8 @@ Item {
     property string text: ""
     property string iconName: ""
     property string variant: "filled"
+    property bool danger: false
+    property bool busy: false
 
     signal clicked
 

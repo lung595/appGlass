@@ -23,16 +23,26 @@
 //   appglassBin               optional path of the appglass command
 
 var PLUGIN_ID = "appGlass";
+// = plugin.json "version" (logic.test.qml checks)
+var VERSION = "0.2.0";
 var SYNC_ID = "appGlass.sync";
 var STATUS_ID = "appGlass.status";
 var SEED_ID = "appGlass.seed";
 var SYNC_DEBOUNCE_MS = 400;
 var SYNC_TIMEOUT_MS = 120000;
 var STATUS_TIMEOUT_MS = 30000;
+var ACTION_TIMEOUT_MS = 180000;
+// Settings > Advanced: one command each, run by the daemon (one at a time)
+var ACTION_IDS = {
+    "learn": "appGlass.learn",
+    "adopt": "appGlass.adopt",
+    "uninstall": "appGlass.uninstall"
+};
 
 var FALLBACK_MODES = ["opaque", "value", "off"];
 var EASINGS = ["ease-out-cubic", "ease-in-out", "linear"];
 var KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
+var ROUTE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 var DEFAULTS = {
     "glassEnabled": true,
@@ -54,6 +64,16 @@ var BADGES = {
     "opaque": "Opaque",
     "delegated": "Delegated",
     "excluded": "Excluded"
+};
+
+// The status chip of an app row
+var STATUS_LABELS = {
+    "glass": "Glass",
+    "fallback": "Fallback",
+    "delegated": "Delegated",
+    "opaque": "Opaque",
+    "paused": "Paused",
+    "conflict": "Conflict"
 };
 
 function _bool(v, dflt) {
@@ -200,9 +220,40 @@ function settingsFilePath(runtimeDir) {
     return rt ? rt + "/appglass-plugin-settings.json" : "";
 }
 
-// DMS hands a callback stdout only: the sync's messages go to stdout too
+// DMS hands a callback stdout only: the CLI's messages go to stdout too
+function cliArgv(bin, args) {
+    return ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", bin].concat(args);
+}
+
 function syncArgv(bin, file) {
-    return ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", bin, "sync", "--settings-file", file];
+    return cliArgv(bin, ["sync", "--settings-file", file]);
+}
+
+// Record the toolkit of each open window
+function learnArgv(bin) {
+    return cliArgv(bin, ["learn"]);
+}
+
+// Hand the known hand-made files to appglass (each one backed up)
+function adoptArgv(bin) {
+    return cliArgv(bin, ["adopt"]);
+}
+
+// Every file appglass touched restored, the hook and units out, then the
+// plugin link (DMS drops the plugin)
+function uninstallArgv(bin) {
+    return ["sh", "-c", "exec 2>&1; \"$0\" remove && \"$0\" plugin remove", bin];
+}
+
+// The argv of a Settings > Advanced action, null for any other name
+function actionArgv(name, bin) {
+    if (name === "learn")
+        return learnArgv(bin);
+    if (name === "adopt")
+        return adoptArgv(bin);
+    if (name === "uninstall")
+        return uninstallArgv(bin);
+    return null;
 }
 
 function statusArgv(bin) {
@@ -211,6 +262,16 @@ function statusArgv(bin) {
 
 function getArgv(bin) {
     return [bin, "get"];
+}
+
+// The last non-empty line of a command's output ("" for none)
+function lastLine(output) {
+    var lines = String(output || "").split("\n").map(function (l) {
+        return l.trim();
+    }).filter(function (l) {
+        return l.length > 0;
+    });
+    return lines.length ? lines[lines.length - 1] : "";
 }
 
 // The line to show for a failed command: its last "appglass: ..." line,
@@ -258,10 +319,59 @@ function badge(app) {
     return BADGES[eff] || "Fallback";
 }
 
-// One row per app of a status document, sorted by name
-function appRows(status, filter) {
+// The adapter `name` of the status catalogue: {name, tier, risk, why,
+// summary}; tier "" when the status does not know it
+function routeInfo(status, name) {
+    var list = status && Array.isArray(status.adapters) ? status.adapters : [];
+    for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].name === name)
+            return list[i];
+    }
+    return {
+        "name": String(name || ""),
+        "tier": "",
+        "risk": "",
+        "why": "",
+        "summary": ""
+    };
+}
+
+// Turning an app on with one of these routes asks first
+function needsConfirm(tier) {
+    return tier === "mod" || tier === "forced";
+}
+
+function _saved(saved, key) {
+    var a = saved && typeof saved === "object" ? saved[key] : null;
+    return a && typeof a === "object" ? a : {};
+}
+
+// glass | fallback | delegated | opaque | paused | conflict
+//   paused: glass is off for every app, or the app's own switch is off
+//   conflict: a hand-made file appglass does not own is in the way
+function appStatus(app, saved, glassOn) {
+    var a = app || {};
+    var eff = a.effective;
+    if (eff === "delegated" || eff === "excluded")
+        return "delegated";
+    if (typeof a.enabled !== "boolean")
+        return eff === "glass" ? "glass" : "opaque";
+    if (glassOn === false)
+        return "paused";
+    if (Array.isArray(a.conflicts) && a.conflicts.length)
+        return "conflict";
+    if (_saved(saved, a.key).enabled === false)
+        return "paused";
+    if (eff === "glass" || eff === "opaque")
+        return eff;
+    return "fallback";
+}
+
+// One row per app of a status document, sorted by name. saved: the plugin
+// data apps map (what the switches show until the next status has it);
+// glassOn: the global switch.
+function appRows(status, saved, glassOn) {
     var apps = status && Array.isArray(status.apps) ? status.apps : [];
-    var q = String(filter || "").trim().toLowerCase();
     var rows = [];
     for (var i = 0; i < apps.length; i++) {
         var a = apps[i];
@@ -269,21 +379,38 @@ function appRows(status, filter) {
             continue;
         var ids = Array.isArray(a.app_ids) ? a.app_ids : [];
         var appId = ids.length ? String(ids[0]).replace(/^\^/, "").replace(/\$$/, "").replace(/\\(.)/g, "$1") : a.key;
-        var row = {
+        var own = _saved(saved, a.key);
+        var names = Array.isArray(a.routes) ? a.routes : [];
+        var routes = names.map(function (n) {
+            var tier = routeInfo(status, n).tier;
+            return {
+                "name": n,
+                "tier": tier,
+                "kind": BADGES[tier] || ""
+            };
+        });
+        var route = names.indexOf(own.route) >= 0 ? own.route : (names.indexOf(a.route) >= 0 ? a.route : String(a.adapter || ""));
+        var tier = routeInfo(status, route).tier || a.tier;
+        var st = appStatus(a, saved, glassOn);
+        rows.push({
             "key": a.key,
             "name": String(a.name || a.key),
             "appId": appId,
+            "toolkit": String(a.toolkit || ""),
             "badge": badge(a),
+            "kind": BADGES[tier] || "",
             "effective": String(a.effective || ""),
             "reason": String(a.reason || ""),
             "risk": String(a.risk || ""),
             // delegated, excluded and games have no switch
             "switchable": typeof a.enabled === "boolean",
-            "on": a.enabled === true
-        };
-        if (q && (row.name + " " + row.appId + " " + row.key).toLowerCase().indexOf(q) < 0)
-            continue;
-        rows.push(row);
+            "on": typeof own.enabled === "boolean" ? own.enabled : a.enabled === true,
+            "route": route,
+            "routes": routes,
+            "status": st,
+            "statusLabel": STATUS_LABELS[st],
+            "conflicts": Array.isArray(a.conflicts) ? a.conflicts.map(String) : []
+        });
     }
     rows.sort(function (x, y) {
         var a = x.name.toLowerCase(), b = y.name.toLowerCase();
@@ -301,6 +428,53 @@ function withApp(apps, key, on) {
     e.enabled = !!on;
     out[key] = e;
     return out;
+}
+
+// The plugin data apps map with one app's route picked
+function withRoute(apps, key, route) {
+    var out = _apps(apps);
+    if (!KEY_RE.test(String(key)) || !ROUTE_RE.test(String(route)))
+        return out;
+    var e = Object.assign({}, out[key] || {});
+    e.route = String(route);
+    out[key] = e;
+    return out;
+}
+
+// How many apps are on glass (0 while glass is off)
+function glassCount(status, glassOn) {
+    if (glassOn === false || !status || !status.summary)
+        return 0;
+    return Number(status.summary.glass) || 0;
+}
+
+// The bar pill's text: the count, "off", or nothing before a status
+function pillText(status, glassOn) {
+    if (glassOn === false)
+        return "off";
+    if (!status)
+        return "";
+    return String(glassCount(status, glassOn));
+}
+
+// A plain-text report of the last status (Settings > Advanced > Copy report)
+function reportText(status, saved, glassOn) {
+    var out = ["appGlass " + VERSION];
+    if (!status)
+        return out.concat(["no status yet"]).join("\n") + "\n";
+    out.push("glass: " + (glassOn === false ? "paused" : "on") + "; " + levelText(status));
+    if (status.settings_error)
+        out.push("settings error: " + status.settings_error);
+    out.push("summary: " + summaryText(status));
+    out.push("apps:");
+    var rows = appRows(status, saved, glassOn);
+    for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        out.push("  " + r.key + " " + [r.toolkit, r.route + (r.kind ? " (" + r.kind.toLowerCase() + ")" : ""), r.status, r.reason].join(" | "));
+        for (var j = 0; j < r.conflicts.length; j++)
+            out.push("    hand-made file in the way: " + r.conflicts[j]);
+    }
+    return out.join("\n") + "\n";
 }
 
 // "Glass level: 72% (follows the DMS window rule)" and the like

@@ -4,246 +4,254 @@ import qs.Services
 import qs.Widgets
 import qs.DCommon.Widgets
 import qs.Modules.Plugins
-import "components"
+import "components/settings"
+import "components/settings/SettingsIndex.js" as Index
 import "components/logic.js" as Logic
 
-// The settings page: glass on/off, the status (the glass level is read
-// only: it follows the DMS window rule opacity), unfocused windows, the
-// fallback for apps appglass cannot glass, the app list, Re-apply. The
-// setting widgets save into the plugin data (keys at the top of
+// The settings page: a search field on top, the categories on the left
+// (Glass, Apps, Fade, Fallback, Advanced, About), one category at a time on
+// the right; typing shows every matching setting across them, editable in
+// place. The setting widgets save into the plugin data (keys at the top of
 // components/logic.js), which the daemon turns into `appglass sync`; what
-// is shown about the apps comes from the daemon's shared status. This page
-// runs no command itself.
+// is shown about the apps comes from the daemon's shared status, and the
+// Advanced actions run in the daemon. This page runs no command itself.
 PluginSettings {
     id: root
     pluginId: "appGlass"
 
     readonly property var service: root.pluginService || PluginService
-    readonly property var vars: service.globalVars[Logic.PLUGIN_ID] || ({})
-    readonly property var daemon: service.pluginDaemonInstances ? (service.pluginDaemonInstances[Logic.PLUGIN_ID] || null) : null
-    readonly property var status: vars.status || null
-    readonly property string lastError: vars.lastError || ""
-    readonly property bool syncing: vars.syncing === true
-    // The saved app switches, reloaded with the other settings
-    property var apps: ({})
+    readonly property var vars: root.service.globalVars[Logic.PLUGIN_ID] || ({})
+    readonly property var daemon: root.service.pluginDaemonInstances ? (root.service.pluginDaemonInstances[Logic.PLUGIN_ID] || null) : null
+    readonly property var status: root.vars.status || null
+    readonly property string lastError: root.vars.lastError || ""
+    readonly property bool syncing: root.vars.syncing === true
+    readonly property string action: root.vars.action || ""
+    // The pages' widgets save from here on (CategoryPage)
+    property bool ready: false
+    // The saved switches, reloaded whenever the plugin data changes
+    property bool glassOn: true
+    property var savedApps: ({})
+    readonly property var rows: Logic.appRows(root.status, root.savedApps, root.glassOn)
+    readonly property var conflicts: root.status && Array.isArray(root.status.hand_files) ? root.status.hand_files.filter(h => h && h.status === "conflict").map(h => String(h.path)) : []
 
-    function tr(text) {
-        return I18n.trFor("appGlass", text);
-    }
+    // Below this width the rail keeps its icons only
+    readonly property int narrowWidth: 460
 
-    function loadApps() {
+    function loadState() {
+        root.glassOn = root.service.loadPluginData(Logic.PLUGIN_ID, "glassEnabled", true) !== false;
         const a = root.service.loadPluginData(Logic.PLUGIN_ID, "apps", {});
-        root.apps = a && typeof a === "object" ? a : {};
+        root.savedApps = a && typeof a === "object" && !Array.isArray(a) ? a : {};
     }
 
+    // PluginSettings reloads only the widgets declared right in it; these
+    // sit in the category pages
+    function reloadWidgets(item) {
+        for (const kid of item ? item.children : []) {
+            if (kid.settingKey !== undefined && typeof kid.loadValue === "function")
+                kid.loadValue();
+            else
+                root.reloadWidgets(kid);
+        }
+    }
+
+    function saveApps(apps) {
+        root.saveValue("apps", apps);
+        root.loadState();
+    }
     function setApp(key, on) {
-        root.service.savePluginData(Logic.PLUGIN_ID, "apps", Logic.withApp(root.apps, key, on));
-        root.loadApps();
+        root.saveApps(Logic.withApp(root.savedApps, key, on));
+    }
+    function setRoute(key, route) {
+        root.saveApps(Logic.withRoute(root.savedApps, key, route));
+    }
+    function setAppRoute(key, route, on) {
+        root.saveApps(Logic.withApp(Logic.withRoute(root.savedApps, key, route), key, on));
+    }
+    function setGlass(on) {
+        root.saveValue("glassEnabled", !!on);
+        root.loadState();
     }
 
-    function reapply() {
-        if (root.daemon && root.daemon.requestSync)
-            return root.daemon.requestSync("reapply", 0);
-        ToastService.showWarning(root.tr("appGlass: the plugin daemon is not running"));
+    function noDaemon() {
+        ToastService.showWarning("appGlass: the plugin daemon is not running");
         return false;
     }
-
-    Component.onCompleted: loadApps()
-    onSettingChanged: loadApps()
-
-    // --- glass on/off ---------------------------------------------------------
-
-    ToggleSetting {
-        id: glassToggle
-        objectName: "glassToggle"
-        settingKey: "glassEnabled"
-        label: root.tr("Glass for desktop apps")
-        description: root.tr("Off takes the glass out of every app again (the sync hook stays)")
-        defaultValue: true
+    function reapply() {
+        return root.daemon && root.daemon.requestSync ? root.daemon.requestSync("reapply", 0) : root.noDaemon();
+    }
+    function runAction(name) {
+        return root.daemon && root.daemon.runAction ? root.daemon.runAction(name) : root.noDaemon();
+    }
+    function copyReport() {
+        return root.daemon && root.daemon.copyReport ? root.daemon.copyReport() : root.noDaemon();
     }
 
-    // --- status ---------------------------------------------------------------
+    // The widgets in the pages load before their parents reach this page:
+    // once everything is built they load again, then they may save
+    Component.onCompleted: {
+        root.loadState();
+        Qt.callLater(() => {
+            root.reloadWidgets(pages);
+            root.ready = true;
+        });
+    }
 
-    Column {
-        width: parent.width
-        spacing: Theme.spacingXS
-
-        StyledText {
-            id: levelInfo
-            objectName: "levelInfo"
-            width: parent.width
-            text: root.tr(Logic.levelText(root.status))
-            color: Theme.surfaceText
-            font.pixelSize: Theme.fontSizeMedium
-        }
-        StyledText {
-            width: parent.width
-            text: root.tr("Change it with the DMS window opacity (the Glass window rule); text and icons stay opaque.")
-            color: Theme.surfaceVariantText
-            font.pixelSize: Theme.fontSizeSmall
-        }
-        StyledText {
-            id: inactiveInfo
-            objectName: "inactiveInfo"
-            width: parent.width
-            visible: text !== ""
-            text: root.tr(Logic.inactiveText(root.status))
-            color: Theme.surfaceVariantText
-            font.pixelSize: Theme.fontSizeSmall
-        }
-        StyledText {
-            id: summaryInfo
-            objectName: "summaryInfo"
-            width: parent.width
-            visible: text !== ""
-            text: Logic.summaryText(root.status)
-            color: Theme.surfaceVariantText
-            font.pixelSize: Theme.fontSizeSmall
-        }
-        StyledText {
-            id: errorInfo
-            objectName: "errorInfo"
-            width: parent.width
-            visible: root.lastError !== ""
-            text: root.lastError
-            color: Theme.error
-            font.pixelSize: Theme.fontSizeSmall
+    Connections {
+        target: root.service
+        function onPluginDataChanged(changedPluginId) {
+            if (changedPluginId !== root.pluginId)
+                return;
+            root.loadState();
+            root.reloadWidgets(pages);
         }
     }
 
-    // --- unfocused windows ----------------------------------------------------
+    FocusScope {
+        id: page
+        width: parent ? parent.width : 0
+        implicitHeight: column.implicitHeight
 
-    ToggleSetting {
-        id: inactiveToggle
-        objectName: "inactiveToggle"
-        settingKey: "inactiveEnabled"
-        label: root.tr("Unfocused windows a little more transparent")
-        description: root.tr("Only the background fades, with a short animation")
-        defaultValue: true
-    }
+        SettingsView {
+            id: view
+            compact: page.width < root.narrowWidth
+            extraEntries: Index.appEntries(root.rows)
+        }
 
-    SliderSetting {
-        id: inactiveLevel
-        objectName: "inactiveLevel"
-        visible: inactiveToggle.value
-        settingKey: "inactiveMorePct"
-        label: root.tr("More transparent by")
-        description: root.tr("Never below 60% opacity")
-        defaultValue: Logic.DEFAULTS.inactiveMorePct
-        minimum: 0
-        maximum: 20
-        unit: "%"
-    }
-
-    SliderSetting {
-        id: inactiveDuration
-        objectName: "inactiveDuration"
-        visible: inactiveToggle.value
-        settingKey: "inactiveDurationMs"
-        label: root.tr("Animation")
-        description: root.tr("0 ms: no animation")
-        defaultValue: Logic.DEFAULTS.inactiveDurationMs
-        minimum: 0
-        maximum: 400
-        unit: " ms"
-    }
-
-    SelectionSetting {
-        id: inactiveEasing
-        objectName: "inactiveEasing"
-        visible: inactiveToggle.value
-        settingKey: "inactiveEasing"
-        label: root.tr("Animation curve")
-        options: [
-            {
-                "label": root.tr("Ease out"),
-                "value": "ease-out-cubic"
-            },
-            {
-                "label": root.tr("Ease in and out"),
-                "value": "ease-in-out"
-            },
-            {
-                "label": root.tr("Linear"),
-                "value": "linear"
+        // Ctrl+F reaches the field from anywhere in the window; "/" only
+        // when no text field took it
+        Shortcut {
+            sequence: "Ctrl+F"
+            enabled: page.visible
+            onActivated: search.focusField()
+        }
+        Keys.onPressed: event => {
+            if (event.text === "/" && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier))) {
+                search.focusField();
+                event.accepted = true;
+            } else if (event.key === Qt.Key_Escape && view.filtering) {
+                view.query = "";
+                event.accepted = true;
             }
-        ]
-        defaultValue: Logic.DEFAULTS.inactiveEasing
-    }
+        }
 
-    ToggleSetting {
-        id: instantFallback
-        objectName: "instantFallback"
-        visible: inactiveToggle.value
-        settingKey: "inactiveInstantFallback"
-        label: root.tr("Also dim apps without a fade")
-        description: root.tr("A niri rule: instant, and the text dims too")
-        defaultValue: false
-    }
+        Column {
+            id: column
+            width: parent.width
+            spacing: Theme.spacingM
 
-    // --- fallback -------------------------------------------------------------
+            // --- the header: state, pause, the last error -----------------
+            Item {
+                width: parent.width
+                height: Math.max(headerText.implicitHeight, pauseButton.implicitHeight)
 
-    SelectionSetting {
-        id: fallbackMode
-        objectName: "fallbackMode"
-        settingKey: "fallbackMode"
-        label: root.tr("Apps appglass cannot glass")
-        options: [
-            {
-                "label": root.tr("Opaque"),
-                "value": "opaque"
-            },
-            {
-                "label": root.tr("Translucent (text too)"),
-                "value": "value"
-            },
-            {
-                "label": root.tr("DMS opacity"),
-                "value": "off"
+                Row {
+                    id: headerText
+                    anchors.left: parent.left
+                    anchors.right: pauseButton.left
+                    anchors.rightMargin: Theme.spacingS
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Theme.spacingS
+
+                    DIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: root.glassOn ? "blur_on" : "blur_off"
+                        size: 22
+                        color: root.glassOn ? Theme.primary : Theme.surfaceVariantText
+                    }
+                    StyledText {
+                        objectName: "headerStatus"
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 30
+                        text: !root.glassOn ? "Glass paused" : (root.status ? "Glass on, " + Logic.glassCount(root.status, true) + " apps on glass" : "Waiting for appglass")
+                        color: Theme.surfaceText
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Theme.fontWeightMedium
+                        elide: Text.ElideRight
+                        wrapMode: Text.NoWrap
+                    }
+                }
+
+                DButton {
+                    id: pauseButton
+                    objectName: "pauseButton"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.glassOn ? "Pause glass" : "Resume glass"
+                    iconName: root.glassOn ? "pause" : "play_arrow"
+                    variant: "tonal"
+                    onClicked: root.setGlass(!root.glassOn)
+                }
             }
-        ]
-        defaultValue: Logic.DEFAULTS.fallbackMode
-    }
 
-    SliderSetting {
-        id: fallbackValue
-        objectName: "fallbackValue"
-        visible: fallbackMode.value === "value"
-        settingKey: "fallbackValuePct"
-        label: root.tr("Their opacity")
-        defaultValue: Logic.DEFAULTS.fallbackValuePct
-        minimum: 50
-        maximum: 100
-        unit: "%"
-    }
+            StyledText {
+                objectName: "errorInfo"
+                width: parent.width
+                visible: root.lastError !== ""
+                text: root.lastError
+                color: Theme.error
+                font.pixelSize: Theme.fontSizeSmall
+            }
 
-    // --- apps -----------------------------------------------------------------
+            SearchField {
+                id: search
+                width: parent.width
+                view: view
+                onReleased: page.forceActiveFocus()
+            }
 
-    StyledText {
-        width: parent.width
-        text: root.tr("Apps")
-        color: Theme.surfaceText
-        font.pixelSize: Theme.fontSizeLarge
-        font.weight: Theme.fontWeightMedium
-    }
+            Row {
+                width: parent.width
+                spacing: Theme.spacingM
 
-    AppList {
-        id: appList
-        objectName: "appList"
-        width: parent.width
-        status: root.status
-        apps: root.apps
-        onAppToggled: (key, on) => root.setApp(key, on)
-    }
+                CategoryRail {
+                    id: rail
+                    view: view
+                }
 
-    // --- actions --------------------------------------------------------------
+                Item {
+                    width: parent.width - rail.width - Theme.spacingM
+                    height: Math.max(pages.implicitHeight, none.visible ? none.implicitHeight : 0)
 
-    DButton {
-        id: reapplyButton
-        objectName: "reapplyButton"
-        text: root.syncing ? root.tr("Applying...") : root.tr("Re-apply")
-        iconName: "refresh"
-        enabled: !root.syncing
-        onClicked: root.reapply()
+                    NoResults {
+                        id: none
+                        width: parent.width
+                        visible: view.filtering && !view.hasResults
+                        query: view.query
+                    }
+
+                    // Every page is built once; the open one (or those with
+                    // a match) shows
+                    Column {
+                        id: pages
+                        width: parent.width
+
+                        GlassPage {
+                            view: view
+                            host: root
+                        }
+                        AppsPage {
+                            view: view
+                            host: root
+                        }
+                        FadePage {
+                            view: view
+                            host: root
+                        }
+                        FallbackPage {
+                            view: view
+                            host: root
+                        }
+                        AdvancedPage {
+                            view: view
+                            host: root
+                        }
+                        AboutPage {
+                            view: view
+                            host: root
+                        }
+                    }
+                }
+            }
+        }
     }
 }
