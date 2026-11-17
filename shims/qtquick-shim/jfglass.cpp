@@ -144,12 +144,21 @@ __attribute__((constructor)) static void jfglass_init() {
     if (n <= 0) return;
     exe[n] = 0;
     const char *b = strrchr(exe, '/'); b = b ? b + 1 : exe;
-    if (strcmp(b, "jellyfin-desktop") != 0) return;   // QtWebEngineProcess etc.: do nothing
-    g_log = qEnvironmentVariableIsSet("JFGLASS_LOG");
-    g_css = qEnvironmentVariable("JFGLASS_CSS");
+    const bool app = strcmp(b, "jellyfin-desktop") == 0;
+    // a launcher shell between flatpak and the app passes the preload on; any other process it
+    // reaches (QtWebEngineProcess, a helper the command starts instead) drops it and does nothing
+    static const char *const chain[] = {"sh", "bash", "dash", "env"};
+    if (!app)
+        for (const char *c : chain)
+            if (strcmp(b, c) == 0) return;
+    if (app) {
+        g_log = qEnvironmentVariableIsSet("JFGLASS_LOG");
+        g_css = qEnvironmentVariable("JFGLASS_CSS");
+    }
     unsetenv("LD_PRELOAD");                              // children do not inherit the shim
     unsetenv("JFGLASS_CSS");
     unsetenv("JFGLASS_LOG");
+    if (!app) return;
     g_active = true;
     QQuickWindow::setDefaultAlphaBuffer(true);
     LOG("preload active\n");

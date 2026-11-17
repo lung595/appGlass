@@ -291,16 +291,25 @@ class QtQuickShim(Tmp):
         src = os.path.join(b, "probe.c")
         with open(src, "w") as f:
             f.write('#include <stdlib.h>\nint main(void) { return system("env"); }\n')
-        exe = os.path.join(b, "jellyfin-desktop")   # the shim acts only in this binary
-        subprocess.run([GCC or GXX, "-O1", "-o", exe, src], check=True, capture_output=True,
-                       timeout=120)
         env = self.base_env(LD_PRELOAD=so, JFGLASS_CSS=os.path.join(b, "glass.css"),
                             JFGLASS_LOG="1", QT_QPA_PLATFORM="offscreen")
-        r = subprocess.run([exe], env=env, capture_output=True, text=True, timeout=60)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        e = parse_env(r.stdout)
-        self.assertEqual(leaks(e), [])
-        self.assertEqual(e.get("KEEP"), "1")
+
+        def child_env(name):
+            exe = os.path.join(b, name)
+            subprocess.run([GCC or GXX, "-O1", "-o", exe, src], check=True, capture_output=True,
+                           timeout=120)
+            r = subprocess.run([exe], env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return parse_env(r.stdout)
+
+        # the shim acts in jellyfin-desktop; any other process the preload reaches (a helper the
+        # flatpak command might start instead) drops it too, only a launcher shell passes it on
+        for name in ("jellyfin-desktop", "some-helper"):
+            e = child_env(name)
+            self.assertEqual(leaks(e), [], name)
+            self.assertEqual(e.get("KEEP"), "1")
+        e = child_env("sh")
+        self.assertIn("jfglass", e.get("LD_PRELOAD", ""))
 
 
 # ------------------------------------------------------------------ electron-hook
