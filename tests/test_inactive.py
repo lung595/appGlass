@@ -130,6 +130,19 @@ class NiriInstant(unittest.TestCase):
         lever_only = {k: v for k, v in self.OWNERS.items() if k != "herdr"}
         self.assertEqual(niri.instant_inactive(fake_app(lever_only, on)), (None, None))
 
+    def test_an_app_a_lever_family_fades_is_not_dimmed_again(self):
+        """Kate and Konsole fade through the Qt style: their own families
+        are no lever, but the niri dim would dim them a second time."""
+        owners = dict(self.OWNERS,
+                      kate={"app_ids": [r"^org\.kde\.kate$"]},
+                      konsole={"app_ids": [r"^org\.kde\.konsole$"]},
+                      qtstyle={"app_ids": [r"^vlc$", r"^org\.kde\.kate$",
+                                           r"^org\.kde\.konsole$"]})
+        on = {"inactive": {"instantFallback": True}}
+        self.assertEqual(niri.instant_inactive(fake_app(owners, on)), (0.9, [r"^herdr$"]))
+        del owners["herdr"]
+        self.assertEqual(niri.instant_inactive(fake_app(owners, on)), (None, None))
+
     def test_fallback_inactive_still_wins(self):
         app = fake_app(self.OWNERS, {"fallback": {"inactive": 0.55},
                                      "inactive": {"instantFallback": True}})

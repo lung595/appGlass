@@ -232,11 +232,16 @@ def instant_inactive(app):
     r = _inactive.ratio(content, p["factor"])
     if r >= 1:
         return None, None
+    # an app a lever family fades (Kate and Konsole through the Qt style)
+    # is not dimmed a second time, whichever family also lists it
+    faded = {a for name in app.state.families() if name in _inactive.LEVER_FAMILIES
+             for a in app.state.owners[name].get("app_ids", [])}
     ids = []
     for name in app.state.families():
         if name in _inactive.LEVER_FAMILIES:
             continue
-        ids += [a for a in app.state.owners[name].get("app_ids", []) if a not in ids]
+        ids += [a for a in app.state.owners[name].get("app_ids", [])
+                if a not in ids and a not in faded]
     return (r, ids) if ids else (None, None)
 
 
