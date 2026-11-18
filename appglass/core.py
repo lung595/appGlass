@@ -534,7 +534,7 @@ class State:
             names = os.listdir(os.path.join(self.env.state_dir, "backup"))
         except OSError:
             return []
-        return sorted(n for n in names if n not in named)
+        return sorted(n for n in names if n not in named and BACKUP_NAME.match(n))
 
     def back_in_place(self, name):
         """The original backup/name is no longer the only copy: the file it
@@ -571,8 +571,23 @@ class State:
                 q = os.path.join(real, n)
                 if not _state_own_name(n):
                     self.left_in_link.append(n)
+                elif n in STATE_DIRS and os.path.isdir(q) and not os.path.islink(q):
+                    # inside ring/, backup/ and plain/ only the entries of
+                    # appglass's shape go; the folder goes once it is empty
+                    for x in sorted(os.listdir(q)):
+                        xp = os.path.join(q, x)
+                        if not _state_own_entry(n, xp):
+                            self.left_in_link.append("%s/%s" % (n, x))
+                        elif os.path.isdir(xp) and not os.path.islink(xp):
+                            shutil.rmtree(xp)
+                        else:
+                            os.remove(xp)
+                    try:
+                        os.rmdir(q)
+                    except OSError:
+                        pass
                 elif os.path.isdir(q) and not os.path.islink(q):
-                    shutil.rmtree(q)
+                    self.left_in_link.append(n)
                 else:
                     os.remove(q)
         elif os.path.isdir(d):
@@ -593,7 +608,11 @@ class State:
 
 # the names appglass makes in its state dir (and their _atomic_write temps)
 STATE_NAMES = ("state.json", ".lock", "verify.lock", "colors.json", "engine.json",
-               "backup", "ring", "plain")
+               "engine.json.bad", "backup", "ring", "plain")
+STATE_DIRS = ("backup", "ring", "plain")
+# a ring entry's name (_ring_entry: UTC time, -n on a collision)
+RING_NAME = re.compile(r"^\d{8}-\d{6}-\d{6}(-\d+)?$")
+BACKUP_NAME = re.compile(r"^[0-9a-f]{16}\.orig$")
 
 
 def _state_own_name(n):
@@ -601,6 +620,20 @@ def _state_own_name(n):
         return True
     return n.startswith(".") and n.endswith(".appglass-tmp") \
         and n[1:-len(".appglass-tmp")] in STATE_NAMES
+
+
+def _state_own_entry(folder, p):
+    """p, in the state dir's ring/, backup/ or plain/, has the shape of what
+    appglass writes there: a ring entry (its time name), a backup
+    <hash>.orig, a plain marker (a file)."""
+    n = os.path.basename(p)
+    if os.path.islink(p):
+        return False
+    if folder == "ring":
+        return os.path.isdir(p) and bool(RING_NAME.match(n))
+    if folder == "backup":
+        return os.path.isfile(p) and bool(BACKUP_NAME.match(n))
+    return os.path.isfile(p) and not n.startswith(".")
 
 
 def state_link_problem(env):
@@ -623,7 +656,30 @@ def state_link_problem(env):
         return ("%s is a link to the base folder %s: appglass keeps its state in a "
                 "folder of its own (point the link at an empty folder, or take it out)"
                 % (env.tilde(d), env.tilde(real)))
+    theirs = _names_not_made_here(real)
+    if theirs:
+        return ("%s is a link to %s, which already holds %s, and appglass has not used "
+                "that folder (no .lock, no state.json of appglass's there): appglass would "
+                "read, prune or delete them. Point the link at an empty folder of its own, "
+                "or take it out" % (env.tilde(d), env.tilde(real), ", ".join(theirs)))
     return None
+
+
+def _names_not_made_here(real):
+    """A folder appglass has not used yet (no .lock: every locked run makes
+    it; no readable state.json of appglass's) that already holds names
+    appglass would use: those names (else [])."""
+    try:
+        names = os.listdir(real)
+    except OSError:
+        return []
+    if ".lock" in names:
+        return []
+    d = _load_json(os.path.join(real, "state.json"))
+    if isinstance(d, dict) and d.get("version") == STATE_VERSION:
+        return []
+    # (verify.lock: a verify makes it before it takes the lock)
+    return sorted(n for n in names if _state_own_name(n) and n != "verify.lock")
 
 
 # ---------------------------------------------------------------- the ring
@@ -1432,7 +1488,7 @@ class App:
             # a dir with no manifest (a run killed before it wrote one) is
             # no entry: restore cannot use it
             xp = os.path.join(root, x)
-            if x != name and os.path.isdir(xp) and not os.path.islink(xp) \
+            if x != name and RING_NAME.match(x) and os.path.isdir(xp) and not os.path.islink(xp) \
                     and not os.path.isfile(os.path.join(xp, "manifest.json")):
                 env.guard(xp)
                 shutil.rmtree(xp)

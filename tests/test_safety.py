@@ -1886,6 +1886,88 @@ class LinkedStateDir(Base):
         self.assertNotIn("Traceback", err)
         return err
 
+    def user_folder(self, names):
+        """A folder of the user's that already holds names appglass uses."""
+        alt = os.path.join(self.sb.home, "Documents")
+        os.makedirs(alt)
+        with open(os.path.join(alt, "my-notes.txt"), "w") as f:
+            f.write("user notes\n")
+        for n in names:
+            if "." in n:
+                with open(os.path.join(alt, n), "w") as f:
+                    f.write('{"mine": 1}\n')
+            else:
+                os.makedirs(os.path.join(alt, n))
+                with open(os.path.join(alt, n, "tax-2025.pdf"), "wb") as f:
+                    f.write(b"%PDF user")
+        self.link_to(alt)
+        return alt
+
+    def test_first_use_of_a_folder_holding_appglass_names_is_refused(self):
+        # w2 r2: a user ring/, plain/, backup/, colors.json or state.json in
+        # the link target: appglass would read, prune or delete them. The
+        # refusal comes before the lock: no .lock is left in that folder
+        for names in (("ring",), ("plain",), ("backup",), ("colors.json",),
+                      ("state.json",), ("engine.json",)):
+            with self.subTest(names=names):
+                self.tearDown()
+                self.setUp()
+                alt = self.user_folder(names)
+                before = self.sb.tree_hash()
+                err = self.refused("apply", "--only", "alacritty")
+                self.assertIn(names[0], err)
+                self.assertIn("empty folder", err)
+                self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+                self.assertNotIn(".lock", os.listdir(alt))
+                self.refused("adopt", "--rescue")
+                self.refused("remove")
+                self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+                code, out, err = self.sb.run("doctor")
+                self.assertIn(names[0], out + err)
+                self.assertNotEqual(code, 0)
+
+    def test_a_folder_appglass_used_before_is_taken(self):
+        # its .lock (or a readable state.json of appglass's) says the names
+        # in it are appglass's own
+        alt = os.path.join(self.sb.home, "elsewhere")
+        os.makedirs(alt)
+        self.link_to(alt)
+        self.apply()
+        self.assertIn(".lock", os.listdir(alt))
+        self.apply()
+        os.remove(os.path.join(alt, ".lock"))
+        self.apply()
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(os.listdir(alt), [])
+
+    def test_remove_keeps_user_entries_inside_its_own_folders(self):
+        # a file of the user's put in ring/, backup/ or plain/ after apply:
+        # only appglass-shaped entries go (a ring entry with its manifest,
+        # a backup <hash>.orig, a plain marker file)
+        alt = os.path.join(self.sb.home, "elsewhere")
+        os.makedirs(alt)
+        self.link_to(alt)
+        self.apply()
+        for n in ("ring", "backup", "plain"):
+            os.makedirs(os.path.join(alt, n, "mine"))
+            with open(os.path.join(alt, n, "mine", "tax-2025.pdf"), "wb") as f:
+                f.write(b"%PDF user")
+        with open(os.path.join(alt, "backup", "notes.txt"), "w") as f:
+            f.write("mine\n")
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        for n in ("ring", "backup", "plain"):
+            self.assertEqual(self.sb.readb(os.path.join(alt, n, "mine", "tax-2025.pdf")),
+                             b"%PDF user")
+        self.assertEqual(sorted(os.listdir(os.path.join(alt, "ring"))), ["mine"])
+        self.assertEqual(sorted(os.listdir(os.path.join(alt, "backup"))), ["mine", "notes.txt"])
+        self.assertNotIn("state.json", os.listdir(alt))
+        self.assertIn("ring/mine", err)
+
+    def test_engine_json_bad_is_appglass_s(self):
+        self.assertTrue(core._state_own_name("engine.json.bad"))
+
     def test_link_to_home_is_refused(self):
         self.link_to(self.sb.home)
         before = self.sb.tree_hash()
