@@ -60,6 +60,22 @@ class Status(unittest.TestCase):
         self.assertEqual(routes["solaar"]["reason"], "off in settings")
         self.assertEqual(routes["vlc"]["adapter"], "kvantum")
 
+    def test_a_family_removed_by_hand_says_so(self):
+        self.sb.seed_dms()
+        # gtk4 stays applied: a remove of the last family takes the state out
+        code, out, err = self.sb.run("apply", "--only", "gtk3,gtk4", assume="gtk3,gtk4")
+        self.assertEqual(code, 0, err)
+        self.assertEqual({a["key"]: a for a in self.doc()["apps"]}["solaar"]["effective"], "glass")
+        code, out, err = self.sb.run("remove", "--only", "gtk3", assume="gtk3,gtk4")
+        self.assertEqual(code, 0, err)
+        solaar = {a["key"]: a for a in self.doc()["apps"]}["solaar"]
+        self.assertEqual(solaar["effective"], "fallback")
+        self.assertIn("family gtk3 removed", solaar["reason"])
+        code, out, err = self.sb.run("status", assume="gtk3,gtk4")
+        line = next(l for l in out.splitlines() if l.strip().startswith("solaar"))
+        self.assertIn("family gtk3 removed", line)
+        self.assertEqual(line.split()[3], "fallback")
+
     def test_not_installed_family(self):
         routes = {a["key"]: a for a in json.loads(self.sb.run(
             "status", "--json", assume_not="gtk3")[1])["apps"]}

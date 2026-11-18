@@ -2097,7 +2097,7 @@ def cmd_status(app):
         o = st.owners.get(name)
         p("%-10s %s" % (name, ("applied: " + ", ".join(sorted(o["files"]))) if o else "not applied"))
     try:
-        routes = app_routes(app, renders=renders)
+        routes = app_routes(app, renders=renders, note_removed=True)
     except Exception as ex:  # status must not die on a detection bug
         app.warn("detect failed: %s" % ex)
         routes = []
@@ -2132,14 +2132,16 @@ def render_says(rd):
     return says + (": " + why if why else "")
 
 
-def app_routes(app, records=None, renders=None):
+def app_routes(app, records=None, renders=None, note_removed=False):
     """[(record, route)] for every installed, shown app: route = adapters.resolve();
     a glass app whose family says where it renders gets "render" and the
     reason says it. renders: {family: family_render()} already asked (the
-    probe behind it takes about 0.1 s), else asked here."""
+    probe behind it takes about 0.1 s), else asked here. note_removed (status):
+    an app of a family the user took out (remove --only) says so, not glass."""
     from . import adapters, engine
     records = detected(app) if records is None else records
     g = engine.Gate(app)
+    removed = set(app.state.data.get("user_removed") or ()) if note_removed else set()
     out = []
     for r in records:
         if not r.get("installed") or r.get("nodisplay"):
@@ -2149,6 +2151,9 @@ def app_routes(app, records=None, renders=None):
         if fam and route["effective"] == "glass" and not app.installed(app.families[fam]):
             route.update(effective="fallback", reason="family %s: not installed" % fam,
                          state="opaque")
+        if fam in removed and fam not in app.state.owners and route["effective"] == "glass":
+            route.update(effective="fallback", reason="family %s removed (appglass apply "
+                         "--only %s sets it up again)" % (fam, fam))
         rd = None
         if fam and route["effective"] == "glass":
             rd = renders[fam] if renders is not None and fam in renders else family_render(app, fam)
@@ -2223,7 +2228,7 @@ def status_doc(app):
                 clash.setdefault(fam, []).append(h["path"])
     apps = []
     counts = {}
-    for r, route in app_routes(app, renders=renders):
+    for r, route in app_routes(app, renders=renders, note_removed=True):
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1
         own = (app.settings.get("apps", {}).get(r["key"]) or {}).get("route")
         apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
