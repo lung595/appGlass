@@ -565,6 +565,9 @@ class Gtk4(unittest.TestCase):
         self.assertIn("textview.view > text", g)
         self.assertIn(fam.NESTED_VIEW_RULE, g)
         self.assertIn("window.background columnview > listview.view", g)
+        # Nautilus' empty folder: the status page paints a view fill over the
+        # window one (0.80 over 0.80 shot at 245)
+        self.assertIn("window.background statuspage { background-color: transparent; }", g)
         self.assertIn(".navigation-sidebar flowboxchild:selected { background-color: "
                       "alpha(%s, 0.50); }" % self.roles()["secondary_container"], g)
 

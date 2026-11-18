@@ -123,6 +123,8 @@ textview.view:backdrop, textview.view:backdrop > text, textview.view:backdrop > 
 NESTED_VIEW_RULE = """\
 /* column/list views inside the window background would stack a second view fill */
 window.background columnview.view, window.background columnview > listview.view { background-color: transparent; }
+/* so would a status page (Nautilus' empty folder) */
+window.background statuspage { background-color: transparent; }
 """
 
 FG_ROLES = ("window_fg_color", "view_fg_color", "headerbar_fg_color",
