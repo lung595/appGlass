@@ -32,7 +32,7 @@ The glass level follows your DMS window opacity.
 | Host Qt | 6.11 or newer | Jellyfin Desktop only |
 | A DMS window rule with an opacity | No match, blur on | The glass level itself (optional, see below) |
 | `gamescope`, `niri`, `dbus-run-session` and `ffmpeg` | Any | The hidden check of the Forced and Mod routes. Without them the check cannot run, and those routes stay plain |
-| `bwrap` (bubblewrap), with user namespaces | Any | The hidden check of a flatpak app on a Forced or Mod route |
+| `bwrap` (bubblewrap), with user namespaces | Any | The hidden check of a flatpak app, and of the WebKitGTK apps (Lian Li, Kiri, ...), on a Forced or Mod route. Without it those checks cannot run, and those apps stay plain |
 | `jq` | Any | Putting Vencord back after a Discord update, with the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` ([how](docs/routes.md#discord-vencord)) |
 
 **The glass level** is the opacity of your global DMS window rule. Make one in **Settings → Applications → Window rules**: a rule with no match (it applies to every window), an opacity, and blur on. appGlass takes the first such rule, whatever you call it. With no such rule it uses the DMS `foregroundLayerTransparency` setting, then 0.60. A `levels.content` value in appGlass's own settings (`appglass set levels.content 0.80`) overrides the rule.
@@ -153,7 +153,7 @@ The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, meas
 | Vencord theme | Mod | Discord with Vencord | Untested: expected partial, not measured (Discord needs a signed-in account); needs the Vencord client mod |
 | Electron inspector hook | Forced | Feishin | Works, after its check |
 | Electron inspector hook | Forced | VSCodium | Works, after its check; popups not checked (no menu was opened) |
-| WebKit shim | Forced | Lian Li Linux | Works once you switch it on: its hidden check does not pass (with its daemon hidden it shows a "Waiting for daemon" dialog) |
+| WebKit shim | Forced | Lian Li Linux | Not glass today: the shim paints the glass, but its hidden check fails (with its daemon hidden it shows a "Waiting for daemon" dialog), and a failed check keeps it opaque even when you switch it on (then it is glass only until that check runs) |
 | Generic WebKit shim | Forced | Kiri | Works, after its check (measured on its setup screen) |
 | Generic WebKit shim | Forced | Other host GTK3 WebKitGTK 4.x and Tauri apps whose window is the web view | Untested: the same route, not run on another app; native widgets beside the view keep it opaque; WebKitGTK flatpaks and WebKitGTK 6 (GTK4) apps get the fallback |
 | Qt Quick shim | Forced | Jellyfin Desktop | Works, after its check |
@@ -242,7 +242,9 @@ appglass learn [--json] [--dry-run]     # record the toolkit of each open window
 appglass apply --all [--adopt] [--dry-run]
 appglass apply [--only f1,f2] [--dry-run]
 appglass adopt [paths] [--dry-run]      # hand the known hand-made glass files to appglass, backed up first
+appglass adopt --rescue                 # state.json lost, none to restore: save its files on disk in a ring entry, record them again
 appglass remove [--only f1,f2]          # undo everything, or some families
+appglass remove --forget-away           # also forget the files whose folder is gone for good (a deleted vault)
 appglass restore [id] [--list]          # the backup ring: the last 5 changes
 appglass get [key]
 appglass set <key> <value> [--apply]

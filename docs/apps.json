@@ -279,7 +279,8 @@
    "family": "lianli",
    "route": "webkit-shim appglass-wk.so; on by default, live after its check. e2e in a nested niri with its daemon hidden: content 153, bars 166",
    "tested": "earlier",
-   "result": "glass",
+   "result": "opaque",
+   "reason": "the shim paints the glass (content 153, bars 166), but its hidden check fails (with its daemon hidden a dialog covers the page: background about 194 for 153), and a failed check keeps it opaque even when switched on",
    "evidence": "docs/routes.md#lian-li-webkitgtk-shim, docs/issue-dms.md#screenshots, tests/e2e/lianli.sh, commit 84ce964"
   },
   {

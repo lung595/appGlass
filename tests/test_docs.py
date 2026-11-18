@@ -862,7 +862,7 @@ class RouteTable(unittest.TestCase):
             if a["family"] == "-":
                 continue
             want = ("Untested" if a["tested"] in ("no", "probe") else
-                    {"glass": "Works", "partial": "Partial"}[a["result"]])
+                    {"glass": "Works", "partial": "Partial", "opaque": "Not glass"}[a["result"]])
             for name in apps_json_names(a):
                 hits = [st for cell, st in rows
                         if re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(name), cell)]

@@ -154,7 +154,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 - **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)); in a nested niri with its daemon hidden (`tests/e2e/lianli.sh`), content 153 and bars 166.
 - **Fade, not recorded for this version:** the shim sets `html.agl-inactive` on the page when the window loses focus, and the CSS lowers the background with a transition; the rule and the shim's focus hook are unit-tested (`tests/test_fade.py`). An earlier build was recorded at 0.80 (nested niri, three runs, `shots/fade/lianli.fade.txt` in the probe notes): 0.80 to 0.72 in about 115 ms, back in 67 to 151 ms.
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
-- **Default:** on, live once its hidden check passes, but today the check does not pass: the check hides the daemon (as it must), so Lian Li lays its "Check your installation / Waiting for daemon" dialog and a scrim over the page, and the shot fails (background about 194 for 153, `tests/e2e/lianli.sh`). Lian Li stays opaque until you switch it on yourself in Settings > Apps (`apps.lianli.enabled` in `settings.json`); then it is glass at once.
+- **Default:** on, live once its hidden check passes, but today the check does not pass: the check hides the daemon (as it must), so Lian Li lays its "Check your installation / Waiting for daemon" dialog and a scrim over the page, and the shot fails (background about 194 for 153, `tests/e2e/lianli.sh`). So Lian Li stays opaque. Switching it on yourself in Settings > Apps (`apps.lianli.enabled` in `settings.json`) makes it glass only until its queued check runs; once the check fails it is opaque again (a failed check wins over your switch, `appglass status` says "check failed").
 - **Undo:** `appglass remove --only lianli`.
 
 ## Any WebKitGTK app (generic WebKit shim)
@@ -164,7 +164,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 - **How:** the same shim as Lian Li; the page script reads the page's own colours: the page colour at the content level, large boxes of another colour (sidebars, headers, status bars, cards) at the bar level, popups (dialogs, menus, listboxes, tooltips, floating boxes) left opaque, text never touched. See [webkit.md](webkit.md#the-generic-route-family-webkit).
 - **Measured:** Kiri 0.2.1 in a nested niri, measured on its setup screen (no engine in the harness): content 153, bars 166, text 255, its language dialog 255; at 0.80, 204 focused and 184 unfocused.
 - **Check:** with no network and the `/run` entries its binaries name hidden. Kiri's passes in `tests/e2e/webkit.sh` (it waits at default settings, `appglass verify kiri` passes, the next apply gives it the glass); no other WebKitGTK app was checked.
-- **Default:** on, live per app once its hidden check passes (or at once when you switch the app on). Switch an app off in Settings > Apps.
+- **Default:** on, live per app once its hidden check passes. Switching an app on yourself makes it glass at once, until its queued check runs: a failed check makes it opaque again, whatever the switch says. Switch an app off in Settings > Apps.
 - **Undo:** `appglass remove --only webkit`. The next launch is the plain app.
 
 ## Jellyfin (Qt Quick shim)
@@ -192,6 +192,7 @@ Flutter and egui apps draw everything themselves into one surface. The shim repl
   `appglass status`, `doctor` and the plugin's app row say which route it takes and why.
 - **Measured:** LocalSend on the real desktop at 0.80: background 204, text 255. ArtCraft at 0.80 on the CPU route: background 204, text 255. ArtCraft 0.19.2 in the headless harness at 0.60, both routes: content 153, bar 166, text 255; scrolling costs about 25 times less CPU on the GPU route at 60 Hz ([artcraft-gpu.md](artcraft-gpu.md#the-installed-family-headless-harness)). See [flutter.md](flutter.md), [gpu.md](gpu.md) and the [issue draft](issue-dms.md#screenshots).
 - **Fade, recorded:** LocalSend 1.18.2 at 0.80 (light theme), three runs: no fade, the background stays 0.80 focused and unfocused. The shim has no focus lever; only "Dim apps that cannot fade" reaches it. Started from a hand-written `flatpak run` command doing what the wrapper's `Exec` does, not the installed wrapper.
+- **Fade, ArtCraft:** none, on both routes. Neither the Vulkan layer nor the CPU shim has a focus lever; only "Dim apps that cannot fade" reaches it. Not recorded in a session.
 - **Limit:** the colour keys are per app and per light/dark theme. A colour that is not a key stays opaque: a miss fails safe, it never fades text.
 - **Keys:** the keys are data, one file per app version and dark or light mode (`~/.cache/appglass/keys/`), read by the wrapper through `appglass keys`, so an update or a theme flip needs no wrapper edit.
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
