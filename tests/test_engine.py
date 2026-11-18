@@ -498,6 +498,24 @@ class Routing(unittest.TestCase):
         with open(os.path.join(home, os.path.relpath(colours, self.sb.home))) as f:
             self.assertIn("window_bg_color", f.read())
 
+    def test_glass_files_outside_home_make_the_check_unverifiable(self):
+        """XDG_DATA_HOME outside HOME: the throwaway HOME cannot hold the
+        theme, so the check would shoot the plain app. It says it cannot
+        check instead of failing the route."""
+        outside = self.sb.path("outside-data")
+        os.makedirs(outside)
+        self.sb.env["XDG_DATA_HOME"] = outside
+        g = bin_elf(self.w, "gtkapp", GTK3)
+        self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
+        self.run_ok("apply", "--only", "gtk3")
+        app = core.App(self.sb.env, quiet=True)
+        self.assertFalse(app.env.data_home.startswith(app.env.home + os.sep))
+        run = self.sb.path("stage-run")
+        os.makedirs(run)
+        with self.assertRaises(verify.Unstageable) as cm:
+            verify.stage(app, engine.record_for(app, "gtkapp"), run)
+        self.assertIn("outside", str(cm.exception))
+
     def test_no_new_family_without_a_full_apply(self):
         self.run_ok("apply", "--only", "gtk4")
         bin_elf(self.w, "qtthing", QT6)

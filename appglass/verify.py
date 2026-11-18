@@ -188,6 +188,10 @@ def candidate(app, owner):
             if op.kind != "retire" and isinstance(op.data, bytes)}
 
 
+class Unstageable(Exception):
+    """The glass files cannot be put in the throwaway HOME."""
+
+
 def stage(app, rec, run):
     """The throwaway HOME: the glass files of this app's family (the ones
     it owns, then its candidate plan on top; text files get the real $HOME
@@ -229,9 +233,13 @@ def stage(app, rec, run):
             if n.endswith(".json") and os.path.isfile(os.path.join(kd, n)):
                 with open(os.path.join(kd, n), "rb") as f:
                     staged[os.path.join(kd, n)] = (f.read(), 0o644)
+    # the throwaway HOME holds only what is under $HOME: a file outside it
+    # (XDG dirs moved out of HOME) would leave the check with the plain app
+    out = sorted(p for p in staged if not p.startswith(env.home + os.sep))
+    if out:
+        raise Unstageable("the glass files are outside HOME (%s): the check cannot "
+                          "stage them" % os.path.dirname(out[0]))
     for p, (data, mode) in sorted(staged.items()):
-        if not p.startswith(env.home + os.sep):
-            continue
         dst = os.path.join(home, os.path.relpath(p, env.home))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         try:
@@ -513,7 +521,10 @@ def run_harness(app, rec, level):
     p = None
     try:
         rt = os.path.join(run, "rt")
-        home = stage(app, rec, run)
+        try:
+            home = stage(app, rec, run)
+        except Unstageable as e:
+            return {"result": "unverifiable", "reason": str(e)}
         why = seed(app, rec, home)
         if why:
             return {"result": "unverifiable", "reason": why}
