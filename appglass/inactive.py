@@ -24,6 +24,7 @@ stay opaque):
   feishin   agl-hook.js sets ``html.agl-inactive`` on BrowserWindow blur
   jellyfin  jfglass sets ``html.agl-inactive`` on QQuickWindow activeChanged
   lianli    appglass-wk.so sets ``html.agl-inactive`` when the page loses focus
+  webkit    the same class from the same shim, for any GTK3 WebKitGTK app
   qtstyle   the Qt style animates the window fill on WindowDeactivate
 
 The wrappers get the values from ``appglass levels`` (``fields``): inactive,
@@ -64,7 +65,7 @@ DURATION_RANGE = (0, 400)
 # families that fade their own background (the rest can only get the
 # instant niri rule)
 LEVER_FAMILIES = ("gtk4", "gtk3", "obsidian", "alacritty", "vencord", "feishin",
-                  "jellyfin", "lianli", "qtstyle")
+                  "jellyfin", "lianli", "webkit", "qtstyle")
 
 
 def params(settings):

@@ -4,7 +4,7 @@
 //
 //   LD_PRELOAD=/path/appglass-wk.so APPGLASS_CSS=glass.css [APPGLASS_JS=end.js] [APPGLASS_JS_START=start.js] app
 //
-// What it does, per WebKitWebView, on the first webkit_web_view_load_uri/load_html:
+// What it does, per WebKitWebView, on the first webkit_web_view_load_uri/html/request/bytes:
 //   1. webkit_web_view_set_background_color(view, rgba(0,0,0,0))  (and every later call is forced to alpha 0)
 //   2. toplevel: RGBA visual (if not yet realized) + app-paintable  (what tao does for transparent:true)
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
@@ -86,6 +86,36 @@ static const char FOCUS_JS[] =
     "var d=document.documentElement,f=function(){setTimeout(function(){d.classList.toggle('agl-inactive',!document.hasFocus())},0)};"
     "window.addEventListener('focus',f);window.addEventListener('blur',f);f();})();";
 
+// the window of the view: RGBA visual (before it is realized) and app-paintable; 0 without one yet
+static int glass_toplevel(void *view) {
+    void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
+    gboolean (*is_toplevel)(void *) = sym("gtk_widget_is_toplevel");
+    gboolean (*get_realized)(void *) = sym("gtk_widget_get_realized");
+    void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
+    void *(*get_screen)(void *) = sym("gtk_widget_get_screen");
+    void *(*rgba_visual)(void *) = sym("gdk_screen_get_rgba_visual");
+    void (*set_visual)(void *, void *) = sym("gtk_widget_set_visual");
+    void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
+    if (!get_toplevel || !is_toplevel) return 1;   // not GTK3: nothing to wait for
+    void *top = get_toplevel(view);
+    if (!top || !is_toplevel(top)) { LOG("view %p has no toplevel yet", view); return 0; }
+    if (get_realized && !get_realized(top) && get_screen && rgba_visual && set_visual) {
+        void *v = rgba_visual(get_screen(top)); if (v) set_visual(top, v);
+        LOG("toplevel %p: rgba visual %p", top, v);
+    } else LOG("toplevel %p already realized: visual unchanged", top);
+    if (set_paintable) set_paintable(top, 1);
+    if (queue_draw) queue_draw(top);
+    return 1;
+}
+
+static void on_hierarchy(void *view, void *prev, void *data) {
+    (void)prev; (void)data;
+    static void *(*get_data)(void *, const char *); static void (*set_data)(void *, const char *, void *);
+    if (!get_data) { get_data = sym("g_object_get_data"); set_data = sym("g_object_set_data"); }
+    if (!get_data || !set_data || get_data(view, "appglass-top")) return;
+    if (glass_toplevel(view)) set_data(view, "appglass-top", (void *)1);
+}
+
 static void glassify(void *view) {
     static void *(*get_data)(void *, const char *); static void (*set_data)(void *, const char *, void *);
     if (!get_data) { get_data = sym("g_object_get_data"); set_data = sym("g_object_set_data"); }
@@ -95,24 +125,9 @@ static void glassify(void *view) {
     GdkRGBA clear = { 0, 0, 0, 0 };
     real_set_bg(view, &clear);
 
-    void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
-    gboolean (*is_toplevel)(void *) = sym("gtk_widget_is_toplevel");
-    gboolean (*get_realized)(void *) = sym("gtk_widget_get_realized");
-    void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
-    void *(*get_screen)(void *) = sym("gtk_widget_get_screen");
-    void *(*rgba_visual)(void *) = sym("gdk_screen_get_rgba_visual");
-    void (*set_visual)(void *, void *) = sym("gtk_widget_set_visual");
-    void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
-    if (get_toplevel && is_toplevel) {
-        void *top = get_toplevel(view);
-        if (top && is_toplevel(top)) {
-            if (get_realized && !get_realized(top) && get_screen && rgba_visual && set_visual) {
-                void *v = rgba_visual(get_screen(top)); if (v) set_visual(top, v);
-                LOG("toplevel %p: rgba visual %p", top, v);
-            } else LOG("toplevel %p already realized: visual unchanged", top);
-            if (set_paintable) set_paintable(top, 1);
-            if (queue_draw) queue_draw(top);
-        } else LOG("view %p has no toplevel yet", view);
+    if (!glass_toplevel(view)) {  // not in a window yet (wry builds the view first): when it is
+        unsigned long (*connect)(void *, const char *, void *, void *, void *, int) = sym("g_signal_connect_data");
+        if (connect) connect(view, "hierarchy-changed", (void *)on_hierarchy, NULL, NULL, 0);
     }
 
     if (dbg()) { // console.log -> stdout of the web process (lands in the app log)
@@ -157,6 +172,24 @@ void webkit_web_view_load_uri(void *view, const char *uri) {
 void webkit_web_view_load_html(void *view, const char *html, const char *base) {
     static void (*f)(void *, const char *, const char *); if (!f) f = next("webkit_web_view_load_html");
     glassify(view); f(view, html, base);
+}
+
+// the other first loads an app may use (any WebKitGTK app, not only Tauri/wry)
+void webkit_web_view_load_request(void *view, void *req) {
+    static void (*f)(void *, void *); if (!f) f = next("webkit_web_view_load_request");
+    glassify(view); f(view, req);
+}
+
+void webkit_web_view_load_alternate_html(void *view, const char *html, const char *uri, const char *base) {
+    static void (*f)(void *, const char *, const char *, const char *);
+    if (!f) f = next("webkit_web_view_load_alternate_html");
+    glassify(view); f(view, html, uri, base);
+}
+
+void webkit_web_view_load_bytes(void *view, void *bytes, const char *mime, const char *enc, const char *base) {
+    static void (*f)(void *, void *, const char *, const char *, const char *);
+    if (!f) f = next("webkit_web_view_load_bytes");
+    glassify(view); f(view, bytes, mime, enc, base);
 }
 
 // GTK_MODULES entry point (absolute path in GTK_MODULES). As a module the PLT

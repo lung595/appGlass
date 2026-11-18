@@ -180,6 +180,7 @@ def candidate(app, owner):
     if fam is None:
         return {}
     ctx = app.ctx(owner)
+    ctx.candidate = True
     try:
         fam.apply(ctx)
     except Exception:

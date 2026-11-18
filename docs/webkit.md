@@ -1,18 +1,38 @@
 # Tauri / WebKitGTK
 
-No installed WebKitGTK app can paint glass without a rebuild. Lian Li Linux keeps the global niri opacity as a fallback. GNOME Web gets glass chrome from the GTK4 `gtk.css` and an `opacity 1.0` rule, and its page stays opaque.
-A Tauri/wry app that is *built* with `"transparent": true` and rgba page CSS reaches all three levels (0.60 / 0.65 / 1.0, tested with a demo that makes the same calls as wry). It needs a niri `opacity 1.0` rule, and it breaks under the usual NVIDIA WebKit env workarounds.
+Every host WebKitGTK app built on GTK3 and WebKitGTK 4.x (the Tauri / wry apps: Kiri, Lian Li Linux, ...) gets glass through one route, the WebKit shim: a preload that clears the WebView background, gives the window an alpha visual and adds page CSS and a small page script. Lian Li Linux keeps its own CSS (family `lianli`); any other such app takes the generic family `webkit`, found by its toolkit, not by a list. GNOME Web (GTK4, WebKitGTK 6) gets glass chrome from the GTK4 `gtk.css` and an `opacity 1.0` rule, and its page stays opaque.
 
 ## Overview
 
 | App | Tested / Documented | Works | Method | niri rule needed |
 |---|---|---|---|---|
-| Lian Li Linux (`lianli-gui`, Tauri 2 / wry / webkit2gtk-4.1) | Tested | no (fallback) | Nothing app-side is possible. Keep the niri opacity. | Keep the fallback: `^lianli-gui$` with `opacity 0.60` (or higher, see below) |
+| Kiri 0.2.1 (`kiri-window`, Tauri / wry / webkit2gtk-4.1, GTK3) | Tested (nested niri, e2e `tests/e2e/webkit.sh`) | yes | family `webkit`: `appglass-wk.so` + `webkit-glass.css` + `webkit-glass.js`, found by its toolkit | `opacity 1.0` on `^kiri$` (written by appglass) |
+| Any other host GTK3 WebKitGTK 4.x app | Documented (same route) | yes, after its check | family `webkit`, as for Kiri | `opacity 1.0` on its app-id (written by appglass) |
+| Lian Li Linux (`lianli-gui`, Tauri 2 / wry / webkit2gtk-4.1) | Tested | yes | family `lianli`: the same shim, with its own CSS from its theme variables | `opacity 1.0` (written by appglass) |
 | Tauri/wry app built with `"transparent": true` (demo that replicates wry) | Tested (demo only, no shipped binary) | partial | The app paints alpha itself: RGBA visual, app-paintable window, WebView background rgba 0, and rgba CSS per level | `opacity 1.0` on its app-id |
 | GNOME Web / Epiphany 51 (GTK4 + webkitgtk-6.0 2.54.2) | Tested | partial (chrome only) | libadwaita colour roles in `gtk-4.0/gtk.css` (the GTK4 glass file). The page always stays opaque. | `opacity 1.0` on `^org\.gnome\.Epiphany(\.WebApp_.*)?$` (the gtk4 family's rule) |
-| Other WebKitGTK apps (Geary, Evolution mail view, Yelp, GNOME Online Accounts web views) | Documented | no | Same mechanism: the app must call `webkit_web_view_set_background_color()` with alpha 0 | Fallback per app-id |
+| WebKitGTK 6 (GTK4) apps, WebKitGTK flatpaks (Cinny, ...) | Documented | no | the shim's window code is GTK3, and a host-built preload does not load in a flatpak runtime: fallback, with the reason in `appglass status` | Fallback per app-id |
+| Geary, Evolution mail view, Yelp, GOA web views | Documented | no | they are GTK4 or embed a view in a native window: no route | Fallback per app-id |
 
-## Why WebKitGTK is mostly a fallback
+## The generic route (family `webkit`)
+
+- **Who:** an app whose launcher's binary links `libwebkit2gtk-4.0` or `-4.1` and `libgtk-3` (`appglass detect` prints `webkitgtk` with both libraries as evidence), not a flatpak, not a launcher of yours alone, not a game launcher, not a password app. Lian Li takes its own family first.
+- **Gate:** it loads code into the app, so each app waits for its hidden check (per app and version), or goes live at once when you switch it on yourself (Settings > Apps, or `apps.<key>.enabled` in `settings.json`). An app held opaque gets its plain launcher back.
+- **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/webkit/` (with its source, `webkit-glass.css.tmpl`, `webkit-glass.js` and the rendered `webkit-glass.css`), the wrapper `~/.local/bin/appglass-webkit` and one launcher override per app: `Exec=appglass-webkit <key> <the app's own Exec>`. The wrapper renders the CSS from `appglass levels` at every start and preloads the shim for that one launch (its children do not inherit it).
+- **The shim:** on the first `webkit_web_view_load_uri/html/request/bytes` it clears the WebView background and, once the view is in a window (wry builds the view first), gives the GTK3 toplevel an RGBA visual. It adds `webkit-glass.css` as a user stylesheet, `webkit-glass.js` at document end (top frame), and the focus script that sets `html.agl-inactive` while the page has no focus.
+- **The page script** reads the page's own colours (light and dark both work, nothing per app):
+  - the page colour (`html`, else `body`, else what covers the window) is the content level, on `html` only;
+  - elements of that colour elsewhere become clear, so the content shows through;
+  - large boxes of another colour (a sidebar, a header, a status bar, a card) take their own colour at the bar level (0.125 over the content: 0.65);
+  - popups stay opaque and untouched: `dialog`, `role=dialog|alertdialog|menu|listbox|tooltip`, `popover`, `aria-modal`, and floating boxes with a shadow or a z-index. A box that covers the whole window is a page, not a popup (Kiri's setup step); what such an overlay covered is hidden while it stays, since it is glass now;
+  - text, images, buttons, fields and translucent backgrounds are never touched.
+  A MutationObserver marks what the page adds or restyles; a theme switch (`prefers-color-scheme`, a class or `data-*` on `html`/`body`) marks everything again.
+- **Unfocused:** the content eases to the inactive level (`html.agl-inactive`), text stays opaque.
+- **Measured (Kiri 0.2.1, nested niri, `tests/e2e/webkit.sh`):** content 153 (94% of the background within 6), bars and cards 166, text 255 (`#f2f0eb`, muted `#98a1ac`), the language dialog (`role=dialog`) 255 over a glass window; at 0.80, 204 focused and 184 unfocused. Kiri's muted grey on 0.60 glass over white is 1.85:1, the page's own grey.
+- **Limits:** the NVIDIA WebKit workarounds below make a transparent WebView nearly invisible. A page that paints its background with an image or a gradient keeps it. A popup drawn as a plain box with no role, no shadow and no z-index is taken for a card (bar level).
+- **Undo:** `appglass remove --only webkit`, or switch the app off in Settings > Apps.
+
+## Why the app alone cannot (without the shim)
 
 A WebKitGTK window is see-through only when all three of these hold:
 
@@ -40,11 +60,11 @@ A WebKitGTK window is see-through only when all three of these hold:
 | Dialogs | 1.0 | n/a | **255** (AdwAlertDialog for a JS alert) | 153 (in-page HTML) |
 | Text / icons / logos | never alpha'd | **255** | **255** | **153: text fades** |
 
-Lian Li Linux has a single uniform level, and its in-page modals fade along with everything else. GNOME Web cannot reach the 0.60 content level at all.
+Under the niri fallback alone (no shim), Lian Li Linux has a single uniform level, and its in-page modals fade along with everything else. GNOME Web cannot reach the 0.60 content level at all. With the shim (families `lianli` and `webkit`) an installed app reaches the three levels like a Tauri app built transparent; see [The generic route](#the-generic-route-family-webkit).
 
 ## Settings
 
-### Lian Li Linux: niri fallback (no app files)
+### Lian Li Linux without the shim: niri fallback (no app files)
 
 The window app-id is **`lianli-gui`**, not the desktop file's `com.sgtaziz.lianlilinux`. The app has no custom-CSS or opacity setting. Its binary contains the Tauri schema names (`transparent`, `windowEffects`, `backgroundColor`) and the wry/tao symbols, but these are compiled code paths, not a runtime switch. The real fix is upstream: an opt-in "translucent window" (`"transparent": true` plus rgba CSS).
 

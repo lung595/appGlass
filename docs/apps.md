@@ -12,7 +12,7 @@ exists but was not verified on this app (the probe's or the expected result is i
 glass, partial or opaque only for rows tested here (a glass row needs a PASS) or earlier;
 **glass (popups unverified)** = a PASS that opened no popup on a toolkit that has popups.
 
-51 rows (a row can name several apps): 14 tested here, 13 earlier, 22 probe, 2 documented. 17 glass (2 with popups unverified), 6 partial, 0 opaque, 3 untested, 25 needs adapter.
+52 rows (a row can name several apps): 14 tested here, 14 earlier, 22 probe, 2 documented. 18 glass (2 with popups unverified), 6 partial, 0 opaque, 3 untested, 25 needs adapter.
 
 | App | Toolkit | Family | Route | Tested | Result | Measured / reason | Evidence |
 |---|---|---|---|---|---|---|---|
@@ -38,6 +38,7 @@ glass, partial or opaque only for rows tested here (a glass row needs a PASS) or
 | Jellyfin Desktop 2.0.0 (flatpak) | Qt Quick + WebEngine | jellyfin | qtquick-shim libjfglass.so; opt-in | earlier | glass |  | commit de7eee8 |
 | LocalSend 1.18.2 (flatpak) | Flutter | localsend | ck-shim colour keys; opt-in | earlier | glass |  | commit ec1db1a |
 | Lian Li Linux (lianli-gui) | Tauri / WebKitGTK | lianli | webkit-shim appglass-wk.so; opt-in | earlier | glass |  | commit 7b90b43 |
+| Kiri 0.2.1 (kiri-window) | Tauri / WebKitGTK | webkit | webkit-shim appglass-wk.so + page CSS/JS from the page's own colours, found by toolkit (any host GTK3 WebKitGTK 4.x app); opt-in | earlier | glass |  | tests/e2e/webkit.sh |
 | Discord + Vencord | Electron (client mod) | vencord | Vencord transparent window + DMS theme with alpha; opt-in | earlier | partial | needs the Vencord client mod; the official client alone has no route | commit fc31872 |
 | kitty | own (OpenGL) | kitty | `background_opacity` + DMS theme include | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |
 | Ghostty | own (OpenGL/GTK4) | ghostty | `background-opacity` (+ cells) + DMS theme | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |

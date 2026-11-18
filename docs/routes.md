@@ -28,6 +28,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 | [Vencord theme](#discord-vencord) | Mod | `vencord` | Discord with Vencord | on, after its check |
 | [Electron inspector hook](#feishin-and-vscodium-electron-inspector-hook) | Forced | `feishin`, `vscodium` | Feishin, VSCodium | on, after its check |
 | [WebKit shim](#lian-li-webkitgtk-shim) | Forced | `lianli` | Lian Li Linux | on, after its check |
+| [WebKit shim, generic](#any-webkitgtk-app-generic-webkit-shim) | Forced | `webkit` | Kiri, any other host GTK3 WebKitGTK 4.x app | on, after its check |
 | [Qt Quick shim](#jellyfin-qt-quick-shim) | Forced | `jellyfin` | Jellyfin Desktop | on, after its check |
 | [Colour-key shim](#localsend-and-artcraft-colour-key-shim) | Forced | `localsend`, `artcraft` | LocalSend, ArtCraft Launcher | on, after its check |
 | [Opaque](#opaque) | | | Steam, Chrome, games, everything else | |
@@ -141,6 +142,15 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only lianli`.
+
+## Any WebKitGTK app (generic WebKit shim)
+
+- **Who:** found by its toolkit: a host app whose binary links `libwebkit2gtk-4.x` and `libgtk-3` (Kiri and the other Tauri / wry apps). Lian Li keeps its own family. Not a flatpak (the host-built preload does not load in its runtime), not WebKitGTK 6 / GTK4 (the shim's window code is GTK3): those keep the fallback, and `appglass status` says why.
+- **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/webkit/`, `webkit-glass.css` (the levels, rendered at every start) and `webkit-glass.js`, the wrapper `~/.local/bin/appglass-webkit` and one launcher override per app (`Exec=appglass-webkit <key> <its Exec>`).
+- **How:** the same shim as Lian Li; the page script reads the page's own colours: the page colour at the content level, large boxes of another colour (sidebars, headers, status bars, cards) at the bar level, popups (dialogs, menus, listboxes, tooltips, floating boxes) left opaque, text never touched. See [webkit.md](webkit.md#the-generic-route-family-webkit).
+- **Measured:** Kiri 0.2.1 in a nested niri: content 153, bars 166, text 255, its language dialog 255; at 0.80, 204 focused and 184 unfocused.
+- **Default:** on, live per app once its hidden check passes (or at once when you switch the app on). Switch an app off in Settings > Apps.
+- **Undo:** `appglass remove --only webkit`. The next launch is the plain app.
 
 ## Jellyfin (Qt Quick shim)
 

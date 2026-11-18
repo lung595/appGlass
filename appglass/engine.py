@@ -472,6 +472,10 @@ def family_gate(app, name):
     fam = app.families.get(name)
     if not getattr(fam, "OPT_IN", False):
         return None
+    if getattr(fam, "GENERIC", False) and not family_keys(app, name):
+        # a generic injected family (webkit): the gate is per app, its
+        # ctx.records() are the apps that passed (or that you switched on)
+        return None
     st = store(app)
     fam_on = explicit(app, name)
     results = []

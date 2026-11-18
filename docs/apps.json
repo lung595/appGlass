@@ -283,6 +283,15 @@
    "evidence": "commit 7b90b43"
   },
   {
+   "app": "Kiri 0.2.1 (kiri-window)",
+   "toolkit": "Tauri / WebKitGTK",
+   "family": "webkit",
+   "route": "webkit-shim appglass-wk.so + page CSS/JS from the page's own colours, found by toolkit (any host GTK3 WebKitGTK 4.x app); opt-in",
+   "tested": "earlier",
+   "result": "glass",
+   "evidence": "tests/e2e/webkit.sh"
+  },
+  {
    "app": "Discord + Vencord",
    "toolkit": "Electron (client mod)",
    "family": "vencord",

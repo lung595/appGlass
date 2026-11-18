@@ -74,6 +74,7 @@ A launcher whose target is gone (an Exec that is not on `PATH`, an absolute path
 - **GTK3:** every GTK3 app gets the `GTK_THEME=AppGlass` launcher override.
 - **Qt6 Widgets (host):** every app that needs `libQt6Widgets` gets `QT_STYLE_OVERRIDE=appglass`, with the unfocused fade.
 - **GTK4:** the global `gtk-4.0/gtk.css`. A GTK4 flatpak gets a launcher override that adds `--filesystem=xdg-config/gtk-4.0:ro` to that launch only. appglass never writes a persistent `flatpak override`.
+- **WebKitGTK 4.x on GTK3 (host):** every such app (Kiri and the other Tauri / wry apps) gets the WebKit shim launcher (family `webkit`); it loads code into the app, so it waits for its hidden check per app. Lian Li keeps its own family. WebKitGTK 6 (GTK4) and WebKitGTK flatpaks: no route.
 - **Electron:** only the per-app routes (Obsidian, Vencord for Discord, the Feishin and VSCodium inspector hook).
 - **Chrome and Chromium browsers:** no route. Web content has no window alpha, so they stay opaque.
 - **Steam client (CEF):** no route, nothing injected. See [steam.md](steam.md) and [Limits](#limits).

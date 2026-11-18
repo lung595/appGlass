@@ -691,6 +691,9 @@ class Ctx:
         # a family with several apps may set this to the niri app-id regexes
         # of the apps it actually configured (default: the module's APP_IDS)
         self.app_ids = None
+        # verify.candidate: the plan for the hidden-session check, where an
+        # injected app still waiting for its check is routed as if it passed
+        self.candidate = False
 
     def records(self, generic_only=False, plain=False):
         """The detect records the engine routes to this family (adapters.resolve
@@ -701,6 +704,12 @@ class Ctx:
         launchers go back to the plain app until the next fingerprint."""
         from . import adapters, engine
         g = engine.Gate(self.app)
+        if self.candidate:
+            if plain:
+                return []
+
+            def g(r, injected, explicit):
+                return "glass", None
         out = []
         for r in engine.records(self.app):
             if not r.get("installed") or r.get("nodisplay"):
