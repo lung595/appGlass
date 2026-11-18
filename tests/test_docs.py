@@ -616,6 +616,38 @@ def apps_json_names(entry):
     return out
 
 
+class GlassLevelRule(unittest.TestCase):
+    """core.dms_rule_opacity: the first DMS window rule with no match, blur
+    on and an opacity; then foregroundLayerTransparency, then 0.60. The
+    rule's name is the user's: DMS has no "Glass blur" rule of its own."""
+
+    def test_the_code_reads_any_rule_with_no_match_and_blur(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "windowrules.kdl")
+            with open(p, "w") as f:
+                f.write("window-rule {\n    opacity 0.5\n}\n"
+                        "window-rule {\n    match app-id=\"x\"\n    opacity 0.4\n"
+                        "    background-effect { blur true; }\n}\n"
+                        "// My rule\nwindow-rule {\n    opacity 0.75\n"
+                        "    background-effect { blur true; }\n}\n")
+            self.assertEqual(core.dms_rule_opacity(p), 0.75)
+        self.assertEqual(core.DEFAULT_CONTENT, 0.60)
+
+    def test_the_docs_describe_the_rule_as_the_code_reads_it(self):
+        r = read("README.md")
+        c = read("CHANGELOG.md")
+        for name, text in (("README.md", r), ("CHANGELOG.md", c)):
+            self.assertNotIn('DMS "Glass blur"', text, name)
+        req = section(r, "Requirements")
+        self.assertIn("Settings → Applications → Window rules", req)
+        self.assertRegex(req, r"no match")
+        self.assertRegex(req, r"blur")
+        self.assertIn("foregroundLayerTransparency", req)
+        self.assertIn("0.60", req)
+        self.assertIn("Window rules", section(r, "Usage"))
+
+
 class RouteTable(unittest.TestCase):
     """The README route table says what docs/apps.md measured."""
 

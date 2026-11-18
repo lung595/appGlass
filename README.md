@@ -28,9 +28,9 @@ The glass level follows your DMS window opacity.
 | `gcc` | Any | The small C shims (Lian Li, LocalSend, ArtCraft) |
 | `g++` with the Qt 6 headers | Qt 6 | VLC (its Qt style plugin is built from source) and the Qt shims |
 | Host Qt | 6.11 or newer | Jellyfin Desktop only |
-| A DMS window rule with an opacity | The "Glass blur" rule | The glass level itself |
+| A DMS window rule with an opacity | No match, blur on | The glass level itself (optional, see below) |
 
-appGlass reads the opacity of the DMS "Glass blur" window rule. That number is your glass level.
+**The glass level** is the opacity of your global DMS window rule. Make one in **Settings → Applications → Window rules**: a rule with no match (it applies to every window), an opacity, and blur on. appGlass takes the first such rule, whatever you call it. With no such rule it uses the DMS `foregroundLayerTransparency` setting, then 0.60.
 
 ### 1. Install
 
@@ -74,7 +74,7 @@ The widget is optional. The glass works without it.
 | Unfocused windows fade | The level follows DMS | A new app gets glass |
 | --- | --- | --- |
 | ![Two tiled windows: the focus moves from one to the other, and the unfocused one gets a little more transparent while its text stays sharp](docs/media/unfocused-fade.gif) | ![The same three windows at DMS glass levels 0.90, 0.75 and 0.60](docs/media/levels.gif) | ![A music app opens over the other windows, already with glass](docs/media/new-app.gif) |
-| *Shown at level 0.80 with a 20 % fade amount.* | *The DMS "Glass blur" opacity at 0.90, 0.75 and 0.60.* | *The window opens with glass. No command needed.* |
+| *Shown at level 0.80 with a 20 % fade amount.* | *The DMS window rule opacity at 0.90, 0.75 and 0.60.* | *The window opens with glass. No command needed.* |
 
 The GIFs are crossfades between real screenshots, taken in a separate test session. The music window is a small libadwaita demo app.
 
@@ -124,7 +124,7 @@ What each route writes, and the measured result per app: [docs/routes.md](docs/r
 
 ## Usage
 
-**The glass level.** Change the opacity of the DMS "Glass blur" window rule. appGlass sees the change and re-applies.
+**The glass level.** Change the opacity of your global rule in **Settings → Applications → Window rules** (the first rule with no match and blur on). appGlass sees the change and re-applies.
 
 **A new app.** Install it and open it. The sync unit routes it within seconds. **Re-apply** in Settings → Glass, or `appglass apply --all`, does it at once.
 

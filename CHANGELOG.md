@@ -10,7 +10,8 @@ The first release.
 
 ### Added
 
-- **Glass level from DMS.** appGlass reads the opacity of the DMS "Glass blur" window rule.
+- **Glass level from DMS.** appGlass reads the opacity of the first DMS window rule with no match
+  and blur on (Settings → Applications → Window rules), then DMS `foregroundLayerTransparency`, then 0.60.
   Content follows it. Bars stay at `max(content, 0.65)`. Menus, popovers and dialogs stay opaque.
   Text, icons and logos are never faded.
 - **One niri rule file.** `~/.config/niri/appglass.kdl` sets `opacity 1.0` for each glass app.
