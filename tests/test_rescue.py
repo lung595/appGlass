@@ -623,6 +623,27 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class RingTexts(RescueBase):
+    """w2 r3: a rescue text that sends the user to a ring entry says the
+    entry lasts until remove deletes the ring (it does)."""
+
+    def test_the_ring_entry_is_said_to_go_with_remove(self):
+        sb = self.sb
+        sb.write("alacritty/alacritty.toml", ALAC_IMPORT)
+        self.ok("apply", "--only", "alacritty", fams="alacritty")
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        out = self.ok("adopt", "--rescue", fams="alacritty")
+        import re
+        named = re.findall(r"ring entry (\S+?)[ );,]", out)
+        self.assertTrue(named, out)
+        for frag in re.split(r"(?<=[.;])\s", out):
+            if "ring entry" in frag:
+                self.assertIn("until remove deletes the ring", frag, frag)
+        self.ok("remove", fams="alacritty")
+        for e in named:
+            self.assertFalse(os.path.exists(os.path.join(self.state_dir, "ring", e)), e)
+
+
 class UntrustedBackup(RescueBase):
     """w2 r3 blocker: a backup the rescue could not trust (damaged, or with
     no ring record to check it against) is never named in a cp hint. The

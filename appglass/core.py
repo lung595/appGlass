@@ -3721,8 +3721,8 @@ def cmd_rescue(app, dry_run=False):
                     app.warn("adopt --rescue: %s, the original of %s, does not match the one "
                              "recorded for it (sha256) and the ring holds no copy: the "
                              "original is made again from the file without appglass's lines "
-                             "(the damaged copy stays in the ring entry %s until a full "
-                             "remove)" % (t(bp), t(p), entry))
+                             "(the damaged copy stays in the ring entry %s until remove "
+                             "deletes the ring)" % (t(bp), t(p), entry))
                     orig, ring_rec = None, None
                 elif good is None:
                     app.warn("adopt --rescue: %s"
@@ -3758,8 +3758,8 @@ def cmd_rescue(app, dry_run=False):
                 used.add(b)
             elif ADOPTED_MARK in data:
                 app.warn("adopt --rescue: %s: the hand file appglass adopted is not in "
-                         "backup/ any more; remove deletes the stub (the ring entry %s "
-                         "keeps it)" % (t(p), entry))
+                         "backup/ any more; remove deletes the stub (a copy stays in the "
+                         "ring entry %s until remove deletes the ring)" % (t(p), entry))
         elif kind == "json":
             try:
                 cur = json.loads(data.decode("utf-8"))
@@ -3891,7 +3891,8 @@ def cmd_rescue(app, dry_run=False):
         st.data["linked"] = marked
     st.save()
     app.info("adopt --rescue: %d file%s recorded; the files as they were are in the ring "
-             "entry %s (appglass restore %s puts them back); appglass apply runs again, "
+             "entry %s until remove deletes the ring (appglass restore %s puts them back "
+             "before that); appglass apply runs again, "
              "appglass remove takes appglass's parts out"
              % (len(records), "" if len(records) == 1 else "s", entry, entry))
 
