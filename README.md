@@ -132,7 +132,8 @@ The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, meas
 | --- | --- | --- | --- |
 | Terminal opacity key | Native | Alacritty, foot, Konsole | Works |
 | Terminal opacity key | Native | kitty, Ghostty, WezTerm | Untested |
-| GTK4 CSS | Native | Nautilus, GNOME Text Editor, Mission Center, Resources | Works |
+| GTK4 CSS | Native | Nautilus, GNOME Text Editor, Mission Center | Works |
+| GTK4 CSS | Native | Resources | Works; popups not checked (no menu was opened) |
 | GTK4 CSS | Native | GNOME Software, Zenity, the file chooser, Flatseal, other libadwaita apps | Untested: the same CSS, not launched; plain GTK4 apps without libadwaita stay opaque (not tested) |
 | GTK3 theme | Native | Solaar, nvidia-settings | Partial: dialog bodies stay opaque |
 | GTK3 theme | Native | Other host GTK3 apps | Untested |
@@ -142,7 +143,8 @@ The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, meas
 | App config | Native | Zed | Partial: Zed lays its own dark floor under the glass |
 | App theme | Native | Obsidian, Herdr, Dux Files, Dux Calendar | Partial: depends on the vault theme (Obsidian), some panes keep their fills (Herdr), bars clearer than content (Dux) |
 | Vencord theme | Mod | Discord with Vencord | Partial, after its check: needs the Vencord client mod |
-| Electron inspector hook | Forced | Feishin, VSCodium | Works, after its check |
+| Electron inspector hook | Forced | Feishin | Works, after its check |
+| Electron inspector hook | Forced | VSCodium | Works, after its check; popups not checked (no menu was opened) |
 | WebKit shim | Forced | Lian Li Linux | Works, after its check |
 | Generic WebKitGTK route | Forced | Other WebKitGTK and Tauri apps | Being added |
 | Qt Quick shim | Forced | Jellyfin Desktop | Works, after its check |

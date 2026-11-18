@@ -1141,5 +1141,24 @@ class ReadmeRound3(unittest.TestCase):
         line = next(l for l in read("README.md").splitlines() if l.startswith("appglass adopt"))
         self.assertIn("known hand-made glass files", line)
 
+    def test_unverified_popups_are_said_on_the_route_row(self):
+        """An app docs/apps.md shows as "glass (popups unverified)" is not
+        a plain Works in the README route table."""
+        with open(os.path.join(DOCS, "apps.json")) as f:
+            apps = json.load(f)["apps"]
+        md = doc("apps.md")
+        rows = route_rows(read("README.md"))
+        unverified = [a for a in apps if re.search(
+            r"(?m)^\| %s \|.*\| glass \(popups unverified\) \|" % re.escape(a["app"]), md)]
+        self.assertGreaterEqual(len(unverified), 2)
+        for a in unverified:
+            for name in apps_json_names(a):
+                hits = [st for cell, st in rows
+                        if re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(name), cell)]
+                self.assertTrue(hits, name)
+                for st in hits:
+                    self.assertIn("popups not checked", st, (name, st))
+
+
 if __name__ == "__main__":
     unittest.main()
