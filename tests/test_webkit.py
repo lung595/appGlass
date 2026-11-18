@@ -77,6 +77,18 @@ class Accepts(unittest.TestCase):
         A.settings = {"apps": {"webkit": {"enabled": False}, "kiri": {"enabled": True}}}
         self.assertTrue(engine.explicit_on(A, "webkit", "kiri"))
 
+    def test_routes_only_where_the_generic_family_takes_the_app(self):
+        """A root app (Timeshift) or one the family refuses gets no route
+        chip from a generic family it never reaches."""
+        fams = core.discover()
+        root = {"key": "timeshift-gtk", "names": ["timeshift-gtk"], "toolkit": "gtk3",
+                "classes": {"root": "pkexec"}, "evidence": ["links libgtk-3.so.0 -> gtk3"]}
+        self.assertEqual(adapters.routes(root, fams), [])
+        self.assertEqual(adapters.routes(rec(classes={"root": "pkexec"}), fams), [])
+        self.assertNotIn("webkit-shim", adapters.routes(rec(flatpak="org.x.Y"), fams))
+        gtk3 = dict(root, classes={})
+        self.assertEqual(adapters.routes(gtk3, fams), ["gtk3"])
+
     def test_lian_li_keeps_its_family(self):
         r = adapters.resolve(rec(key="com.sgtaziz.lianlilinux",
                                  names=["com.sgtaziz.lianlilinux", "lianli-gui"]), core.discover())

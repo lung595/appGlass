@@ -237,11 +237,20 @@ def routes(rec, families):
         out.append(a.NAME)
     out += [ad for rx, ad in APP_ROUTES if _any([rx], names)]
     # a toolkit adapter that serves families only works for an app its
-    # families list (resolve gives the others the fallback)
-    out += [x.NAME for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
-            and x.TIER in (NATIVE, FORCED, MOD) and (not x.FAMILIES or fam in x.FAMILIES
-                                                     or getattr(families.get(x.FAMILY), "GENERIC",
-                                                                False))]
+    # families list (resolve gives the others the fallback), or one its
+    # generic family takes (not a root app, not one it refuses)
+    taken = None
+    for x in CATALOGUE:
+        if rec.get("toolkit") not in x.TOOLKITS or x.TIER not in (NATIVE, FORCED, MOD):
+            continue
+        if x.FAMILIES and fam not in x.FAMILIES:
+            if not getattr(families.get(x.FAMILY), "GENERIC", False):
+                continue
+            if taken is None:
+                taken = resolve(rec, families).get("family")
+            if taken != x.FAMILY:
+                continue
+        out.append(x.NAME)
     seen = set()
     return [n for n in out if not (n in seen or seen.add(n))]
 
