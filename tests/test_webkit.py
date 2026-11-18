@@ -576,6 +576,7 @@ void fk_navigate(void *); void fk_frame(void *, unsigned, int); void fk_titlebar
 void fk_hold(void *, int); void fk_commit(void *); void fk_nopaint(void *, int); void fk_paint(void *);
 void fk_remove(void *); void fk_add(void *, void *); void fk_related(void *, void *);
 void webkit_web_view_load_html(void *, const char *, const char *);
+void fk_allocate(void *); void fk_restyle(void *); void fk_region(const char *, void *);
 // box[sidebar (hidden), stack[A (hidden page, loaded), B (shown, its page slow)]]; reported: B,
 // then A on its page and B again
 static int twoview(void) {
@@ -635,8 +636,24 @@ static int related(int side) {
     fk_remove(v2); fk_idle(); fk_report("one-alone", win, v1);
     return 0;
 }
+// box[sidebar (hidden), view]: the window's opaque region at each step, glass and opaque
+static int region(void) {
+    void *win = fk_widget("window", 0, 1), *box = fk_widget("box", win, 0);
+    void *side = fk_widget("sidebar", box, 0), *view = fk_widget("view", box, 0);
+    fk_widget("label", side, 0); fk_hide(side);
+    fk_hold(view, 1); webkit_web_view_load_html(view, "<p>page</p>", 0);
+    fk_map(win); fk_idle(); fk_region("waiting", win);
+    fk_hold(view, 0); fk_idle(); fk_region("glass", win);
+    fk_allocate(win); fk_region("resized", win);
+    fk_restyle(win); fk_region("restyled", win);
+    fk_show(side); fk_idle(); fk_allocate(win); fk_region("opaque", win);
+    fk_hide(side); fk_idle(); fk_region("again", win);
+    fk_allocate(win); fk_restyle(win); fk_region("again-resized", win);
+    return 0;
+}
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
+    if (!strcmp(mode, "region")) return region();
     if (!strcmp(mode, "twoview")) return twoview();
     if (!strcmp(mode, "swap") || !strcmp(mode, "move")) return swap(mode[0] == 'm');
     if (!strcmp(mode, "viewhide")) return viewhide();
@@ -812,6 +829,22 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r["glass"], self.GLASS)
         self.assertEqual(r["hidden"], self.OPAQUE)
         self.assertEqual(r["shown"], self.GLASS)
+
+    def test_the_glass_window_says_it_is_not_opaque(self):
+        """GTK3 sets the window's opaque region whole from its opaque CSS
+        background at each realize, size-allocate and style-updated, whatever
+        app-paintable says; with the clear view painted in it the region is
+        a lie, and at niri opacity 1.0 niri believes it and skips what is
+        behind (the background flickers). The glass window clears it after
+        GTK each time; an opaque window keeps GTK's."""
+        r = self.run_driver("region")
+        self.assertEqual(r["waiting"], "opaque=1")      # its own background still drawn
+        self.assertEqual(r["glass"], "opaque=0")
+        self.assertEqual(r["resized"], "opaque=0")
+        self.assertEqual(r["restyled"], "opaque=0")
+        self.assertEqual(r["opaque"], "opaque=1")
+        self.assertEqual(r["again"], "opaque=0")
+        self.assertEqual(r["again-resized"], "opaque=0")
 
     def test_views_on_one_content_manager_are_glass_together(self):
         """A related view shares the first view's user content manager, so

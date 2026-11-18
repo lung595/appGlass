@@ -271,6 +271,21 @@ static void *view_at(void *top, Views *vs, int i) {
 // view mapped is a widget beside it). Left alone until a view of it is decided; once glassed, a
 // window left with no view of its own (destroyed, or moved to another window: native widgets in
 // its place would be holes on the bare blur) is opaque again.
+// GTK3 sets the window's opaque region whole from its opaque CSS background (at its realize, each
+// size-allocate and style-updated, app-paintable or not): with the clear view in it that is a lie,
+// and at niri opacity 1.0 niri believes it and skips what is behind (the background flickers). A
+// glass window has none, cleared after GTK each time; an opaque one keeps GTK's (true then).
+static void clear_region(void *top) {
+    static void *(*get_window)(void *); static void (*set_region)(void *, void *);
+    if (!get_window) get_window = sym("gtk_widget_get_window");
+    if (!set_region) set_region = sym("gdk_window_set_opaque_region");
+    if ((long)obj_get(top, "appglass-paint") != 1 || !get_window || !set_region) return;
+    void *win = get_window(top);
+    if (win) set_region(win, NULL);
+}
+static void on_top_alloc(void *top, void *alloc, void *data) { (void)alloc; (void)data; clear_region(top); }
+static void on_top_style(void *top, void *data) { (void)data; clear_region(top); }
+
 static void set_window(void *top) {
     void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
     void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
@@ -293,6 +308,7 @@ static void set_window(void *top) {
     if (paint == want) return;
     obj_set(top, "appglass-paint", (void *)want, NULL);
     if (set_paintable) set_paintable(top, on);
+    clear_region(top);   // glass: none now (opaque: GTK's own back at the next allocate)
     if (queue_draw) queue_draw(top);
     if (on) LOG("toplevel %p: app-paintable (the view fills it)", top);
     else if (wait) LOG("toplevel %p: the view fills it, app-paintable at the first document", top);
@@ -394,8 +410,12 @@ static void track(void *view, void *top) {
     if (!vs) {
         if (!(vs = calloc(1, sizeof *vs))) return;
         obj_set(top, "appglass-views", vs, views_free);
-        if (connect)   // G_CONNECT_AFTER: after the children are mapped
+        if (connect) {   // G_CONNECT_AFTER: after the children are mapped, after GTK's region
             connect(top, "map", (void *)on_top_map, NULL, NULL, 1);
+            connect(top, "realize", (void *)on_top_style, NULL, NULL, 1);
+            connect(top, "size-allocate", (void *)on_top_alloc, NULL, NULL, 1);
+            connect(top, "style-updated", (void *)on_top_style, NULL, NULL, 1);
+        }
     }
     views_add(vs, view);
     if (hooked) return;

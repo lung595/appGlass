@@ -21,7 +21,10 @@
 // emitting hierarchy-changed on it and its descendants with the previous
 // toplevel; fk_related makes a view use another view's user content manager
 // (webkit_web_view_new_with_related_view), fk_report prints one line of the
-// window and the view.
+// window and the view. The window's opaque region is GTK3's: set whole at its
+// realize, its size-allocate (fk_allocate) and its style-updated (fk_restyle),
+// from its opaque CSS background, before the handlers connected after run;
+// fk_region prints whether the window has one.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +44,7 @@ typedef struct W {
                                          //     ran; a document committed once; its loads held; the
                                          //     load in progress committed
     int handler, nopaint;                //     appglassShown registered; its post held back
+    int opaque;                          // a window: its opaque region set (whole)
     struct W *ucm;                       //     its content manager (itself unless related)
 } W;
 static W *loads[16]; static int nloads;
@@ -170,6 +174,8 @@ void *gtk_container_get_children(void *c) {
 void *gtk_widget_get_toplevel(void *w) { W *t = w; while (t->parent) t = t->parent; return t; }
 int gtk_widget_is_toplevel(void *w) { return ((W *)w)->top; }
 int gtk_widget_get_realized(void *w) { return ((W *)w)->realized; }
+void *gtk_widget_get_window(void *w) { return ((W *)w)->realized ? w : NULL; }   // its GdkWindow
+void gdk_window_set_opaque_region(void *win, void *region) { ((W *)win)->opaque = region != NULL; }
 void *gtk_widget_get_screen(void *w) { (void)w; return screen_dummy; }
 void *gdk_screen_get_rgba_visual(void *s) { (void)s; return visual_dummy; }
 void gtk_widget_set_visual(void *w, void *v) { (void)w; (void)v; }
@@ -219,7 +225,22 @@ static void unmap_tree(W *w) {
     w->mapped = 0;
     emit(w, "unmap");
 }
-void fk_map(void *top) { ((W *)top)->realized = 1; map_tree(top); }
+// a signal on the window only, run first by GTK (the region set whole), then the handlers
+static void window_signal(W *w, const char *sig) {
+    w->opaque = 1;
+    for (H *h = w->handlers; h; h = h->next) if (!strcmp(h->sig, sig)) {
+        if (!strcmp(sig, "size-allocate")) ((void (*)(void *, void *, void *))h->fn)(w, NULL, h->data);
+        else ((void (*)(void *, void *))h->fn)(w, h->data);
+    }
+}
+void fk_map(void *top) {
+    W *t = top;
+    if (!t->realized) { t->realized = 1; window_signal(t, "realize"); }
+    map_tree(top); window_signal(t, "size-allocate");
+}
+void fk_allocate(void *top) { window_signal(top, "size-allocate"); }
+void fk_restyle(void *top) { window_signal(top, "style-updated"); }
+void fk_region(const char *step, void *top) { printf("%s opaque=%d\n", step, ((W *)top)->opaque); }
 void fk_show(void *w) { W *x = w; x->visible = 1; if (x->parent && x->parent->mapped) map_tree(x); }
 void fk_hide(void *w) { W *x = w; x->visible = 0; if (x->mapped) unmap_tree(x); }
 void fk_navigate(void *view) { load(view); }   // the page goes to another document
