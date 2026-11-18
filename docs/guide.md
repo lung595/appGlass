@@ -129,7 +129,7 @@ If you take something out by hand (the niri include line, a deleted `gtk.css`, t
 
 ## Uninstall
 
-From the plugin: Settings > Advanced > Uninstall appGlass, then confirm. It restores every file, removes the hook and units, then the plugin link. If the link cannot be removed, the page says so: run `appglass plugin remove` to finish.
+From the plugin: Settings > Advanced > Uninstall appGlass, then confirm. It restores every file, removes the hook and units, then the plugin link (the DMS plugins folder stays, so a later `appglass plugin install` is loaded on its own). If the link cannot be removed, the page says so: run `appglass plugin remove` to finish.
 
 From a terminal:
 

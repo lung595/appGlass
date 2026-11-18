@@ -54,33 +54,32 @@ class Install(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("not installed", out)
 
-    def test_remove_takes_out_the_folders_install_made(self):
-        """No dms/plugins before install: remove leaves none behind. One
-        that was there, or that holds another plugin, stays."""
+    def test_remove_keeps_the_plugins_folder(self):
+        """DMS watches dms/plugins from its start only: a folder remove took
+        out and install made again is never listed (no load until a scan).
+        remove takes out the link alone (and the marker an older install
+        wrote), never a folder, made by install or not."""
         parent = os.path.dirname(self.dst)
         self.assertFalse(os.path.lexists(os.path.join(self.sb.config, "dms")))
-        before = self.sb.tree_hash()
-        code, out, err = self.sb.run("plugin", "install")
-        self.assertEqual(code, 0, err)
-        code, out, err = self.sb.run("plugin", "remove")
-        self.assertEqual(code, 0, err)
-        self.assertFalse(os.path.lexists(os.path.join(self.sb.config, "dms")))
-        self.assertEqual(self.sb.tree_hash(), before)
-        # made by install, then another plugin added: kept
-        code, out, err = self.sb.run("plugin", "install")
-        self.assertEqual(code, 0, err)
-        os.mkdir(os.path.join(parent, "Other"))
-        code, out, err = self.sb.run("plugin", "remove")
-        self.assertEqual(code, 0, err)
-        self.assertTrue(os.path.isdir(os.path.join(parent, "Other")))
+        for other in (False, True):
+            code, out, err = self.sb.run("plugin", "install")
+            self.assertEqual(code, 0, err)
+            if other:
+                os.mkdir(os.path.join(parent, "Other"))
+            # the marker of an older install (it named the folders it made)
+            with open(os.path.join(parent, ".appglass-made"), "w") as f:
+                f.write(parent + "\n")
+            code, out, err = self.sb.run("plugin", "remove")
+            self.assertEqual(code, 0, err)
+            self.assertTrue(os.path.isdir(parent))
+            self.assertFalse(os.path.lexists(self.dst))
+            self.assertEqual(sorted(os.listdir(parent)), ["Other"] if other else [])
         os.rmdir(os.path.join(parent, "Other"))
-        code, out, err = self.sb.run("plugin", "install")
-        code, out, err = self.sb.run("plugin", "remove")
-        self.assertFalse(os.path.lexists(os.path.join(self.sb.config, "dms")))
-        # there before install: kept, empty
-        os.makedirs(parent)
+        # there before install: the same tree after remove
         before = self.sb.tree_hash()
         code, out, err = self.sb.run("plugin", "install")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(os.listdir(parent)), [os.path.basename(self.dst)])
         code, out, err = self.sb.run("plugin", "remove")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.sb.tree_hash(), before)
