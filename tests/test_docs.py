@@ -648,6 +648,17 @@ class GlassLevelRule(unittest.TestCase):
         self.assertIn("Window rules", section(r, "Usage"))
 
 
+class OneVersion(unittest.TestCase):
+    def test_the_changelog_cli_and_plugin_agree(self):
+        import appglass
+        with open(os.path.join(REPO, "dms-plugin", "plugin.json")) as f:
+            plugin = json.load(f)["version"]
+        js = re.search(r'var VERSION = "([^"]+)"',
+                       read("dms-plugin", "components", "logic.js")).group(1)
+        top = re.search(r"(?m)^## \[([^\]]+)\]", read("CHANGELOG.md")).group(1)
+        self.assertEqual({appglass.__version__, plugin, js, top}, {top})
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""
