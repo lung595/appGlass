@@ -114,10 +114,12 @@ Every file appglass writes or edits is recorded. Files it created are deleted, f
 
 ```sh
 appglass remove --only gtk3,feishin   # undo some families, until the next sync or apply --all
-appglass remove                       # undo everything, the hook and units too
+appglass remove                       # undo everything, the hook and units too (see below with the plugin)
 appglass restore --list               # the backup ring: one entry per apply that changed files, last 5 kept
 appglass restore                      # put the newest ring entry back (files and state)
 ```
+
+With the DMS plugin enabled, a full `appglass remove` lasts only until the plugin's next sync (its next start, or a change on its page), which sets the glass up again: use [Uninstall](#uninstall) instead, or `appglass remove && appglass plugin remove`.
 
 If you take something out by hand (the niri include line, a deleted `gtk.css`, the Obsidian snippet turned off, `GTK_THEME` removed from a launcher), appglass leaves it out on later theme changes.
 
