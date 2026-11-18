@@ -1496,5 +1496,34 @@ class InterruptedRemove(Base):
         self.assertFalse(os.path.exists(self.state_dir))
 
 
+class UninstalledSinceApply(Base):
+    """An app uninstalled after apply, then the state lost: its marked
+    files still count (the refusal, doctor and adopt --rescue find them),
+    and rescue then remove gives the original tree back."""
+
+    def test_a_family_gone_is_still_scanned(self):
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        text = self.sb.readb(main)
+        self.apply()
+        shutil.rmtree(self.state_dir)
+        gone = dict(assume="niri", assume_not="alacritty")
+        code, out, err = self.sb.run("apply", **gone)
+        self.assertNotEqual(code, 0)
+        for p in (main, self.owned()):
+            self.assertIn(self.env.tilde(p), err)
+        code, out, err = self.sb.run("doctor", **gone)
+        for p in (main, self.owned()):
+            self.assertIn(self.env.tilde(p), out + err)
+        code, out, err = self.sb.run("adopt", "--rescue", **gone)
+        self.assertEqual(code, 0, out + err)
+        with open(self.state_json) as f:
+            self.assertIn(main, json.load(f)["owners"].get("alacritty", {}).get("files", {}))
+        code, out, err = self.sb.run("remove", **gone)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.readb(main), text)
+        self.assertFalse(os.path.exists(self.owned()))
+        self.assertFalse(os.path.exists(self.state_dir))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2660,7 +2660,9 @@ def _engine_ops(app):
     would write here: kind owned | edit | json | retire; for an edit,
     undo(text) takes appglass's lines out and fn(text) puts them in; data
     is what an owned file would hold (b"" when not known, None for a build), keys the keys a
-    json merge sets."""
+    json merge sets. Every family is probed, installed or not: with the
+    state lost, the files of an app uninstalled since apply are still
+    appglass's (the refusal, doctor and adopt --rescue look at them)."""
     from . import hook, niri
     env = app.env
     paths = {}
@@ -2672,16 +2674,16 @@ def _engine_ops(app):
     app.from_hook = False
     try:
         for name, fam in sorted(app.families.items()):
-            if not app.installed(fam):
-                continue
+            here = app.installed(fam)
             ctx = _ProbeCtx(app, name)
             try:
                 fam.apply(ctx)
             except Conflict:
                 pass            # the family skips here (apply says why)
             except Exception as ex:
-                warn("%s: probe failed (%s: %s); the files it writes after that are "
-                     "not checked" % (name, type(ex).__name__, ex))
+                if here:
+                    warn("%s: probe failed (%s: %s); the files it writes after that "
+                         "are not checked" % (name, type(ex).__name__, ex))
             for p, op in ctx.ops.items():
                 undo = (op.undo or app._undo_for(name, p)) if op.kind == "edit" else None
                 data = op.data if op.kind == "owned" else b""
