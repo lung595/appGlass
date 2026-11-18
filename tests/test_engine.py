@@ -653,6 +653,11 @@ class Units(unittest.TestCase):
         # (unit-start-limit-hit): none either
         self.assertRegex(s, r"(?m)^StartLimitIntervalSec=0$")
         self.assertNotRegex(s, r"(?m)^StartLimitBurst=")
+        d = self.read("appglass-discord.service")
+        # Discord writes its config dir in bursts at start: a start limit hit
+        # fails the discord path unit the same way
+        self.assertRegex(d, r"(?m)^StartLimitIntervalSec=0$")
+        self.assertNotRegex(d, r"(?m)^StartLimitBurst=")
         self.assertIn("OnCalendar=daily", self.read("appglass-sync.timer"))
         v = self.read("appglass-verify.service")
         self.assertIn("IOSchedulingClass=idle", v)

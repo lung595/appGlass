@@ -1,5 +1,8 @@
 [Unit]
 Description=appGlass: put Vencord back into a new Discord host
+# Discord writes ~/.config/discord in bursts at start: a start limit hit
+# here also fails the path unit (unit-start-limit-hit), so no limit
+StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 ExecStart=%h/.local/bin/appglass-sync --discord
