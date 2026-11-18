@@ -20,9 +20,10 @@ shim's focus script) eases the content to the inactive level. The window is
 glassed only while the view is all it draws: at its map, and again when
 any widget in it maps or unmaps, a widget mapped beside the view or a
 parent of it (a mail client's folder list) makes the shim give the view its
-background back and take the files out, so the app is opaque and its check
-fails (verify.judge: opaque, too many alpha-0 pixels, or a bare hole); the
-glass comes back when the widget goes.
+background back and take the stylesheet out, so the app is opaque and its
+check fails (verify.judge: opaque, too many alpha-0 pixels, or a bare hole);
+the glass comes back when the widget goes (the page scripts stay in: they
+only mark the page, and a page loaded meanwhile is marked too).
 
 Files (all owned, removed by remove):
   ~/.local/lib/appglass/webkit/appglass-wk.so        the shim (stamp: source + gcc)

@@ -6,7 +6,10 @@
 // Driver API: fk_widget(name, parent, toplevel) makes a widget (visible),
 // fk_show/fk_hide set visible and map/unmap it when its parent is mapped,
 // fk_map maps a toplevel and its visible children, fk_idle runs the queued
-// idles, fk_report prints one line of the window and the view.
+// idles, then finishes the page loads asked for (a document runs the user
+// scripts registered when it finishes loading, as WebKit's do at document
+// end: fk_navigate starts another document), fk_report prints one line of the
+// window and the view.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +23,10 @@ typedef struct W {
     int top, visible, mapped, realized, paintable, draws, refs;
     D *data; H *handlers;
     GdkRGBA bg; int sheets, scripts;     // a WebView: its background, its content manager
+    int loading, page;                   // ... a document loading; the scripts its document ran
 } W;
+static W *loads[16]; static int nloads;
+static void load(W *v) { v->loading = 1; if (nloads < 16) loads[nloads++] = v; }
 
 static W ucm_dummy;
 static void *visual_dummy = &ucm_dummy, *screen_dummy = &ucm_dummy;
@@ -61,6 +67,8 @@ void fk_idle(void) {
         Idle q[256]; int n = nidle; memcpy(q, idles, sizeof q); nidle = 0;
         for (int i = 0; i < n; i++) { q[i].fn(q[i].data); if (q[i].destroy) q[i].destroy(q[i].data); }
     }
+    for (int i = 0; i < nloads; i++) if (loads[i]->loading) { loads[i]->loading = 0; loads[i]->page = loads[i]->scripts; }
+    nloads = 0;
 }
 
 static void add_handler(W *w, const char *sig, void *fn, void *data, int flags) {
@@ -121,7 +129,7 @@ void gtk_widget_queue_draw(void *w) { ((W *)w)->draws++; }
 
 // ------------------------------------------------------------------- webkit
 void webkit_web_view_set_background_color(void *v, const GdkRGBA *c) { ((W *)v)->bg = *c; }
-void webkit_web_view_load_html(void *v, const char *html, const char *base) { (void)v; (void)html; (void)base; }
+void webkit_web_view_load_html(void *v, const char *html, const char *base) { (void)html; (void)base; load(v); }
 void *webkit_web_view_get_user_content_manager(void *v) { return v; }   // the view counts its items
 void *webkit_web_view_get_settings(void *v) { return v; }
 void webkit_settings_set_enable_write_console_messages_to_stdout(void *s, int on) { (void)s; (void)on; }
@@ -159,8 +167,9 @@ static void unmap_tree(W *w) {
 void fk_map(void *top) { ((W *)top)->realized = 1; map_tree(top); }
 void fk_show(void *w) { W *x = w; x->visible = 1; if (x->parent && x->parent->mapped) map_tree(x); }
 void fk_hide(void *w) { W *x = w; x->visible = 0; if (x->mapped) unmap_tree(x); }
+void fk_navigate(void *view) { load(view); }   // the page goes to another document
 void fk_report(const char *step, void *top, void *view) {
     W *t = top, *v = view;
-    printf("%s paintable=%d bg_alpha=%g sheets=%d scripts=%d\n", step, t->paintable, v->bg.a,
-           v->sheets, v->scripts);
+    printf("%s paintable=%d bg_alpha=%g sheets=%d scripts=%d page=%d\n", step, t->paintable, v->bg.a,
+           v->sheets, v->scripts, v->page);
 }

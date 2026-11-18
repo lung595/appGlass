@@ -12,8 +12,10 @@
 //      Looked at when the toplevel maps and again whenever a widget in it maps or unmaps (an
 //      emission hook, once the main loop is idle): native chrome around a WebView (a mail
 //      client's folder list, a sidebar shown later) would be holes on the bare blur, so the view
-//      gets its background back, the stylesheet and scripts come out and the window is opaque;
-//      when the chrome is gone again, the glass comes back.
+//      gets its background back, the stylesheet comes out and the window is opaque; when the
+//      chrome is gone again, the glass comes back. The scripts stay in all along: they only mark
+//      the page (inert without the stylesheet), and a user script runs only on a document that
+//      loads after it is added, so a page loaded while opaque would come back unmarked (bare).
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
 //   4. with a stylesheet: a small script that sets html.agl-inactive while the page has no focus
 //      (the stylesheet fades the content background on it)
@@ -130,7 +132,7 @@ static const char FOCUS_JS[] =
     "var d=document.documentElement,f=function(){setTimeout(function(){d.classList.toggle('agl-inactive',!document.hasFocus())},0)};"
     "window.addEventListener('focus',f);window.addEventListener('blur',f);f();})();";
 
-static void uninject(void *view);
+static void remove_sheet(void *view);
 
 // 1 when nothing but the view is drawn in the toplevel: no other child of the view's ancestors is
 // mapped (at the toplevel's map, after its children). A titlebar is not a child (it paints itself).
@@ -154,10 +156,10 @@ static int fills(void *view, void *top) {
     return 1;
 }
 
-static void inject(void *view);
+static int add_sheet(void *view);
 
 // glass on (the view clear, the page styled, the window app-paintable) or off (the view's own
-// background, the stylesheet and scripts out, the window as the app draws it). The state is kept
+// background, the stylesheet out, the window as the app draws it). The state is kept
 // on the view (appglass-state: 1 glass, 2 opaque; none yet: the view clear and the page styled
 // since its first load, the window not yet app-paintable).
 static void set_glass(void *view, void *top, int on) {
@@ -170,12 +172,12 @@ static void set_glass(void *view, void *top, int on) {
         obj_set(view, "appglass-off", NULL, NULL);
         GdkRGBA clear = { 0, 0, 0, 0 };
         real_set_bg(view, &clear);
-        inject(view);
+        add_sheet(view);
     } else if (!on) {
         obj_set(view, "appglass-off", (void *)1, NULL);
         const GdkRGBA *k = obj_get(view, "appglass-bg"); GdkRGBA white = { 1, 1, 1, 1 };
         real_set_bg(view, k ? k : &white);
-        uninject(view);
+        remove_sheet(view);
     }
     if (set_paintable) set_paintable(top, on);
     if (queue_draw) queue_draw(top);
@@ -289,30 +291,55 @@ static void on_hierarchy(void *view, void *prev, void *data) {
 }
 
 // the stylesheet and scripts added to the view's content manager, kept on the view (its data owns a
-// ref) so a view left opaque can take them out again
+// ref): the stylesheet comes out while the view is left opaque, the scripts stay
 static const char *const ITEMS[] = { "appglass-ss", "appglass-sc0", "appglass-sc1", "appglass-sc2" };
 
+static void *content_manager(void *view) {
+    void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
+    void *ucm = get_ucm ? get_ucm(view) : NULL;
+    if (!ucm) LOG("no user content manager");
+    return ucm;
+}
+
+// the glass stylesheet (APPGLASS_CSS) in, once: 1 when there is one
+static int add_sheet(void *view) {
+    void *ucm = content_manager(view);
+    if (!ucm || obj_get(view, ITEMS[0])) return ucm != NULL;
+    char *css = slurp(g_css);
+    if (!css) return 0;
+    // webkit_user_style_sheet_new(src, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES=0, WEBKIT_USER_STYLE_LEVEL_USER=0, allow, block)
+    void *(*ss_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_style_sheet_new");
+    void (*add_ss)(void *, void *) = sym("webkit_user_content_manager_add_style_sheet");
+    void (*ss_unref)(void *) = sym("webkit_user_style_sheet_unref");
+    if (ss_new && add_ss) {
+        void *ss = ss_new(css, 0, 0, NULL, NULL); add_ss(ucm, ss); obj_set(view, ITEMS[0], ss, ss_unref);
+        LOG("css injected (%zu bytes)", strlen(css));
+    }
+    free(css);
+    return 1;
+}
+
+// a view left opaque: the stylesheet out (the scripts only set attributes, a class and custom
+// properties: without the stylesheet the page is as the app drew it)
+static void remove_sheet(void *view) {
+    void (*rm_ss)(void *, void *) = sym("webkit_user_content_manager_remove_style_sheet");
+    void *ucm = content_manager(view), *ss = obj_get(view, ITEMS[0]);
+    if (!ucm || !ss) return;
+    if (rm_ss) rm_ss(ucm, ss);
+    obj_set(view, ITEMS[0], NULL, NULL);   // drops the ref
+    LOG("glass stylesheet removed");
+}
+
+// once per view, before its first load: the stylesheet, the page scripts and the focus script
 static void inject(void *view) {
     if (dbg()) { // console.log -> stdout of the web process (lands in the app log)
         void *(*get_settings)(void *) = sym("webkit_web_view_get_settings");
         void (*wc)(void *, gboolean) = sym("webkit_settings_set_enable_write_console_messages_to_stdout");
         if (get_settings && wc) wc(get_settings(view), 1);
     }
-    void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
-    void *ucm = get_ucm ? get_ucm(view) : NULL;
-    if (!ucm) { LOG("no user content manager"); return; }
-    char *css = slurp(g_css); int had_css = css != NULL;
-    if (css) {
-        // webkit_user_style_sheet_new(src, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES=0, WEBKIT_USER_STYLE_LEVEL_USER=0, allow, block)
-        void *(*ss_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_style_sheet_new");
-        void (*add_ss)(void *, void *) = sym("webkit_user_content_manager_add_style_sheet");
-        void (*ss_unref)(void *) = sym("webkit_user_style_sheet_unref");
-        if (ss_new && add_ss) {
-            void *ss = ss_new(css, 0, 0, NULL, NULL); add_ss(ucm, ss); obj_set(view, ITEMS[0], ss, ss_unref);
-            LOG("css injected (%zu bytes)", strlen(css));
-        }
-        free(css);
-    }
+    void *ucm = content_manager(view);
+    if (!ucm) return;
+    int had_css = add_sheet(view) && obj_get(view, ITEMS[0]);
     // webkit_user_script_new(src, ALL_FRAMES=0, INJECT_AT_DOCUMENT_START=0 / END=1, allow, block)
     void *(*sc_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_script_new");
     void (*add_sc)(void *, void *) = sym("webkit_user_content_manager_add_script");
@@ -329,22 +356,6 @@ static void inject(void *view) {
         void *sc = sc_new(FOCUS_JS, 0, 1, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[3], sc, sc_unref);
         LOG("focus script injected");
     }
-}
-
-// a view left opaque: what inject() added comes out (the script only set attributes and custom
-// properties: without the stylesheet the page is as the app drew it)
-static void uninject(void *view) {
-    void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
-    void (*rm_ss)(void *, void *) = sym("webkit_user_content_manager_remove_style_sheet");
-    void (*rm_sc)(void *, void *) = sym("webkit_user_content_manager_remove_script");
-    void *ucm = get_ucm ? get_ucm(view) : NULL;
-    if (!ucm) return;
-    for (unsigned i = 0; i < sizeof ITEMS / sizeof *ITEMS; i++) {
-        void *it = obj_get(view, ITEMS[i]); if (!it) continue;
-        if (i == 0 && rm_ss) rm_ss(ucm, it); else if (i && rm_sc) rm_sc(ucm, it);
-        obj_set(view, ITEMS[i], NULL, NULL);   // drops the ref
-    }
-    LOG("glass stylesheet and scripts removed");
 }
 
 static void glassify(void *view) {

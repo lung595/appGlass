@@ -508,15 +508,19 @@ DRIVER = r"""
 #include <string.h>
 void *fk_widget(const char *, void *, int); void fk_map(void *); void fk_show(void *);
 void fk_hide(void *); void fk_idle(void); void fk_report(const char *, void *, void *);
+void fk_navigate(void *);
 void webkit_web_view_load_html(void *, const char *, const char *);
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
     void *win = fk_widget("window", 0, 1), *box = fk_widget("box", win, 0);
     void *side = fk_widget("sidebar", box, 0), *view = fk_widget("view", box, 0);
     fk_widget("label", side, 0);
-    if (!strcmp(mode, "late")) fk_hide(side);
+    if (strcmp(mode, "showall")) fk_hide(side);
     webkit_web_view_load_html(view, "<p>page</p>", 0);
     fk_map(win); fk_idle(); fk_report("mapped", win, view);
+    if (!strcmp(mode, "nav")) {      // another document while opaque
+        fk_show(side); fk_idle(); fk_navigate(view); fk_idle(); fk_report("navigated", win, view);
+    }
     if (!strcmp(mode, "late")) {
         void *dlg = fk_widget("dialog", 0, 1); fk_widget("button", dlg, 0);
         fk_map(dlg); fk_idle(); fk_report("dialog", win, view);
@@ -552,18 +556,25 @@ class ShimDecision(unittest.TestCase):
            "-Wl,-rpath," + d)
         with open(os.path.join(d, "glass.css"), "w") as f:
             f.write("html { background: rgba(0,0,0,.6) }\n")
+        with open(os.path.join(d, "glass.js"), "w") as f:
+            f.write("document.documentElement.dataset.aglRoot = '';\n")
 
     def run_driver(self, mode):
         env = {"PATH": os.environ.get("PATH", os.defpath),
                "LD_PRELOAD": os.path.join(self.dir, "appglass-wk.so"),
-               "APPGLASS_CSS": os.path.join(self.dir, "glass.css")}
+               "APPGLASS_CSS": os.path.join(self.dir, "glass.css"),
+               "APPGLASS_JS": os.path.join(self.dir, "glass.js")}
         r = subprocess.run([os.path.join(self.dir, "driver"), mode], env=env, capture_output=True,
                            text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
         return dict(l.split(" ", 1) for l in r.stdout.splitlines())
 
-    GLASS = "paintable=1 bg_alpha=0 sheets=1 scripts=1"
-    OPAQUE = "paintable=0 bg_alpha=1 sheets=0 scripts=0"
+    # page: the scripts the shown document ran (the page script and the focus
+    # script mark it; every glass rule is gated on those marks). The scripts
+    # stay registered while opaque: the marks are inert without the sheet, and
+    # a user script runs only on a document that loads after it is added.
+    GLASS = "paintable=1 bg_alpha=0 sheets=1 scripts=2 page=2"
+    OPAQUE = "paintable=0 bg_alpha=1 sheets=0 scripts=2 page=2"
 
     def test_a_sidebar_shown_after_the_map_makes_it_opaque(self):
         r = self.run_driver("late")
@@ -578,8 +589,14 @@ class ShimDecision(unittest.TestCase):
         at the map, glass once it is gone."""
         r = self.run_driver("showall")
         self.assertEqual(r["mapped"], self.OPAQUE)
-        self.assertEqual(r["hidden"], self.GLASS)
+        self.assertEqual(r["hidden"], self.GLASS)       # the page marked: glass, not bare
         self.assertEqual(r["again"], self.OPAQUE)
+
+    def test_a_document_loaded_while_opaque_is_glass_when_the_widget_goes(self):
+        r = self.run_driver("nav")
+        self.assertEqual(r["mapped"], self.GLASS)
+        self.assertEqual(r["navigated"], self.OPAQUE)
+        self.assertEqual(r["hidden"], self.GLASS)
 
 
 if __name__ == "__main__":
