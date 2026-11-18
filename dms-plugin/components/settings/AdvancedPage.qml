@@ -99,6 +99,15 @@ CategoryPage {
         font.pixelSize: Theme.fontSizeSmall
         wrapMode: Text.WordWrap
     }
+    StyledText {
+        objectName: "uninstallExternalHint"
+        width: parent.width
+        visible: page.host.uninstallState === "external"
+        text: "Every file is restored, but DMS loads this plugin from outside appglass's link: turn it off in DMS Settings > Plugins."
+        color: Theme.error
+        font.pixelSize: Theme.fontSizeSmall
+        wrapMode: Text.WordWrap
+    }
     // Uninstalled: only the user's own click brings the glass back (the
     // daemon syncs the stored settings, `appglass get` filling only what
     // was never stored)

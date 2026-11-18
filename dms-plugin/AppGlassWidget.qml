@@ -24,7 +24,7 @@ PluginComponent {
     readonly property string id_: root.pluginId || "appGlass"
     readonly property var service: root.pluginService || PluginService
     readonly property bool glassOn: root.pluginData.glassEnabled !== false
-    readonly property bool gone: uninstallVar.value === "removed" || uninstallVar.value === "linkStays" || uninstallVar.value === "interrupted"
+    readonly property bool gone: uninstallVar.value === "removed" || uninstallVar.value === "linkStays" || uninstallVar.value === "external" || uninstallVar.value === "interrupted"
     readonly property bool lit: root.glassOn && !root.gone
     // made once, at this load's revision: a binding would read DMS's
     // revision map, which every other plugin's reload reassigns, and build

@@ -116,6 +116,18 @@ Item {
                     t.check("still uninstalled", root.find(root.pill, "pillText").text, "uninstalled");
                     root.w.triggerPopout();
                     t.check("a click still opens the settings (to set up again)", PopoutService.opened, ["plugin:appGlass"]);
+                    root.fresh({
+                        "status": root.status,
+                        "uninstallState": "external"
+                    }, {
+                        "glassEnabled": true,
+                        "uninstallState": "external"
+                    });
+                }
+            },
+            {
+                "run": () => {
+                    t.check("loaded from outside the link: uninstalled pill", [root.find(root.pill, "pillText").text, root.find(root.pill, "pillIcon").name], ["uninstalled", "blur_off"]);
                     // an uninstall a reload cut short: the files may all
                     // still be there, so the pill does not say uninstalled
                     root.fresh({

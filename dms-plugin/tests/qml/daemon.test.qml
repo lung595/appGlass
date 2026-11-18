@@ -774,12 +774,20 @@ Item {
                     root.d.runAction("uninstall");
                     Proc.flush();
                     Proc.flush();
-                    t.check("not linked: the plugin stays loaded", [root.d.uninstalled, root.pdata().uninstallState, root.vars().uninstallState, root.pdata().seedKeep], [true, "linkStays", "linkStays", true]);
+                    // its own state: `appglass plugin remove` cannot finish it,
+                    // the page says to turn it off in DMS Settings > Plugins
+                    t.check("not linked: the plugin stays loaded", [root.d.uninstalled, root.pdata().uninstallState, root.vars().uninstallState, root.pdata().seedKeep], [true, "external", "external", true]);
                     root.drop();
                     root.fresh(false, undefined, {
-                        "uninstallState": "linkStays"
+                        "uninstallState": "external"
                     });
-                    t.check("its next load stays inert", [root.d.uninstalled, Proc.pendingIds()], [true, []]);
+                    t.check("its next load stays inert", [root.d.uninstalled, root.vars().uninstallState, Proc.pendingIds()], [true, "external", []]);
+                    t.check("IPC after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
+                    t.check("set up again still works", root.d.reinstall(), true);
+                    Proc.flush();
+                    Proc.flush();
+                    Proc.flush();
+                    Proc.flush();
                     root.drop();
                 }
             },

@@ -91,8 +91,9 @@ PluginComponent {
         varName: "lastSync"
         defaultValue: ""
     }
-    // "" | "removed" | "linkStays": `appglass remove` worked (and the plugin
-    // link could not be taken out: the page says how to finish)
+    // "" | "removed" | "linkStays" | "external": `appglass remove` worked
+    // (and the plugin link could not be taken out: the page says how to
+    // finish; external: DMS loads the plugin from outside appglass's link)
     PluginGlobalVar {
         id: uninstallVar
         varName: "uninstallState"
@@ -427,9 +428,10 @@ PluginComponent {
             } else if (code === 0) {
                 // no link of appglass's: DMS loads this plugin from elsewhere
                 // (the system plugin dir, a copy) and keeps loading it, so
-                // its next load is no new install
-                root.save("uninstallState", "linkStays");
-                root.publish(uninstallVar, "linkStays");
+                // its next load is no new install; `appglass plugin remove`
+                // cannot finish it (the page says to turn it off in DMS)
+                root.save("uninstallState", "external");
+                root.publish(uninstallVar, "external");
                 root.fail("every file restored, but DMS loads this plugin from outside appglass's link: turn it off in DMS Settings > Plugins.");
             } else {
                 root.save("uninstallState", "linkStays");
@@ -593,7 +595,7 @@ PluginComponent {
             root.seed(true);
             return;
         }
-        if (gone === "linkStays") {
+        if (gone === "linkStays" || gone === "external") {
             // uninstalled before this load, the link stayed: no seed, no sync
             root.uninstalled = true;
             root.publish(uninstallVar, gone);

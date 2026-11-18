@@ -29,7 +29,8 @@ PluginSettings {
     readonly property string lastError: root.vars.lastError || ""
     readonly property bool syncing: root.vars.syncing === true
     readonly property string action: root.vars.action || ""
-    // "" | "removed" | "linkStays": the files are back (and the link stayed);
+    // "" | "removed" | "linkStays" | "external": the files are back (and the
+    // link stayed; external: DMS loads the plugin from outside appglass's link);
     // "interrupted": a reload cut the uninstall short (Uninstall again)
     readonly property string uninstallState: root.vars.uninstallState || ""
     // uninstalled: the daemon syncs nothing, so nothing here offers a change
