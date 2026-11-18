@@ -8,9 +8,13 @@
 # its daemon socket dir hidden (bwrap --tmpfs /run/kiri: it starts with no
 # engine), the other engine sockets it names hidden too where they exist
 # (/run/podman, $XDG_RUNTIME_DIR/podman and docker.sock, ~/.docker/run) with
-# DOCKER_HOST unset, the system bus and systemd's private socket /dev/null,
-# and no network (unshare -n when available). The user's Kiri data (~/.kiri,
-# ~/.local/share/kiri) is only listed, before and after.
+# DOCKER_HOST unset, both systemd managers out of reach ($XDG_RUNTIME_DIR/systemd
+# an empty tmpfs: sd-bus `systemctl --user` goes there whatever the bus address
+# says; $XDG_RUNTIME_DIR/bus, the system bus and systemd's private socket
+# /dev/null; a read-only question to each under the same mask must go
+# unanswered before Kiri starts), and no network (unshare -n when available).
+# The zenity that takes the focus runs under the same mask. The user's Kiri
+# data (~/.kiri, ~/.local/share/kiri) is only listed, before and after.
 #
 # 1. scratch sandbox: apply/remove round trip (whole tree back to the same
 #    sha256), the rule file for the nested niri
@@ -124,8 +128,9 @@ NONET=()
 unshare -U --map-current-user -n true 2>/dev/null && NONET=("$(command -v unshare)" -U --map-current-user -n)
 RT=${XDG_RUNTIME_DIR:-/nonexistent}
 mapfile -t HIDE < <(ag_hide_args /run/kiri /run/podman "$RT/podman" "$RT/docker.sock" \
-    "$HOME/.docker/run" "${AG_SYSTEM_SOCKETS[@]}")
+    "$HOME/.docker/run" "${AG_SESSION_SOCKETS[@]}" "${AG_SYSTEM_SOCKETS[@]}")
 printf '%s\n' "${HIDE[@]}" | grep -qx /run/kiri || ag_die "no /run/kiri to hide"
+ag_out_of_reach "${HIDE[@]}"
 kiri_up() {
     NOBUS=1 ag_harness run "$NAME" -- env -u DOCKER_HOST bwrap --dev-bind / / "${HIDE[@]}" \
         --die-with-parent "${NONET[@]}" "${EXEC[@]}" >&2
@@ -176,7 +181,8 @@ ag_measure "$FSHOT" --content "$HI" --tol 6 --text "$TEXT" --min-contrast 1.5 \
 # another window takes the focus (zenity, else an empty workspace)
 ZID=
 if command -v zenity >/dev/null; then
-    NOBUS=1 ag_harness run "$NAME" -- zenity --info --title appglass-focus --text focus >&2
+    NOBUS=1 ag_harness run "$NAME" -- bwrap --dev-bind / / "${HIDE[@]}" --die-with-parent \
+        zenity --info --title appglass-focus --text focus >&2
     ZID=$(ag_wait_window "$NAME" '^zenity$|^org\.gnome\.Zenity$' 20 || true)
 fi
 if [ -n "$ZID" ]; then

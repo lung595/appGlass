@@ -187,6 +187,21 @@ ag_hide_args() {
 # the system manager's doors (verify.SYSTEM_SOCKETS): the system bus and
 # systemd's private socket
 AG_SYSTEM_SOCKETS=(/run/dbus/system_bus_socket /run/systemd/private)
+# the real session's: the user manager (sd-bus `systemctl --user` goes
+# straight to $XDG_RUNTIME_DIR/systemd/private, whatever the bus address
+# says) and the session bus socket (for anything that ignores NOBUS's address)
+AG_SESSION_SOCKETS=("${XDG_RUNTIME_DIR:-/nonexistent}/systemd" "${XDG_RUNTIME_DIR:-/nonexistent}/bus")
+
+# ag_out_of_reach <bwrap hide args>... -> dies unless, under that mask, no
+# socket is left at the doors of the systemd user manager, the session bus or
+# the system manager. Only looks at paths: nothing real is asked anything.
+ag_out_of_reach() {
+    local rt=${XDG_RUNTIME_DIR:-/nonexistent} d
+    for d in "$rt/systemd/private" "$rt/bus" /run/systemd/private /run/dbus/system_bus_socket; do
+        ! bwrap --dev-bind / / "$@" --die-with-parent -- test -S "$d" \
+            || ag_die "$d is still a socket under the app's mask (systemd user manager or a bus in reach)"
+    done
+}
 
 # ag_journal_mark -> a cursor of the system journal now ("" when unreadable)
 ag_journal_mark() {
@@ -198,4 +213,15 @@ ag_journal_since() {
     [ -n "$c" ] || return 0
     for u in "$@"; do a+=(-u "$u"); done
     journalctl -q --no-pager --after-cursor="$c" "${a[@]}" 2>/dev/null || true
+}
+# ag_user_journal_mark / ag_user_journal_since <cursor> <unit>...: the same
+# in the user journal (units of the user manager)
+ag_user_journal_mark() {
+    journalctl --user -q -n 0 --show-cursor --no-pager 2>/dev/null | sed -n 's/^-- cursor: //p'
+}
+ag_user_journal_since() {
+    local c=$1 u a=(); shift
+    [ -n "$c" ] || return 0
+    for u in "$@"; do a+=(--user-unit "$u"); done
+    journalctl --user -q --no-pager --after-cursor="$c" "${a[@]}" 2>/dev/null || true
 }

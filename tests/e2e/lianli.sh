@@ -5,13 +5,19 @@
 #
 # lianli-gui runs with HOME and XDG_* in the harness TMP, no session/system
 # bus (NOBUS=1), its daemon socket dir hidden (bwrap --tmpfs /run/lianli: the
-# fans and lights of the machine are never reached), the system manager out
-# of reach (the GUI runs systemctl start lianli-control-recovery.service, a
-# root unit its polkit rule allows, by the system bus whatever the bus
-# address says: /run/dbus/system_bus_socket and /run/systemd/private are
-# /dev/null) and no network (unshare -n when available). The user's Lian Li
-# data is only listed, before and after, and the system journal of the
-# lianli-* units must stay quiet while it runs.
+# fans and lights of the machine are never reached; the e2e dies without it),
+# and both systemd managers out of reach. At startup the GUI runs
+# `systemctl --user start --no-block lianli-session.service` and asks the
+# system manager about lianli-control-recovery.service and the daemon units;
+# sd-bus reaches the user manager by $XDG_RUNTIME_DIR/systemd/private and the
+# system one by the system bus, whatever the bus addresses say. So
+# $XDG_RUNTIME_DIR/systemd is an empty tmpfs, $XDG_RUNTIME_DIR/bus, the Lian Li
+# session locks ($XDG_RUNTIME_DIR/lianli*), /run/dbus/system_bus_socket and
+# /run/systemd/private are /dev/null, and before the app starts the e2e asks
+# each manager and the session bus a read-only question under the same mask:
+# one that answers fails the run. No network (unshare -n when available).
+# The user's Lian Li data is only listed, before and after, and the lianli-*
+# units must stay quiet in both the system and the user journal while it runs.
 #
 # 1. scratch sandbox: apply/remove round trip (whole tree back to the same
 #    sha256), the rule file for the nested niri
@@ -85,8 +91,13 @@ ST=$(ag_appglass "$SB" status --json | jq -c '.apps[] | select(.key == "com.sgta
 read -r -a EXEC <<< "$(sed -n 's/^Exec=//p' "$L" | head -1 | sed -E 's/(^| )%[a-zA-Z]//g')"
 NONET=()
 unshare -U --map-current-user -n true 2>/dev/null && NONET=("$(command -v unshare)" -U --map-current-user -n)
-mapfile -t HIDE < <(ag_hide_args /run/lianli "${AG_SYSTEM_SOCKETS[@]}")
+RT=${XDG_RUNTIME_DIR:-/nonexistent}
+mapfile -t HIDE < <(ag_hide_args /run/lianli "$RT"/lianli* "${AG_SESSION_SOCKETS[@]}" \
+    "${AG_SYSTEM_SOCKETS[@]}")
+printf '%s\n' "${HIDE[@]}" | grep -qx /run/lianli || ag_die "no /run/lianli to hide"
+ag_out_of_reach "${HIDE[@]}"
 JMARK=$(ag_journal_mark)
+UJMARK=$(ag_user_journal_mark)
 NOBUS=1 ag_harness run "$NAME" -- bwrap --dev-bind / / "${HIDE[@]}" --die-with-parent \
     "${NONET[@]}" "${EXEC[@]}" >&2
 ID=$(ag_wait_window "$NAME" "$APPID" 30) || { ag_harness windows "$NAME" >&2 || true
@@ -115,6 +126,8 @@ ag_harness windows "$NAME" 2>/dev/null | grep -qE 'lianlilinux|lianli-gui' && ag
 sleep 1
 JOURNAL=$(ag_journal_since "$JMARK" 'lianli-*')
 printf '%s\n' "$JOURNAL" > "$AG_OUT/journal.txt"
+UJOURNAL=$(ag_user_journal_since "$UJMARK" 'lianli-*')
+printf '%s\n' "$UJOURNAL" > "$AG_OUT/journal-user.txt"
 
 # 4. remove: the sandbox is back as it was (the app's own files aside)
 ag_appglass "$SB" remove >/dev/null || ag_die "remove failed"
@@ -127,14 +140,15 @@ sleep 0.5
 REAL_OK=1
 [ "$REAL_FP0" = "$(real_fp)" ] || REAL_OK=0
 
-python3 - "$AG_OUT/measure.json" "$REAL_OK" "$([ -n "$JMARK" ] && echo "${JOURNAL:+entries}" || echo unread)" <<'PY'
+python3 - "$AG_OUT/measure.json" "$REAL_OK" "$([ -n "$JMARK" ] && echo "${JOURNAL:+entries}" || echo unread)" \
+    "$([ -n "$UJMARK" ] && echo "${UJOURNAL:+entries}" || echo unread)" <<'PY'
 import json, sys
 m = json.load(open(sys.argv[1]))
 print("content alpha mode %s (expected %s, share %.2f); bar px at %s: %s; opaque px: %s; "
-      "real Lian Li untouched: %s; lianli-* units in the system journal: %s"
+      "real Lian Li untouched: %s; lianli-* units in the system journal: %s, in the user journal: %s"
       % (m["content"]["alpha_mode"], m["content"]["expected"], m["content"]["share_within_tol"],
          m.get("bar", {}).get("expected"), m.get("bar", {}).get("px"),
-         m.get("opaque_px"), sys.argv[2] == "1", sys.argv[3] or "none"))
+         m.get("opaque_px"), sys.argv[2] == "1", sys.argv[3] or "none", sys.argv[4] or "none"))
 for f in m["fails"]:
     print("  fail: " + f)
 PY
@@ -143,4 +157,6 @@ PY
 [ "$REAL_OK" = 1 ] || ag_die "the user's Lian Li data changed"
 [ -n "$JMARK" ] || ag_die "the system journal is not readable: cannot show the units stayed quiet"
 [ -z "$JOURNAL" ] || ag_die "lianli-* units ran while the GUI was up (see $AG_OUT/journal.txt)"
+[ -n "$UJMARK" ] || ag_die "the user journal is not readable: cannot show the user units stayed quiet"
+[ -z "$UJOURNAL" ] || ag_die "lianli-* user units ran while the GUI was up (see $AG_OUT/journal-user.txt)"
 echo "e2e lianli: PASS"
