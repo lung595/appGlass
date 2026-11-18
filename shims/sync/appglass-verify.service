@@ -9,8 +9,9 @@ CPUQuota=50%
 # there would end verify itself, the queue never done
 MemoryMax=2G
 # appglass verify stops starting checks after 25 min (verify.BUDGET); one
-# app takes 90 s at most. SIGTERM then kills the whole cgroup, the hidden
-# session included, and verify deletes its private dir
+# app takes 90 s at most. A stop sends SIGTERM to verify alone: it SIGKILLs
+# the hidden session and deletes its private dir; what is left then gets
+# SIGKILL (a SIGTERM to headless gamescope makes it segfault)
 TimeoutSec=30min
-KillMode=control-group
+KillMode=mixed
 ExecStart=%h/.local/bin/appglass-sync --verify

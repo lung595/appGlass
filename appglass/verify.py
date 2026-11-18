@@ -25,8 +25,8 @@ verify <key> | --queue
     A run checks what fits BUDGET seconds ($APPGLASS_VERIFY_BUDGET), runs
     the hook apply after each result and leaves the rest queued for the next
     event (the unit's TimeoutSec is above BUDGET + 2 * APP_MAX). SIGTERM
-    (systemd stopping the unit) still kills the hidden session and deletes
-    its private dir; a dir left by a killed run is swept at the next start.
+    (systemd stopping the unit, KillMode=mixed: verify alone gets it) still
+    SIGKILLs the hidden session and deletes its private dir; a dir left by a killed run is swept at the next start.
 
 launch-check <key> <pid>
     Started by each glass wrapper (setsid -f) before it runs the app: polls

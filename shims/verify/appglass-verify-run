@@ -14,8 +14,8 @@ case "$XDG_RUNTIME_DIR" in "$RUN"/*) ;; *) echo "refusing: runtime dir not priva
 [ -n "${AGV_REAL_NIRI:-}" ] && [ "$AGV_REAL_NIRI" = "${NIRI_SOCKET:-}" ] && { echo refusing; exit 2; }
 unset NIRI_SOCKET WAYLAND_DISPLAY DISPLAY AGV_REAL_NIRI
 # headless gamescope segfaults when it is stopped (SIGTERM, or its own
-# shutdown once niri ends): it is only ever killed (SIGKILL dumps no core),
-# and nothing here may dump one
+# shutdown once niri ends): this script and verify only SIGKILL it, and the
+# unit (KillMode=mixed) sends its SIGTERM to verify alone; no core is dumped
 ulimit -c 0
 gamescope --backend headless -W 1280 -H 800 -w 1280 -h 800 -r 30 --expose-wayland -- \
     niri -c "$RUN/niri.kdl" >"$RUN/niri.log" 2>&1 </dev/null &

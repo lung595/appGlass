@@ -714,7 +714,10 @@ class Budget(Stubbed):
         m = re.search(r"(?m)^TimeoutSec=(\d+)(min)?$", t)
         secs = int(m.group(1)) * (60 if m.group(2) else 1)
         self.assertGreaterEqual(secs, verify.BUDGET + 2 * verify.APP_MAX)
-        self.assertNotIn("KillMode=", t.replace("KillMode=control-group", ""))
+        # a stop sends SIGTERM to verify alone (it SIGKILLs the hidden session
+        # itself); a SIGTERM to the whole cgroup makes headless gamescope segfault
+        self.assertRegex(t, r"(?m)^KillMode=mixed$")
+        self.assertEqual(t.count("KillMode="), 1)
 
 
 class WindowOfTheApp(Stubbed):
