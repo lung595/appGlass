@@ -13,12 +13,13 @@
 //      Looked at, for every view of the window (a stack of views: the one shown can fill it),
 //      when the toplevel maps, whenever a widget in it maps or unmaps (an emission hook, once
 //      the main loop is idle), when a view goes into or out of it (destroyed, or moved: a window
-//      left with no view is opaque again) and at a view's first document: native chrome around a WebView (a mail
-//      client's folder list, a sidebar shown later) would be holes on the bare blur, so the view
-//      gets its background back, the stylesheet comes out and the window is opaque; when the
-//      chrome is gone again, the glass comes back. The scripts stay in all along: they only mark
-//      the page (inert without the stylesheet), and a user script runs only on a document that
-//      loads after it is added, so a page loaded while opaque would come back unmarked (bare).
+//      left with no view is opaque again) and at a view's first document: native chrome around a
+//      WebView (a mail client's folder list, a sidebar shown later) would be holes on the bare
+//      blur, so the view gets its background back, the stylesheet comes out and the window is
+//      opaque; when the chrome is gone again, the glass comes back. The scripts stay in all
+//      along: they only mark the page (inert without the stylesheet), and a user script runs only
+//      on a document that loads after it is added, so a page loaded while opaque would come back
+//      unmarked (bare).
 //      Views on one user content manager (a related view shares the first one's) are glass
 //      together: the stylesheet on it styles all their pages.
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
@@ -177,9 +178,10 @@ static void *header_bar(void *top) {
 }
 
 // 1 when nothing but the view is drawn in the toplevel: the view is mapped (hidden, it leaves the
-// window empty and bare), no other child of the view's ancestors is mapped (at the toplevel's map, after its children), and no margin or border-width leaves a frame
-// round it. GTK3 lists a custom titlebar among the window's children: a GtkHeaderBar does not count
-// (it paints itself), any other titlebar does.
+// window empty and bare), no other child of the view's ancestors is mapped (at the toplevel's map,
+// after its children), and no margin or border-width leaves a frame round it. GTK3 lists a custom
+// titlebar among the window's children: a GtkHeaderBar does not count (it paints itself), any other
+// titlebar does.
 static int fills(void *view, void *top) {
     void *(*get_parent)(void *) = sym("gtk_widget_get_parent");
     gboolean (*mapped)(void *) = sym("gtk_widget_get_mapped");
@@ -438,8 +440,9 @@ static void on_hierarchy(void *view, void *prev, void *data) {
     redecide_peers(view, NULL);   // shown there or gone: the views it held, or that held it
 }
 
-// the stylesheet and scripts added to the view's content manager, kept on the view (its data owns a
-// ref): the stylesheet comes out while the view is left opaque, the scripts stay
+// what a view holds of its content manager: its hold on the stylesheet (appglass-ss, see
+// add_sheet: let go while the view is left opaque) and the scripts it added (its data owns a ref;
+// they stay)
 static const char *const ITEMS[] = { "appglass-ss", "appglass-sc0", "appglass-sc1", "appglass-sc2",
                                      "appglass-sc3" };
 
