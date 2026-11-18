@@ -279,7 +279,7 @@ Item {
                     t.press(root.find(p, "rail-apps"));
                     const rows = root.findAll(p, "app:", []);
                     t.check("one row per app, all shown", [rows.length, rows.filter(x => x.visible).length], [14, 14]);
-                    t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => root.find(p, "status-" + k).text), ["Glass", "Conflict", "Game: never touched", "Delegated", "Opaque", "Waiting for check"]);
+                    t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => root.find(p, "status-" + k).text), ["Glass", "Conflict", "Game: never touched", "Delegated", "Fallback", "Waiting for check"]);
                     t.check("route shown", root.find(p, "route-Alacritty").text.indexOf("terminal · Native"), 0);
                     const toggles = root.findAll(p, "appToggle-", []);
                     t.check("one switch per switchable row", toggles.filter(x => x.visible).length, Logic.appRows(root.status, {}, true).filter(r => r.switchable).length);

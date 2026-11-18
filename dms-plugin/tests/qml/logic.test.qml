@@ -157,9 +157,9 @@ Item {
         t.check("app-id unescaped", byKey["com.github.tchx84.Flatseal"].appId, "com.github.tchx84.Flatseal");
         const delegated = rows.filter(r => r.effective === "delegated");
         t.ok("a delegated row has no switch", delegated.length > 0 && delegated.every(r => !r.switchable && r.badge === "Delegated" && r.status === "delegated"));
-        t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => byKey[k].status), ["glass", "conflict", "game", "delegated", "opaque", "waiting"]);
-        // Steam has no route: opaque, and no switch
-        t.check("steam: opaque, no switch, no route", [byKey["steam"].switchable, byKey["steam"].routes.length], [false, 0]);
+        t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => byKey[k].status), ["glass", "conflict", "game", "delegated", "fallback", "waiting"]);
+        // Steam has no route: the fallback look, and no switch
+        t.check("steam: fallback, no switch, no route", [byKey["steam"].switchable, byKey["steam"].routes.length], [false, 0]);
         t.check("the conflict names the file", byKey["vlc"].conflicts, ["~/.local/share/applications/vlc.desktop"]);
         t.check("discord: two routes, the mod first", byKey["discord"].routes, [{
                 "name": "electron-vencord",
@@ -308,7 +308,7 @@ Item {
         const off = {};
         for (const r of Logic.appRows(status, {}, false))
             off[r.key] = r;
-        t.check("glass off: every switchable app paused", ["Alacritty", "vlc", "solaar", "steam", "Pinball", "org.mozilla.firefox"].map(k => off[k].status), ["paused", "paused", "paused", "opaque", "game", "delegated"]);
+        t.check("glass off: every switchable app paused", ["Alacritty", "vlc", "solaar", "steam", "Pinball", "org.mozilla.firefox"].map(k => off[k].status), ["paused", "paused", "paused", "fallback", "game", "delegated"]);
         t.check("badges", [Logic.badge({
                 "effective": "glass",
                 "tier": "forced"
