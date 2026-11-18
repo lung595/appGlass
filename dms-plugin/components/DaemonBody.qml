@@ -136,7 +136,7 @@ PluginComponent {
         }
         if (!root.ready) {
             if (!root.seeding && root.bin)
-                root.seed();
+                root.seed(root.keepOnSeed());
             return false;
         }
         if (!root.bin)
@@ -275,7 +275,13 @@ PluginComponent {
     // defaults over the CLI's settings); the next request tries again.
     // keep (Set up again): a full remove took settings.json out, so `get`
     // answers the defaults; the stored plugin data stays the source and
-    // only the keys never stored are seeded
+    // only the keys never stored are seeded. That intent is stored
+    // (seedKeep, from the remove on) until a seed works: a seed that failed
+    // or a shell restart during it seeds the same way on the next try
+    function keepOnSeed() {
+        return root.service.loadPluginData(Logic.PLUGIN_ID, "seedKeep", false) === true;
+    }
+
     function seed(keep) {
         root.seeding = true;
         Proc.runCommand(Logic.SEED_ID, Logic.getArgv(root.bin), (out, code) => {
@@ -291,6 +297,8 @@ PluginComponent {
                     root.save(key, data[key]);
             }
             root.save("seeded", true);
+            if (keep)
+                root.save("seedKeep", false);
             root.ready = true;
             root.requestSync("start", 0);
         }, 0, Logic.STATUS_TIMEOUT_MS, root);
@@ -381,8 +389,10 @@ PluginComponent {
         // the files are back: whatever the link step does, no sync again
         root.uninstalled = true;
         root.ready = false;
-        // a later install starts again from `appglass get`
+        // a later install starts again from `appglass get`, the stored
+        // settings first (settings.json is gone: get answers the defaults)
         root.save("seeded", false);
+        root.save("seedKeep", true);
         // "unlinking" until the unlink answers: a restart that kills it
         // comes back with the link in place (linkStays, its hint shown)
         root.save("uninstallState", "unlinking");
@@ -391,9 +401,16 @@ PluginComponent {
         root.publish(uninstallVar, "removed");
         Proc.runCommand(Logic.UNLINK_ID, Logic.unlinkArgv(root.bin), (out, code) => {
             root.publish(actionVar, "");
-            if (code === 0) {
+            if (code === 0 && !Logic.unlinkFoundNone(out)) {
                 root.save("uninstallState", "removed");
                 ToastService.showInfo("appGlass: uninstalled, every file restored");
+            } else if (code === 0) {
+                // no link of appglass's: DMS loads this plugin from elsewhere
+                // (the system plugin dir, a copy) and keeps loading it, so
+                // its next load is no new install
+                root.save("uninstallState", "linkStays");
+                root.publish(uninstallVar, "linkStays");
+                root.fail("every file restored, but DMS loads this plugin from outside appglass's link: turn it off in DMS Settings > Plugins.");
             } else {
                 root.save("uninstallState", "linkStays");
                 root.publish(uninstallVar, "linkStays");
@@ -411,6 +428,7 @@ PluginComponent {
             return false;
         root.uninstalled = false;
         root.interrupted = false;
+        root.save("seedKeep", true);
         root.save("uninstallState", "");
         root.publish(uninstallVar, "");
         root.publish(lastErrorVar, "");
@@ -547,6 +565,7 @@ PluginComponent {
             // the uninstall took the link out, and a link loaded this body:
             // installed again. Set up again from the stored settings
             // (`appglass get` fills only a key never stored)
+            root.save("seedKeep", true);
             root.save("uninstallState", "");
             root.publish(uninstallVar, "");
             root.seed(true);
@@ -577,7 +596,7 @@ PluginComponent {
             root.ready = true;
             root.requestSync("start", 0);
         } else {
-            root.seed();
+            root.seed(root.keepOnSeed());
         }
     }
 

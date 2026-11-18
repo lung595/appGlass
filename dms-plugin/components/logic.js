@@ -258,6 +258,12 @@ function unlinkArgv(bin) {
     return cliArgv(bin, ["plugin", "remove"]);
 }
 
+// `appglass plugin remove` worked but found no link of its own (the
+// plugin is loaded from outside appglass's link)
+function unlinkFoundNone(out) {
+    return /^plugin: not installed\b/m.test(String(out || ""));
+}
+
 // The argv of a Settings > Advanced action, null for any other name
 function actionArgv(name, bin) {
     if (name === "learn")

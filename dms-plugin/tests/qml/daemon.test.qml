@@ -663,6 +663,95 @@ Item {
             },
             {
                 "run": () => {
+                    // --- the first seed after a full remove fails once: the
+                    // stored choices stay the source on the next try (an IPC
+                    // sync), they are not overwritten by `get`'s defaults
+                    root.fresh(false, undefined, {
+                        "uninstallState": "removed",
+                        "inactiveMorePct": 4,
+                        "apps": {
+                            "vlc": {
+                                "enabled": false
+                            }
+                        }
+                    });
+                    Proc.setResult(Logic.SEED_ID, "appglass: boom\n", 1);
+                    Proc.flush();       // get fails
+                    t.check("a failed seed: not ready", root.d.body.ready, false);
+                    Proc.setResult(Logic.SEED_ID, JSON.stringify(root.defaults), 0);
+                    t.check("an IPC sync seeds again", IpcRegistry.call("appGlass", "sync"), "not ready");
+                    Proc.flush();       // get
+                    const pd = root.pdata();
+                    t.check("kept choices survive a failed first seed", [pd.apps, pd.inactiveMorePct, pd.seeded, pd.seedKeep], [{
+                            "vlc": {
+                                "enabled": false
+                            }
+                        }, 4, true, false]);
+                    Proc.flush();
+                    Proc.flush();
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- the shell restarts while the first seed after a
+                    // full remove runs (its answer never comes)
+                    root.fresh(false, undefined, {
+                        "uninstallState": "removed",
+                        "apps": {
+                            "vlc": {
+                                "enabled": false
+                            }
+                        }
+                    });
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    Proc.reset();
+                    Proc.autoRun = false;
+                    Proc.setResult(Logic.SEED_ID, JSON.stringify(root.defaults), 0);
+                    Proc.setResult(Logic.SYNC_ID, "apps: 7 glass\n", 0);
+                    Proc.setResult(Logic.STATUS_ID, root.statusText, 0);
+                    root.d = daemonComponent.createObject(root);
+                    t.check("the next load seeds", Proc.pendingIds(), [Logic.SEED_ID]);
+                    Proc.flush();
+                    t.check("kept choices survive a restart during the first seed", root.pdata().apps, {
+                        "vlc": {
+                            "enabled": false
+                        }
+                    });
+                    Proc.flush();
+                    Proc.flush();
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- `remove` worked, the unlink found no link of
+                    // appglass's (the plugin is loaded from elsewhere, e.g.
+                    // the system plugin dir): DMS keeps loading it, so the
+                    // next load must not set the glass up again
+                    root.fresh(true);
+                    Proc.flush();
+                    Proc.flush();
+                    Proc.setResult(Logic.ACTION_IDS.uninstall, "settings: removed\n", 0);
+                    Proc.setResult(Logic.UNLINK_ID, "plugin: not installed (~/.config/DankMaterialShell/plugins/appGlass)\n", 0);
+                    root.d.runAction("uninstall");
+                    Proc.flush();
+                    Proc.flush();
+                    t.check("not linked: the plugin stays loaded", [root.d.uninstalled, root.pdata().uninstallState, root.vars().uninstallState, root.pdata().seedKeep], [true, "linkStays", "linkStays", true]);
+                    root.drop();
+                    root.fresh(false, undefined, {
+                        "uninstallState": "linkStays"
+                    });
+                    t.check("its next load stays inert", [root.d.uninstalled, Proc.pendingIds()], [true, []]);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
                     // a remove run again after the reload that fails: back to syncing
                     root.fresh(true, undefined, {
                         "uninstallState": "removing"
