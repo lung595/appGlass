@@ -851,6 +851,9 @@ def detect_desktop(env, desktop_id, paths):
         rec["missing"] = sorted(set(rec.get("missing", []) + _candidates(tx, env)))
     rec.setdefault("installed", True)
     rec["names"] = names
+    # one app-id: the first name (WM class, flatpak id, launcher id, binary);
+    # a later one (a binary name) may match other apps' windows. learn and
+    # the check add the id a window really opens with (docs/engine.md)
     rec["app_ids"] = [_rx(n) for n in names[:1]]
     rec["exec"] = pr.exec
     rec["toolkit"] = pr.best()
