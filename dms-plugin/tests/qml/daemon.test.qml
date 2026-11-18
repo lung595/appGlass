@@ -292,6 +292,17 @@ Item {
                     Proc.flush();
                     Proc.flush();
                     t.check("an unknown action runs nothing", [root.d.runAction("rm -rf"), Proc.pendingIds()], [false, []]);
+                    // a status asked while one runs: the newer answer is not lost
+                    // (DMS's Proc keeps one callback per id and drops it after the first exit)
+                    const statusRuns = () => Proc.calls.filter(c => c.id === Logic.STATUS_ID).length;
+                    const s0 = statusRuns();
+                    root.d.body.refreshStatus();
+                    root.d.body.refreshStatus();
+                    t.check("a status while one runs: one run now", [statusRuns() - s0, Proc.pendingIds()], [1, [Logic.STATUS_ID]]);
+                    Proc.flush();
+                    t.check("then one more for the newer answer", [statusRuns() - s0, Proc.pendingIds()], [2, [Logic.STATUS_ID]]);
+                    Proc.flush();
+                    t.check("and no more", Proc.pendingIds(), []);
                     Proc.setResult(Logic.ACTION_IDS.adopt, "appglass: adopt: ~/x changed since\n", 1);
                     root.d.runAction("adopt");
                     Proc.flush();

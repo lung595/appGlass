@@ -215,10 +215,26 @@ PluginComponent {
 
     // --- status ----------------------------------------------------------------
 
+    // One status run at a time: DMS's Proc keeps one callback per id and
+    // drops it after the first run exits, so a second run started while one
+    // runs would lose its (newer) answer. Asked meanwhile: one more after.
+    property bool statusBusy: false
+    property bool statusAgain: false
+
     function refreshStatus() {
         if (!root.bin)
             return false;
+        if (root.statusBusy) {
+            root.statusAgain = true;
+            return true;
+        }
+        root.statusBusy = true;
         Proc.runCommand(Logic.STATUS_ID, Logic.statusArgv(root.bin), (out, code) => {
+            root.statusBusy = false;
+            if (root.statusAgain) {
+                root.statusAgain = false;
+                root.refreshStatus();
+            }
             const doc = code === 0 ? Logic.parseStatus(out) : null;
             if (doc)
                 root.publish(statusVar, doc);
