@@ -1822,19 +1822,20 @@ class Durable(Base):
         self.assertIn("# mine", self.sb.read(o + ".appglass-changed"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class LinkedStateDir(Base):
     """w2 r3: the state dir is a symlink to a folder of the user's: a full
-    remove empties that folder and keeps the link and the folder."""
+    remove takes appglass's own names out of that folder and keeps the
+    link, the folder and every other file in it. A link to a base folder
+    (HOME, an XDG dir, a parent of one, /) or to nothing is refused."""
+
+    def link_to(self, target):
+        os.makedirs(self.sb.state, exist_ok=True)
+        os.symlink(target, self.state_dir)
 
     def test_remove_keeps_the_link(self):
         alt = os.path.join(self.sb.home, "elsewhere", "appglass")
         os.makedirs(alt)
-        os.makedirs(self.sb.state, exist_ok=True)
-        os.symlink(alt, self.state_dir)
+        self.link_to(alt)
         before = self.sb.tree_hash()
         self.apply()
         self.assertTrue(os.path.isfile(os.path.join(alt, "state.json")))
@@ -1843,3 +1844,86 @@ class LinkedStateDir(Base):
         self.assertTrue(os.path.islink(self.state_dir))
         self.assertEqual(os.listdir(alt), [])
         self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+
+    def test_remove_keeps_user_files_in_the_target(self):
+        alt = os.path.join(self.sb.home, "sync", "appglass")
+        os.makedirs(os.path.join(alt, "photos"))
+        with open(os.path.join(alt, "my-notes.txt"), "w") as f:
+            f.write("mine\n")
+        with open(os.path.join(alt, "photos", "a.jpg"), "wb") as f:
+            f.write(b"\xff\xd8jpg")
+        self.link_to(alt)
+        before = self.sb.tree_hash()
+        self.apply()
+        self.assertTrue(os.path.isfile(os.path.join(alt, "state.json")))
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(os.path.islink(self.state_dir))
+        self.assertEqual(sorted(os.listdir(alt)), ["my-notes.txt", "photos"])
+        self.assertEqual(self.sb.read(os.path.join(alt, "my-notes.txt")), "mine\n")
+        self.assertEqual(self.sb.readb(os.path.join(alt, "photos", "a.jpg")), b"\xff\xd8jpg")
+        self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+        self.assertIn("my-notes.txt", err)
+
+    def test_destroy_takes_only_its_own_names(self):
+        alt = os.path.join(self.sb.home, "elsewhere")
+        os.makedirs(alt)
+        self.link_to(alt)
+        st = core.State(self.env)
+        for n in ("state.json", ".state.json.appglass-tmp", ".lock", "verify.lock",
+                  "colors.json", "engine.json", "keep.txt"):
+            with open(os.path.join(alt, n), "w") as f:
+                f.write("x")
+        for n in ("backup", "ring", "plain", "photos"):
+            os.makedirs(os.path.join(alt, n))
+        self.assertEqual(st.destroy(), [])
+        self.assertEqual(sorted(os.listdir(alt)), ["keep.txt", "photos"])
+        self.assertEqual(st.left_in_link, ["keep.txt", "photos"])
+
+    def refused(self, *argv):
+        code, out, err = self.sb.run(*argv, assume="alacritty")
+        self.assertNotEqual(code, 0, out + err)
+        self.assertNotIn("Traceback", err)
+        return err
+
+    def test_link_to_home_is_refused(self):
+        self.link_to(self.sb.home)
+        before = self.sb.tree_hash()
+        err = self.refused("apply", "--only", "alacritty")
+        self.assertIn("link", err)
+        self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+        self.assertFalse(os.path.exists(os.path.join(self.sb.home, "state.json")))
+
+    def test_link_to_an_xdg_parent_is_refused(self):
+        self.link_to(os.path.join(self.sb.home, ".local"))
+        before = self.sb.tree_hash()
+        self.refused("apply", "--only", "alacritty")
+        self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+
+    def test_link_to_root_is_a_problem(self):
+        # (no real link to / in a test: the realpath is faked)
+        alt = os.path.join(self.sb.home, "elsewhere")
+        os.makedirs(alt)
+        self.link_to(alt)
+        real = os.path.realpath
+        fake = lambda p: "/" if os.path.abspath(p) == self.state_dir else real(p)
+        with unittest.mock.patch.object(core.os.path, "realpath", fake):
+            self.assertIn("base folder", core.state_link_problem(self.env))
+            with self.assertRaises(core.AppglassError):
+                core.State(self.env).destroy()
+
+    def test_dangling_link_is_refused_and_doctor_says_so(self):
+        self.link_to(os.path.join(self.sb.home, "gone"))
+        before = self.sb.tree_hash()
+        for argv in (("apply", "--only", "alacritty"), ("remove",), ("adopt", "--rescue")):
+            err = self.refused(*argv)
+            self.assertIn("gone", err)
+        self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+        code, out, err = self.sb.run("doctor")
+        self.assertIn("gone", out + err)
+        self.assertNotIn("no drift", out + err)
+        self.assertNotEqual(code, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

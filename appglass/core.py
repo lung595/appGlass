@@ -558,20 +558,20 @@ class State:
         kept = [n for n in self.unnamed_backups() if not self.back_in_place(n)]
         if kept:
             return kept
+        self.left_in_link = []
         if os.path.islink(d):
-            # a link to a folder of the user's: empty it, keep the link and
-            # the folder (never a base folder the link may name by mistake)
-            env, real = self.env, os.path.realpath(d)
-            bases = {os.path.realpath(x) for x in (env.home, env.config_home, env.data_home,
-                                                   env.state_home, env.cache_home)}
-            if real in bases or any(b.startswith(real + os.sep) for b in bases) \
-                    or not os.path.isdir(real):
-                raise AppglassError("%s is a link to %s: not emptied (take appglass's state "
-                                    "out of it by hand)" % (env.tilde(d), real))
-            env.guard(real)
-            for n in os.listdir(real):
+            # a link to a folder of the user's: take appglass's own names out
+            # of it, keep the link, the folder and anything else in it
+            problem = state_link_problem(self.env)
+            if problem:
+                raise AppglassError("%s: not emptied" % problem)
+            real = os.path.realpath(d)
+            self.env.guard(real)
+            for n in sorted(os.listdir(real)):
                 q = os.path.join(real, n)
-                if os.path.isdir(q) and not os.path.islink(q):
+                if not _state_own_name(n):
+                    self.left_in_link.append(n)
+                elif os.path.isdir(q) and not os.path.islink(q):
                     shutil.rmtree(q)
                 else:
                     os.remove(q)
@@ -589,6 +589,41 @@ class State:
             except OSError:
                 pass
         return []
+
+
+# the names appglass makes in its state dir (and their _atomic_write temps)
+STATE_NAMES = ("state.json", ".lock", "verify.lock", "colors.json", "engine.json",
+               "backup", "ring", "plain")
+
+
+def _state_own_name(n):
+    if n in STATE_NAMES:
+        return True
+    return n.startswith(".") and n.endswith(".appglass-tmp") \
+        and n[1:-len(".appglass-tmp")] in STATE_NAMES
+
+
+def state_link_problem(env):
+    """The state dir is a link appglass must not write through: to nothing,
+    to something that is not a folder, or to a base folder (/, HOME, an XDG
+    base dir or a parent of one). The text says which, else None."""
+    d = env.state_dir
+    if not os.path.islink(d):
+        return None
+    real = os.path.realpath(d)
+    if not os.path.exists(real):
+        return ("%s is a link to %s, which does not exist (make that folder, or take "
+                "the link out)" % (env.tilde(d), env.tilde(real)))
+    if not os.path.isdir(real):
+        return "%s is a link to %s, which is not a folder" % (env.tilde(d), env.tilde(real))
+    bases = {os.path.realpath(x) for x in (env.home, env.config_home, env.data_home,
+                                           env.state_home, env.cache_home)}
+    under = real.rstrip(os.sep) + os.sep
+    if real == os.sep or real in bases or any(b.startswith(under) for b in bases):
+        return ("%s is a link to the base folder %s: appglass keeps its state in a "
+                "folder of its own (point the link at an empty folder, or take it out)"
+                % (env.tilde(d), env.tilde(real)))
+    return None
 
 
 # ---------------------------------------------------------------- the ring
@@ -1845,6 +1880,9 @@ class App:
 
 def _lock(env):
     d = env.state_dir
+    problem = state_link_problem(env)
+    if problem:
+        raise AppglassError(problem)
     for p in _missing_dirs(d):
         env.guard(p)
     env.guard(os.path.join(d, ".lock"))
@@ -1907,6 +1945,16 @@ def _unlock(env, lockf, created, app, failed=False):
             app.warn("%s kept with its ring: backup/ holds copies no record names. %s. "
                      "appglass restore --list shows the saved states"
                      % (env.tilde(env.state_dir), what))
+        _warn_left_in_link(app, st)
+
+
+def _warn_left_in_link(app, st):
+    left = getattr(st, "left_in_link", None)
+    if left:
+        app.warn("%s is a link to %s: appglass's state is out of it; kept there, not "
+                 "appglass's: %s" % (app.env.tilde(app.env.state_dir),
+                                     app.env.tilde(os.path.realpath(app.env.state_dir)),
+                                     ", ".join(left)))
 
 
 def _selected(app, only):
@@ -4193,6 +4241,10 @@ def doctor_drift(app):
     env, st = app.env, app.state
     out = []
     tilde = env.tilde
+    problem = state_link_problem(env)
+    if problem:
+        out.append((problem, None))
+        return out
     if app.state_unreadable:
         out.append(("state.json is unreadable (%s): %s" % (tilde(st.path), UNREADABLE_HINT),
                     None))
