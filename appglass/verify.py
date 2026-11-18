@@ -172,15 +172,17 @@ def launcher_exec(app, rec, home):
     return ex.replace(app.env.home, home)
 
 
-def candidate(app, owner):
+def candidate(app, owner, key=None):
     """{path: (bytes, mode)}: the files the family would write now (its
-    plan, never committed). A family waiting for its first check has none
-    on disk yet; a stale one may plan new ones for the update."""
+    plan, never committed), with the app key under check routed as if it
+    passed (the others as the engine has them). A family waiting for its
+    first check has none on disk yet; a stale one may plan new ones for the
+    update."""
     fam = app.families.get(owner)
     if fam is None:
         return {}
     ctx = app.ctx(owner)
-    ctx.candidate = True
+    ctx.candidate = key
     try:
         fam.apply(ctx)
     except Exception:
@@ -207,7 +209,7 @@ def stage(app, rec, run):
         if os.path.isfile(p):
             with open(p, "rb") as f:
                 staged[p] = (f.read(), stat.S_IMODE(os.stat(p).st_mode))
-    staged.update(candidate(app, owner) if owner else {})
+    staged.update(candidate(app, owner, rec.get("key")) if owner else {})
     # what those files import by file:// URL (the AppGlass themes import
     # ~/.config/gtk-3.0/dank-colors.css): without it their colours are undefined
     rx = re.compile(r"file://(%s/[^\s\"')]+)" % re.escape(env.home))

@@ -227,6 +227,22 @@ class Route(unittest.TestCase):
         self.assertFalse(os.path.exists(self.launcher()))
         self.assertIn("appglass-webkit", verify.launcher_exec(app, rec_, home))
 
+    def test_stage_renders_only_the_app_checked(self):
+        """The candidate plan routes the app under check as if it passed,
+        not the other apps still waiting (or switched off)."""
+        exe2 = os.path.join(self.w.bin, "otherweb")
+        _w(exe2, elf(WK41), 0o755)
+        did2 = "org.example.Other.desktop"
+        self.w.launcher(did2, desktop("Other", exe2, StartupWMClass="org.example.Other"))
+        self.run_ok("apply")
+        app = core.App(self.sb.env, quiet=True)
+        run = self.sb.path("stage-run")
+        os.makedirs(run)
+        home = verify.stage(app, engine.record_for(app, KEY), run)
+        apps = os.path.join(home, ".local/share/applications")
+        self.assertTrue(os.path.isfile(os.path.join(apps, DID)))
+        self.assertFalse(os.path.exists(os.path.join(apps, did2)))
+
 
 @unittest.skipUnless(shutil.which("jq"), "no jq")
 class Wrapper(unittest.TestCase):
