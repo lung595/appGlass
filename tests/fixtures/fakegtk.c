@@ -13,7 +13,8 @@
 // scripts registered when it finishes loading, as WebKit's do at document
 // end, and the view emits load-changed committed then finished: fk_navigate
 // starts another document; fk_hold keeps a view's loads from finishing until
-// fk_release), fk_report prints one line of the window and the view.
+// released, fk_commit commits a held load without finishing it), fk_report
+// prints one line of the window and the view.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,11 +30,16 @@ typedef struct W {
     struct W *titlebar;                  // a window: its custom titlebar
     D *data; H *handlers;
     GdkRGBA bg; int sheets, scripts;     // a WebView: its background, its content manager
-    int loading, page, shown, held;      // ... a document loading; the scripts its document ran;
-                                         //     a document committed once; its loads held
+    int loading, page, shown, held, committed;   // ... a document loading; the scripts its document
+                                         //     ran; a document committed once; its loads held; the
+                                         //     load in progress committed
 } W;
 static W *loads[16]; static int nloads;
-static void load(W *v) { v->loading = 1; if (nloads < 16) loads[nloads++] = v; }
+static void load(W *v) { v->loading = 1; v->committed = 0; if (nloads < 16) loads[nloads++] = v; }
+static void load_changed(W *v, int ev) {
+    for (H *h = v->handlers; h; h = h->next)
+        if (!strcmp(h->sig, "load-changed")) ((void (*)(void *, int, void *))h->fn)(v, ev, h->data);
+}
 
 static W ucm_dummy;
 static void *visual_dummy = &ucm_dummy, *screen_dummy = &ucm_dummy;
@@ -80,9 +86,9 @@ void fk_idle(void) {
         if (v->held) { loads[kept++] = v; continue; }
         if (!v->loading) continue;
         v->loading = 0; v->page = v->scripts; v->shown = 1;
-        for (int ev = 2; ev <= 3; ev++)   // WEBKIT_LOAD_COMMITTED, WEBKIT_LOAD_FINISHED
-            for (H *h = v->handlers; h; h = h->next)
-                if (!strcmp(h->sig, "load-changed")) ((void (*)(void *, int, void *))h->fn)(v, ev, h->data);
+        if (!v->committed) load_changed(v, 2);   // WEBKIT_LOAD_COMMITTED
+        v->committed = 0;
+        load_changed(v, 3);                      // WEBKIT_LOAD_FINISHED
     }
     nloads = kept;
 }
@@ -197,6 +203,7 @@ void fk_show(void *w) { W *x = w; x->visible = 1; if (x->parent && x->parent->ma
 void fk_hide(void *w) { W *x = w; x->visible = 0; if (x->mapped) unmap_tree(x); }
 void fk_navigate(void *view) { load(view); }   // the page goes to another document
 void fk_hold(void *v, int on) { ((W *)v)->held = on; }
+void fk_commit(void *v) { W *x = v; if (x->loading && !x->committed) { x->committed = 1; load_changed(x, 2); } }
 void fk_titlebar(void *win, void *w) { ((W *)win)->titlebar = w; }
 void fk_frame(void *w, unsigned border, int margin) { ((W *)w)->border = border; ((W *)w)->margin = margin; }
 void fk_report(const char *step, void *top, void *view) {

@@ -437,8 +437,10 @@ static void inject(void *view) {
     }
 }
 
-// the first document committed: the window decided afresh (its views as they are now, not as
-// they were at the last map), so a window glassed meanwhile turns app-paintable now
+// the first document finished loading (committed is not painted yet: the clear view would show
+// the bare blur until the first paint; a load that fails finishes too): the window decided afresh
+// (its views as they are now, not as they were at the last map), so a window glassed meanwhile
+// turns app-paintable now
 static void first_document(void *view) {
     if (obj_get(view, "appglass-shown")) return;
     obj_set(view, "appglass-shown", (void *)1, NULL);
@@ -448,7 +450,7 @@ static void first_document(void *view) {
 }
 static void on_load_changed(void *view, int ev, void *data) {
     (void)data;
-    if (ev >= 2) first_document(view);   // WEBKIT_LOAD_COMMITTED (2), FINISHED (3)
+    if (ev == 3) first_document(view);   // WEBKIT_LOAD_FINISHED
 }
 
 static void glassify(void *view) {

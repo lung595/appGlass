@@ -531,7 +531,7 @@ DRIVER = r"""
 void *fk_widget(const char *, void *, int); void fk_map(void *); void fk_show(void *);
 void fk_hide(void *); void fk_idle(void); void fk_report(const char *, void *, void *);
 void fk_navigate(void *); void fk_frame(void *, unsigned, int); void fk_titlebar(void *, void *);
-void fk_hold(void *, int);
+void fk_hold(void *, int); void fk_commit(void *);
 void webkit_web_view_load_html(void *, const char *, const char *);
 // box[sidebar (hidden), stack[A (hidden page, loaded), B (shown, its page slow)]]; reported: B,
 // then A on its page and B again
@@ -555,6 +555,13 @@ static int twoview(void) {
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
     if (!strcmp(mode, "twoview")) return twoview();
+    if (!strcmp(mode, "commit")) {   // committed, not yet painted, then finished
+        void *win = fk_widget("window", 0, 1), *view = fk_widget("view", win, 0);
+        fk_hold(view, 1); webkit_web_view_load_html(view, "<p>page</p>", 0);
+        fk_map(win); fk_idle(); fk_commit(view); fk_report("committed", win, view);
+        fk_hold(view, 0); fk_idle(); fk_report("finished", win, view);
+        return 0;
+    }
     void *win = fk_widget("window", 0, 1), *box = fk_widget("box", win, 0);
     void *side = fk_widget("sidebar", box, 0), *view = fk_widget("view", box, 0);
     fk_widget("label", side, 0);
@@ -649,11 +656,19 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r["hidden"], self.GLASS)
 
     def test_the_window_waits_for_the_first_document(self):
-        """Mapped before the page is committed: the view is clear already but
+        """Mapped before the page is loaded: the view is clear already but
         the window keeps its own background (not the bare blur) until then."""
         r = self.run_driver("late")
         self.assertEqual(r["painting"], "paintable=0 bg_alpha=0 sheets=1 scripts=2 page=0")
         self.assertEqual(r["mapped"], self.GLASS)
+
+    def test_the_window_waits_for_the_first_document_to_finish(self):
+        """Committed is not painted yet: the clear view would show the bare
+        blur until the first paint, so app-paintable waits for the load to
+        finish (the document-end script has marked the page by then)."""
+        r = self.run_driver("commit")
+        self.assertEqual(r["committed"], "paintable=0 bg_alpha=0 sheets=1 scripts=2 page=0")
+        self.assertEqual(r["finished"], self.GLASS)
 
     def test_a_border_or_a_margin_round_the_view_is_not_filling(self):
         """A container border-width or a widget margin leaves a frame of the
