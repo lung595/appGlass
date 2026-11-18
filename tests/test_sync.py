@@ -233,13 +233,21 @@ class SyncScript(unittest.TestCase):
         self.assertEqual(len(self.installs()), 1)
 
     def test_refuses_a_shared_runtime_dir(self):
+        # the real session's check (no sandbox: it refuses before appglass runs)
         os.chmod(self.run_dir, 0o777)
         env = dict(self.w.sb.env, XDG_RUNTIME_DIR=self.run_dir, APPGLASS_SYNC_SETTLE="0")
+        del env["APPGLASS_SANDBOX"]
         r = subprocess.run([os.path.join(REPO, "bin", "appglass-sync")], env=env,
                            capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 1)
         self.assertIn("refusing: no private runtime dir", r.stdout)
         self.assertEqual(os.listdir(self.run_dir), [])
+
+    def test_a_sandboxed_sync_locks_in_its_sandbox(self):
+        # never in the runtime dir: a sandbox sync must not wait on the real one
+        self.sync()
+        self.assertEqual(os.listdir(self.run_dir), [])
+        self.assertTrue(os.path.isfile(os.path.join(self.w.sb.root, "appglass-sync.lock")))
 
     def test_discord_writes_exit_at_once(self):
         """--discord (appglass-discord.service, ~/.config/discord changed): no

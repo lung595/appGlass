@@ -49,8 +49,11 @@ if [ "$MODE" = discord ] && ! needs_vencord; then
     exit 0
 fi
 
-# the lock in a runtime dir only we can write to; no /tmp fallback
+# the lock in a runtime dir only we can write to; no /tmp fallback. A
+# sandboxed run locks inside its sandbox: it never waits on (or holds up)
+# the real session's sync
 RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+real || RT="$APPGLASS_SANDBOX"
 if ! { [ -d "$RT" ] && [ ! -L "$RT" ] && [ -O "$RT" ]; } ||
         case $(stat -c %a "$RT" 2>/dev/null || echo 2) in *[2367] | *[2367]?) true ;; *) false ;; esac; then
     log "refusing: no private runtime dir ($RT) for the lock"
