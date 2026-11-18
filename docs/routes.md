@@ -193,7 +193,7 @@ With the default fallback ("Opaque", Settings > Fallback), these windows get `op
   `appglass status` lists Steam with no route, and Settings > Apps gives it no switch: the reason reads "Steam client (CEF): no injection, it stays opaque". Only the niri fallback reaches it.
 - **Chrome and Chromium browsers.** Web content has no window alpha: measured alpha 255 everywhere. See [electron.md](electron.md).
 - **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process.
-- **Root GUIs** (Timeshift through pkexec): opaque, with the reason "runs as root". Nothing is written for them.
+- **Root GUIs** (Timeshift through pkexec): opaque, with the reason "runs as root". No file, launcher or environment variable is written for them; `apply --all` puts their app-id in the niri games block (opacity 1.0, blur off), so they stay opaque whatever `fallback.mode` is.
 - **Electron apps without a CSS hook**, Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime (Kate and Konsole excepted): no route in this version.
 
 Settings > Fallback can make these windows translucent instead ("Translucent (text too)", at the Fallback opacity, 0.70 by default) or leave them at the DMS opacity ("DMS opacity"). Both fade the text with the background.
