@@ -3787,6 +3787,11 @@ def cmd_rescue(app, dry_run=False):
                      "shows the ring)" % t(bp))
     if kept:
         st.data["originals"] = kept
+    marked = {p: sha(_read(p)) for p in linked if p not in kept.values() and os.path.isfile(p)}
+    if marked:
+        # appglass's lines in a file it cannot record: doctor names it until
+        # the user changes it
+        st.data["linked"] = marked
     st.save()
     app.info("adopt --rescue: %d file%s recorded; the files as they were are in the ring "
              "entry %s (appglass restore %s puts them back); appglass apply runs again, "
@@ -4094,6 +4099,18 @@ def doctor_drift(app):
                 why = ("has no original in %s: remove cannot put it back (appglass "
                        "restore --list shows the ring)" % tilde(app.backup_dir()))
             out.append(("%s: %s %s" % (name, tilde(p), why), None))
+    # what a rescue left for the user: an original it could not record, a
+    # marked file behind a link (only a hand action takes them out)
+    for n, p in sorted((st.data.get("originals") or {}).items()):
+        bp = os.path.join(app.backup_dir(), n)
+        if isinstance(p, str) and os.path.isfile(bp) and not st.back_in_place(n):
+            out.append(("%s holds the original of %s, which is not recorded: remove "
+                        "cannot put it back (cp %s %s puts it back by hand)"
+                        % (tilde(bp), tilde(p), tilde(bp), tilde(p)), None))
+    for p, h in sorted((st.data.get("linked") or {}).items()):
+        if os.path.isfile(p) and sha(_read(p)) == h:
+            out.append(("%s still holds appglass's lines but is reached through a symlink "
+                        "(not recorded): take them out by hand" % tilde(p), None))
     # the plugin link
     dst = plugin.target(env)
     if os.path.islink(dst) and not os.path.exists(dst):

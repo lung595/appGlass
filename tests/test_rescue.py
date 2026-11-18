@@ -405,6 +405,58 @@ class LinkedOriginal(RescueBase):
         self.assertEqual(sb.readb(bp), mine, out)
 
 
+class DoctorAfterRescue(RescueBase):
+    """w2 r2 E: what the rescue left for the user (an original it could not
+    record, a marked file reached through a link) is drift until handled:
+    doctor names it, never "no drift"."""
+
+    def test_an_original_not_back_in_place(self):
+        sb = self.sb
+        p, mine, fams = LinkedOriginal.dux(self)
+        self.ok("apply", "--only", fams, fams=fams)
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        self.ok("adopt", "--rescue", fams=fams)
+        code, out, err = sb.run("doctor", assume=fams)
+        bp = os.path.join(self.state_dir, "backup", core._bname(p))
+        t = core.Env(sb.env).tilde
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("cp %s %s" % (t(bp), t(p)), out + err)
+        code, out, err = sb.run("doctor", "--fix", assume=fams)
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(sb.readb(bp), mine)
+        with open(p, "wb") as f:
+            f.write(mine)
+        self.ok("doctor", fams=fams)
+
+    def test_a_marked_file_behind_a_link(self):
+        sb = self.sb
+        dots = os.path.join(sb.home, "dotfiles", "alacritty")
+        os.makedirs(dots)
+        mine = b'[general]\nimport = ["~/.config/alacritty/dank-theme.toml"]\n'
+        with open(os.path.join(dots, "alacritty.toml"), "wb") as f:
+            f.write(mine)
+        os.symlink(dots, sb.cfg("alacritty"))
+        p = sb.cfg("alacritty", "alacritty.toml")
+        fams = "alacritty,dux"
+        self.ok("apply", "--only", "alacritty", fams=fams)
+        self.ok("apply", "--only", "dux", fams=fams)
+        self.assertNotEqual(sb.readb(p), mine)
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        self.ok("adopt", "--rescue", fams=fams)
+        code, out, err = sb.run("doctor", assume=fams)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(core.Env(sb.env).tilde(p), out + err)
+        self.assertIn("by hand", out + err)
+        self.assertIn(core.Env(sb.env).tilde(sb.cfg("alacritty", "appglass.toml")), out)
+        # cleaned by hand: no drift left
+        with open(p, "wb") as f:
+            f.write(mine)
+        for fn in os.listdir(dots):
+            if fn != "alacritty.toml":
+                os.remove(os.path.join(dots, fn))
+        self.ok("doctor", fams=fams)
+
+
 class DamagedOriginal(RescueBase):
     """w2 B2: with only state.json lost, a damaged original in backup/ is
     checked against the record the ring's last state.json holds: the good
