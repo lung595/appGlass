@@ -77,7 +77,7 @@ TODO(engine): `appglass pause` and `appglass resume` as CLI commands.
 
 In Settings > Apps, each app has its own switch, and a route choice when it has more than one. Forced and Mod routes are on by default; switched off, one asks before it turns on again.
 
-Off takes the app's files out only for a Forced or Mod app (Feishin, VSCodium, Lian Li, the other WebKitGTK apps such as Kiri, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. To take them out, switch its whole family off with its family name (in [routes.md](routes.md)): `gtk3` covers both Solaar and nvidia-settings.
+Off takes the app's files out only for a Forced or Mod app (Feishin, VSCodium, Lian Li, the other WebKitGTK apps such as Kiri, LocalSend, ArtCraft, Jellyfin, Discord). For a Native app (Alacritty, the GTK3 and GTK4 apps, VLC, Obsidian, Herdr, Dux) the row shows Paused, but its glass files and its niri rule stay, so the app still opens with glass. With `fallback.mode` value too: it stays in the glass rule and gets no fallback opacity on top, as long as its glass files are there. To take them out, switch its whole family off with its family name (in [routes.md](routes.md)): `gtk3` covers both Solaar and nvidia-settings.
 
 - With the plugin: `dms ipc call appGlass app gtk3 off` (the settings page has no family switch yet). `dms ipc call appGlass app gtk3 on` brings it back.
 - Without the plugin: `appglass set apps.gtk3.enabled false --apply`. `appglass set` works only without the plugin, or with the plugin disabled in DMS Settings > Plugins: while the plugin is installed and enabled it refuses ("settings are managed by the DMS plugin"). A change made with `appglass set` while the plugin is disabled is replaced by the plugin's own settings when it is enabled again.
@@ -85,7 +85,7 @@ Off takes the app's files out only for a Forced or Mod app (Feishin, VSCodium, L
 
 `appglass status` and Copy report show such a Native app as fallback with the reason "off in settings", even though it keeps its glass until its family is off.
 
-An app that no family lists, which the engine routed by its toolkit (a GTK3 or Qt app), shows "off" when you switch it off. Its launcher override and niri rule stay through the syncs, and go with the next typed `appglass apply --all`.
+An app that no family lists, which the engine routed by its toolkit (a GTK3 or Qt app), shows "off" when you switch it off. Its launcher override and niri rule stay through the syncs, and go with the next typed `appglass apply --all`; from then on it has the fallback rule only. A host GTK4 app no family lists reads the global `gtk.css`, so it keeps its glass and its glass rule until the `gtk4` family is off.
 
 TODO(engine): a per-app off for Native apps that takes that app's files, launcher override and niri rule out at once, from the plugin.
 

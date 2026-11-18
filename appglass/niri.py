@@ -5,7 +5,9 @@ $XDG_CONFIG_HOME/niri/appglass.kdl holds up to six window-rules, in order:
   fallback "opaque" a catch-all ``opacity 1.0`` (browsers excluded), before
                     the glass block: windows appglass cannot glass stay sharp
   glass             a match line per applied app, ``opacity 1.0``: the app
-                    paints its own translucency over the blur
+                    paints its own translucency over the blur (an app
+                    switched off on its own too, while its glass files stay:
+                    never in the fallback block as well, see kept_glass)
   blend             the Electron hook apps (BLEND_FAMILIES) at ``opacity
                     0.999``: their window says it is opaque, and at 1.0 niri
                     believes it and can draw black behind it
@@ -76,10 +78,31 @@ def delegated(app_id_re):
     return any(r.search(a) for a in BROWSERGLASS_IDS)
 
 
+_LITERAL = re.compile(r"^\^((?:[^\\^$.|?*+()\[\]{}]|\\.)*)\$$")
+
+
+def _covered(a, ids):
+    """True when a is one of ids, or an anchored literal app-id (^name$)
+    that another of ids matches (^solaar$ under ^(solaar|nvidia-settings)$)."""
+    if a in ids:
+        return True
+    m = _LITERAL.match(a)
+    if not m:
+        return False
+    name = re.sub(r"\\(.)", r"\1", m.group(1))
+    for b in ids:
+        try:
+            if b != a and re.search(b, name):
+                return True
+        except re.error:
+            continue
+    return False
+
+
 def _ids(ids, skip=()):
     out = []
     for a in ids:
-        if a not in out and a not in skip and not delegated(a):
+        if a not in out and not _covered(a, skip) and not delegated(a):
             out.append(a)
     return out
 
@@ -252,6 +275,25 @@ def instant_inactive(app):
     return (r, ids) if ids else (None, None)
 
 
+def kept_glass(app, kept):
+    """The app-ids of the apps switched off on their own whose glass is
+    still there (core._niri_ids): their family applied, and their launcher
+    still its file. They stay in the glass block; in the fallback block
+    their glass would get the fallback opacity on top (faded twice)."""
+    ids = []
+    for k in kept:
+        if not isinstance(k, dict):
+            continue
+        o = app.state.owners.get(k.get("family"))
+        if o is None:
+            continue
+        f = k.get("file")
+        if f and (f not in (o.get("files") or {}) or not os.path.lexists(f)):
+            continue
+        ids += [a for a in k.get("ids") or () if a not in ids]
+    return ids
+
+
 def rule_inputs(app):
     """render() keyword arguments from settings.json and the detected apps
     (apply --all sets app.fallback_ids/game_ids; other runs reuse the ones
@@ -268,6 +310,9 @@ def rule_inputs(app):
     glass_ids = getattr(app, "glass_ids", None)
     if glass_ids is None:
         glass_ids = rec.get("glass_ids", [])
+    kept = getattr(app, "kept_ids", None)
+    if kept is None:
+        kept = rec.get("kept_ids", [])
     dim, dim_ids = instant_inactive(app)
     blend = []
     for name in BLEND_FAMILIES:
@@ -281,6 +326,7 @@ def rule_inputs(app):
         "fallback_ids": list(fallback_ids),
         "games": list(game_ids),
         "_glass": list(glass_ids),
+        "_kept": list(kept),
         "_wanted": os.path.isfile(_settings.path(app.env))
         or bool(fallback_ids) or bool(game_ids) or bool(glass_ids) or bool(_adopted(app)),
     }
@@ -291,7 +337,7 @@ def sync(app, dry_run=False, extra_ids=()):
     wanted = kw.pop("_wanted")
     # host GTK4 apps held opaque (a GTK4 game): they read the glass CSS all
     # the same, so they get the glass block (blur on, opacity 1.0)
-    ids = app_ids(app, list(extra_ids) + kw.pop("_glass"))
+    ids = app_ids(app, list(extra_ids) + kw.pop("_glass") + kept_glass(app, kw.pop("_kept")))
     if not ids and not wanted:
         if "niri" in app.state.owners and not dry_run and not app.event:
             app.remove_owner("niri")
@@ -328,7 +374,7 @@ def sync(app, dry_run=False, extra_ids=()):
         changed = app.commit(ctx, dry_run=dry_run)
         if not dry_run and "niri" in app.state.owners:
             o = app.state.owners["niri"]
-            for k in ("fallback_ids", "game_ids", "glass_ids"):
+            for k in ("fallback_ids", "game_ids", "glass_ids", "kept_ids"):
                 v = getattr(app, k, None)
                 if v is not None:
                     if v:

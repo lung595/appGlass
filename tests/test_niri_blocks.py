@@ -168,5 +168,89 @@ class Sync(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class PerAppOff(unittest.TestCase):
+    """A Native app switched off on its own keeps its glass files while its
+    family is on (docs/guide.md, Per-app switch): in fallback value mode it
+    stays in the glass block and out of the fallback block (in both, its
+    glass CSS would get the fallback opacity on top: faded twice)."""
+
+    def setUp(self):
+        from fixtures.apps import World, elf
+        self.sb = Sandbox()
+        w = World(self.sb).build()
+        self.sb.env.update(w.env())
+        w.exe("adwx", elf(["libgtk-4.so.1", "libadwaita-1.so.0", "libc.so.6"]))
+        w.app("org.example.Adwx.desktop", "Adwx", "adwx")
+        w.exe("gtkx", elf(["libgtk-3.so.0", "libc.so.6"]))
+        w.app("org.example.Gtkx.desktop", "Gtkx", "gtkx")
+        self.sb.seed_dms()
+        self.sb.seed_niri()
+        code, out, err = self.sb.run("apply", "--all")
+        self.assertEqual(code, 0, err)
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def sync(self, apps):
+        import json
+        from appglass import settings
+        s = dict(settings.DEFAULTS, apps=apps, fallback={"mode": "value", "value": 0.7})
+        p = self.sb.path("plugin-settings.json")
+        with open(p, "w") as f:
+            json.dump(s, f)
+        code, out, err = self.sb.run("sync", "--settings-file", p)
+        self.assertEqual(code, 0, err)
+
+    def blocks(self):
+        t = self.sb.read(self.sb.cfg("niri", "appglass.kdl"))
+        glass = t[t.index("// glass:"):]
+        glass = glass[:glass.index("}")]
+        fb = t[t.index("// fallback: whole-window"):]
+        fb = fb[:fb.index("}")]
+        return glass, fb
+
+    OFF = {"solaar": {"enabled": False}, "org.example.Adwx": {"enabled": False},
+           "org.example.Gtkx": {"enabled": False}}
+
+    def test_an_app_off_keeps_its_glass_rule_not_the_fallback_one(self):
+        self.sync(self.OFF)
+        glass, fb = self.blocks()
+        for a in (r"^solaar$", r"^org\.example\.Adwx$", r"^org\.example\.Gtkx$"):
+            self.assertNotIn(a, fb, a)
+        self.assertIn(r"^(solaar|nvidia-settings)$", glass)
+        self.assertNotIn(r"^solaar$", glass)        # the family line covers it
+        self.assertIn(r"^org\.example\.Adwx$", glass)    # the global gtk.css
+        self.assertIn(r"^org\.example\.Gtkx$", glass)    # its launcher stays
+        # the hook keeps it so
+        code, out, err = self.sb.run("apply", "--from-hook")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.blocks(), (glass, fb))
+
+    def test_its_files_gone_it_is_fallback_only(self):
+        self.sync(self.OFF)
+        # a typed apply takes the launcher of an app no family lists out
+        code, out, err = self.sb.run("apply", "--all")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(os.path.join(
+            self.sb.data, "applications", "org.example.Gtkx.desktop")))
+        glass, fb = self.blocks()
+        self.assertIn(r"^org\.example\.Gtkx$", fb)
+        self.assertNotIn(r"^org\.example\.Gtkx$", glass)
+        self.assertNotIn(r"^solaar$", fb)
+        # the family off: its files go, the app is fallback only
+        self.sync(dict(self.OFF, gtk3={"enabled": False}))
+        self.assertNotIn("gtk3", self.sb.json(os.path.join(
+            self.sb.state, "appglass", "state.json"))["owners"])
+        glass, fb = self.blocks()
+        self.assertIn(r"^solaar$", fb)
+        self.assertNotIn("solaar", glass)
+
+    def test_render_drops_an_id_a_glass_regex_covers(self):
+        t = niri.render([r"^(solaar|nvidia-settings)$"], fallback="value",
+                        fallback_ids=[r"^solaar$", r"^x\.y$"], games=[r"^solaar$"])
+        self.assertEqual(t.count("solaar"), 1)
+        self.assertIn(r"^x\.y$", t)
+
+
 if __name__ == "__main__":
     unittest.main()

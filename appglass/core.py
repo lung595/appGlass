@@ -3011,22 +3011,36 @@ def _reads_gtk4_css(r):
         re.search(r"-> gtk4(-adw)?$", e) for e in r.get("evidence") or ())
 
 
-def _niri_ids(routes):
-    """(fallback ids, games ids, glass ids) for the niri blocks. A host GTK4
-    app held opaque goes in the glass block, not the games block: its
+def _niri_ids(routes, env=None):
+    """(fallback ids, games ids, glass ids, kept) for the niri blocks. A host
+    GTK4 app held opaque goes in the glass block, not the games block: its
     background is the glass CSS (with the blur off it would be see-through
-    over nothing, under the global opacity it would fade twice)."""
+    over nothing, under the global opacity it would fade twice).
+
+    kept: the apps no family lists (generic) switched off on their own, on
+    a Native route. Their glass stays while their family is applied (a host
+    GTK4 app reads the global gtk.css; the launcher of another stays until
+    a typed apply takes it out), so niri.sync moves them to the glass block
+    while it does: {"ids", "family", "file"} (file: the launcher, None for
+    the global gtk.css). A listed app switched off is covered by its
+    family's own glass line (niri.render keeps it out of the fallback)."""
     from . import niri
-    fb, games, glass = [], [], []
+    fb, games, glass, kept = [], [], [], []
     for r, route in routes:
         if route["effective"] == "fallback":
             fb.extend(x for x in r["app_ids"] if x not in fb)
+            if (route.get("reason") == "off in settings" and route.get("generic")
+                    and route.get("family") and not route.get("injected") and r["app_ids"]):
+                css = route["family"] == "gtk4" and _reads_gtk4_css(r)
+                kept.append({"ids": list(r["app_ids"]), "family": route["family"],
+                             "file": None if css or env is None
+                             else env.data_path("applications", r["desktop_id"])})
         elif route["effective"] == "opaque" and _reads_gtk4_css(r):
             glass.extend(x for x in r["app_ids"] if x not in glass)
         elif route["effective"] == "opaque":
             games.extend(x for x in r["app_ids"]
                          if x not in games and not niri.is_game_id(x))
-    return fb, games, glass
+    return fb, games, glass, kept
 
 
 def cmd_apply_all(app, dry_run=False, adopt=False):
@@ -3042,7 +3056,7 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
                  "(appglass remove takes the files out)")
         return
     routes = app_routes(app)
-    app.fallback_ids, app.game_ids, app.glass_ids = _niri_ids(routes)
+    app.fallback_ids, app.game_ids, app.glass_ids, app.kept_ids = _niri_ids(routes, app.env)
     counts = {}
     for r, route in routes:
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1

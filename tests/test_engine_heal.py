@@ -392,7 +392,7 @@ class Spawners(unittest.TestCase):
         rs = [(recs[k], adapters.resolve(recs[k], app.families, app.settings))
               for k in ("org.example.Gtk4Game", "sdlgtk")]
         self.assertEqual([r["state"] for _, r in rs], ["excluded", "excluded"])
-        fb, games, glass = core._niri_ids(rs)
+        fb, games, glass, _ = core._niri_ids(rs)
         self.assertNotIn(recs["org.example.Gtk4Game"]["app_ids"][0], games)
         self.assertIn(recs["org.example.Gtk4Game"]["app_ids"][0], glass)
         self.assertIn(recs["sdlgtk"]["app_ids"][0], games)

@@ -40,7 +40,7 @@ Install an app the usual way (dnf, flatpak, an AppImage, a hand-written launcher
 
 `appglass status` shows, for each app, the route it got, its state and the reason (for example "family gtk3", "no adapter for toolkit java", "waiting for a check (injected route)", "runs as root (pkexec): never touched").
 
-A Native app that a family lists by hand (Solaar in `gtk3`, Alacritty) and that you switched off in Settings > Apps shows as fallback with the reason "off in settings", even though it keeps its glass until its family is off (see [Safety](#safety)). An app that only its toolkit route reached (a GTK3 or Qt app no family lists) shows "off" with the same reason; its launcher override and niri rule stay through the syncs and go with the next typed `appglass apply --all`.
+A Native app that a family lists by hand (Solaar in `gtk3`, Alacritty) and that you switched off in Settings > Apps shows as fallback with the reason "off in settings", even though it keeps its glass until its family is off (see [Safety](#safety)). An app that only its toolkit route reached (a GTK3 or Qt app no family lists) shows "off" with the same reason; its launcher override and niri rule stay through the syncs and go with the next typed `appglass apply --all` (then it has the fallback rule only). While its glass files stay, the app stays in the glass rule of `appglass.kdl`, never in the fallback one too (in `fallback.mode` value that would fade it twice). A host GTK4 app keeps its glass until `gtk4` is off: it reads the global `gtk.css`.
 
 ### Route kinds
 
