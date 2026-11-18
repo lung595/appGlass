@@ -205,7 +205,7 @@
    "route": "appglass Qt style plugin",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "commit 31c3d64"
+   "evidence": "docs/qt.md"
   },
   {
    "app": "Obsidian 1.15.1 (flatpak)",
@@ -253,7 +253,7 @@
    "route": "electron-hook main-process hook; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "commit 1571a2a"
+   "evidence": "docs/electron.md, docs/routes.md#feishin-and-vscodium-electron-inspector-hook"
   },
   {
    "app": "Jellyfin Desktop 2.0.0 (flatpak)",
@@ -262,7 +262,7 @@
    "route": "qtquick-shim libjfglass.so; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "commit de7eee8"
+   "evidence": "docs/routes.md#jellyfin-qt-quick-shim"
   },
   {
    "app": "LocalSend 1.18.2 (flatpak)",
@@ -271,7 +271,7 @@
    "route": "ck-shim colour keys; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "commit ec1db1a"
+   "evidence": "docs/flutter.md"
   },
   {
    "app": "Lian Li Linux (lianli-gui)",
@@ -280,7 +280,7 @@
    "route": "webkit-shim appglass-wk.so; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "commit 7b90b43"
+   "evidence": "docs/webkit.md"
   },
   {
    "app": "Discord + Vencord",

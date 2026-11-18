@@ -61,7 +61,7 @@ The Qt style plugin is a Native route: Qt loads the style itself, nothing is pre
 | Class | How it is found | Result |
 |---|---|---|
 | root | `pkexec`, `sudo`, `run0`, `doas` or `su -c` in the Exec line or in the script it runs (Timeshift) | opaque, "runs as root (...): never touched" |
-| game | `steam://rungameid`, `umu-run`, wine or proton, an exe under `steamapps/common/`, `compatdata/`, `Heroic/`, `lutris/` or `Games/`, SDL with no toolkit | excluded, no override written: its app-id goes to the niri games block (`opacity 1.0`, blur off, popups 1.0), so a game is opaque. Sticky: once a game, always a game |
+| game | `steam://rungameid`, `umu-run`, wine or proton, an exe under `steamapps/common/`, `compatdata/`, `Heroic/`, `lutris/` or `Games/`, SDL with no toolkit | excluded, no override written: its app-id goes to the niri games block (`opacity 1.0`, blur off, popups 1.0), so a game is opaque. Sticky: once a game, always a game. A game that links both SDL and GTK3, outside those paths and without `Categories=Game`, is classed gtk3 and gets `GTK_THEME`, not the games block (SDL counts only with no toolkit) |
 | sensitive | password and secrets apps (KeePassXC, Bitwarden, Seahorse, ...) | native routes only: never a preload or hook |
 | game-launcher | Steam, Lutris, Heroic, Bottles, umu-run | never a preload, no theme by environment (see [steam.md](steam.md)) |
 | spawner | terminals, file managers, IDEs and app launchers (they start other apps) | no theme by environment (`GTK_THEME`, `QT_STYLE_OVERRIDE`) from a toolkit route: it would reach every app they start. Konsole has its own route, and its Qt style is taken out of the environment of the shells it starts |

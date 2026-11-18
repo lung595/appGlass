@@ -18,7 +18,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 | Route | Badge | Family | Apps | Default |
 |---|---|---|---|---|
 | [Terminal opacity key](#terminals) | Native | `alacritty`, `kitty`, `foot`, `ghostty`, `wezterm`, `konsole` | Alacritty, kitty, foot, Ghostty, WezTerm, Konsole | on |
-| [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only); flatpaks: GNOME Text Editor, Mission Center, Resources; any other GTK4 app | on |
+| [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only); flatpaks: GNOME Text Editor, Mission Center, Resources; any other GTK4 app that uses libadwaita (a plain GTK4 app stays opaque) | on |
 | [GTK3 theme](#gtk3) | Native | `gtk3` | Solaar, nvidia-settings, any other host GTK3 app | on |
 | [Qt style plugin](#qt-widgets-vlc-kate-konsole) | Native | `qtstyle` | VLC, Kate and Konsole (flatpak), any other host Qt 6 Widgets app (not one that also links Qt Quick/QML: that one keeps the fallback) | on |
 | [App config](#kate-mpv-gimp-zed) | Native | `kate`, `mpv`, `gimp`, `zed` | Kate (editor theme), mpv, GIMP 3, Zed | on |
@@ -74,7 +74,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 
 - **Writes:** a Qt 6 style plugin built from source with the host Qt, `~/.local/lib/appglass/qt6/styles/libappglass.so`, and a launcher override `~/.local/share/applications/vlc.desktop` that starts VLC with `QT_STYLE_OVERRIDE=appglass`, the same for every other host Qt 6 Widgets app the engine finds. Nothing is preloaded: Qt loads the style itself, and takes its variables out of the environment of the processes the app starts.
 - **Kate and Konsole (flatpak):** their launcher override gives that `flatpak run` read-only access to the style and the DMS colours. The host-built style loads in the KDE runtime when its Qt minor version matches.
-- **Fade:** an unfocused window eases its background to the unfocused level, in the flatpaks and in the apps the engine finds too.
+- **Fade:** an unfocused window eases its background to the unfocused level, in the flatpaks and in the apps the engine finds too (not recorded for the apps the engine finds: the same style, unit-tested in `tests/test_fade.py`).
 - **Fade, recorded:** VLC 3.0.24 (under XWayland) at 0.80, 180 ms ease-out, three runs: unfocused, the background went 0.80 to 0.72 in about 110 ms, one step per frame (7 steps; the end of the ease-out is under one 8-bit step); focused again, back to 0.80 in 120 to 180 ms (2 or 3 steps).
 - **Measured:** content 153, bars 166, text 255. Source: [qt.md](qt.md).
 - **Fade, not recorded for Kate and Konsole:** they use the same style as VLC, in the KDE runtime; not recorded in a session for this version; the launcher passing the fade to the style is unit-tested (`tests/test_fade.py`).

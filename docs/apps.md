@@ -29,15 +29,15 @@ glass, partial or opaque only for rows tested here (a glass row needs a PASS) or
 | Alacritty 0.17.0 | own (OpenGL) | alacritty | `window.opacity`, opaque glyphs, DMS palette | earlier | glass |  | docs/terminal.md |
 | Nautilus 51.1 and libadwaita apps | GTK4 / libadwaita | gtk4 | gtk.css alpha on the libadwaita background roles | earlier | glass |  | docs/gtk4.md |
 | Solaar, nvidia-settings | GTK3 | gtk3 | AppGlass theme by launcher override (mode B) | earlier | partial | GtkDialog bodies not covered; nvidia-settings column headers faint | docs/gtk3.md |
-| VLC 3.0.24 | Qt6 Widgets | qtstyle | appglass Qt style plugin | earlier | glass |  | commit 31c3d64 |
+| VLC 3.0.24 | Qt6 Widgets | qtstyle | appglass Qt style plugin | earlier | glass |  | docs/qt.md |
 | Obsidian 1.15.1 (flatpak) | Electron | obsidian | vault CSS snippet appglass.css | earlier | partial | depends on the vault theme; every layer cleared, painted once | docs/electron.md |
 | Dux Files / Dux Calendar | Qt Quick | dux | the apps' own ui-settings.json glass keys | earlier | partial | the apps' levels are inverted (bars clearer than content) | docs/qtquick.md |
 | Herdr 0.1.16 | GPUI | herdr | alpha theme + glass copy of the main layout | earlier | partial | ANSI colours taken from DMS roles; some panes keep their own fills | docs/gpu.md |
 | ArtCraft Launcher 0.19.2 | egui / wgpu | artcraft | ck-shim: on a Vulkan GPU the layer VK_LAYER_APPGLASS_glass (colour keys on the GPU), else Mesa EGL + wgpu GL + colour keys, 60 fps cap; on by default, live after its check | earlier | glass |  | docs/artcraft-gpu.md, docs/gpu.md |
-| Feishin (flatpak) | Electron | feishin | electron-hook main-process hook; on by default, live after its check | earlier | glass |  | commit 1571a2a |
-| Jellyfin Desktop 2.0.0 (flatpak) | Qt Quick + WebEngine | jellyfin | qtquick-shim libjfglass.so; on by default, live after its check | earlier | glass |  | commit de7eee8 |
-| LocalSend 1.18.2 (flatpak) | Flutter | localsend | ck-shim colour keys; on by default, live after its check | earlier | glass |  | commit ec1db1a |
-| Lian Li Linux (lianli-gui) | Tauri / WebKitGTK | lianli | webkit-shim appglass-wk.so; on by default, live after its check | earlier | glass |  | commit 7b90b43 |
+| Feishin (flatpak) | Electron | feishin | electron-hook main-process hook; on by default, live after its check | earlier | glass |  | docs/electron.md, docs/routes.md#feishin-and-vscodium-electron-inspector-hook |
+| Jellyfin Desktop 2.0.0 (flatpak) | Qt Quick + WebEngine | jellyfin | qtquick-shim libjfglass.so; on by default, live after its check | earlier | glass |  | docs/routes.md#jellyfin-qt-quick-shim |
+| LocalSend 1.18.2 (flatpak) | Flutter | localsend | ck-shim colour keys; on by default, live after its check | earlier | glass |  | docs/flutter.md |
+| Lian Li Linux (lianli-gui) | Tauri / WebKitGTK | lianli | webkit-shim appglass-wk.so; on by default, live after its check | earlier | glass |  | docs/webkit.md |
 | Discord + Vencord | Electron (client mod) | vencord | Vencord transparent window + DMS theme with alpha; on by default, live after its check | no | untested | expected: partial. not measured: Discord's web app needs a signed-in account, and a test session must not reuse yours; the theme and the settings merge are unit-tested (tests/test_vencord.py). Needs the Vencord client mod; the official client alone has no route | docs/routes.md#discord-vencord |
 | kitty | own (OpenGL) | kitty | `background_opacity` + DMS theme include | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |
 | Ghostty | own (OpenGL/GTK4) | ghostty | `background-opacity` (+ cells) + DMS theme | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |
