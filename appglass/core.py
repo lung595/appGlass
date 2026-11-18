@@ -1856,15 +1856,36 @@ class App:
         return set(paths)
 
     def _forget_away(self, owner_name, paths):
-        """remove --forget-away: drop the records (and backups) of paths
-        whose folder is gone; nothing is written there."""
+        """remove --forget-away: drop the records of paths whose folder is
+        gone; nothing is written there now. An original in backup/ is the
+        only copy left of the user's file (the folder may come back): it
+        stays, named in "originals", and the state folder with it, as for
+        an original a rescue could not record (State.destroy)."""
         self.no_event("forget the records of %s" % owner_name)
-        owner = self.state.owners[owner_name]
+        env, owner = self.env, self.state.owners[owner_name]
         for p in paths:
-            self._drop_backup(owner["files"].pop(p))
+            rec = owner["files"].pop(p)
+            b = rec.get("backup")
+            bp = os.path.join(env.state_dir, b) if b else None
+            if bp and os.path.isfile(bp):
+                origs = self.state.data.setdefault("originals", {})
+                origs[os.path.basename(b)] = p
+                self.state.save()
+                self.warn("%s: forgot %s (its folder is gone; nothing is written there "
+                          "now). Its original is kept in %s, and the state folder with "
+                          "it (a full remove too), until that file holds it again or you "
+                          "delete the copy: %s"
+                          % (owner_name, env.tilde(p), env.tilde(bp), cp_hint(env, bp, p)))
+                continue
+            self._drop_backup(rec)
             self.state.save()
-            self.warn("%s: forgot %s (its folder is gone; nothing was written there)"
-                      % (owner_name, self.env.tilde(p)))
+            made = sorted(d for d in owner.get("dirs", []) if p.startswith(d + os.sep))
+            self.warn("%s: forgot %s (its folder is gone; nothing is written there now)%s"
+                      % (owner_name, env.tilde(p),
+                         ". appglass made it%s: if the folder comes back, delete %s by hand"
+                         % ((" and the folder %s" % ", ".join(env.tilde(d) for d in made),
+                             "them") if made else ("", "it"))
+                         if rec.get("kind") == "created" else ""))
 
     def _note(self, p):
         if p not in self.changed:

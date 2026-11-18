@@ -491,12 +491,12 @@ class Obsidian(unittest.TestCase):
         self.assertFalse(os.path.exists(self.snippet_path(b)))
         self.assertEqual(self.sb.tree_hash(), before)
 
-    def two_vaults_synced(self):
+    def two_vaults_synced(self, appearance=APPEARANCE):
         self.tmp_settings = tempfile.mkdtemp(prefix="appglass-obs-")
         self.addCleanup(shutil.rmtree, self.tmp_settings, True)
         b = os.path.join(self.sb.home, "Drive", "VaultB")
         self.sb.write("b.md", "# b\n", base=b)
-        self.sb.write(os.path.join(".obsidian", "appearance.json"), APPEARANCE, base=b)
+        self.sb.write(os.path.join(".obsidian", "appearance.json"), appearance, base=b)
         self.obsidian_json([self.vault, b])
         before = self.sb.tree_hash()
         self.sync()
@@ -541,9 +541,67 @@ class Obsidian(unittest.TestCase):
         code, out, err = self.sb.run("remove", "--forget-away")
         self.assertEqual(code, 0, out + err)
         self.assertIn("forgot", err)
-        self.assertFalse(os.path.exists(sd), os.listdir(sd) if os.path.isdir(sd) else "")
+        self.assertNotIn("nothing was written there", err)
         self.assertFalse(os.path.exists(b))
         self.assertEqual(self.sb.read(self.appearance_path(self.vault)), APPEARANCE)
+        # the original of B's appearance.json is the only copy left: the
+        # state folder (and its ring) stays for it until the user deletes it
+        bp = self.forgotten_backup(err, b)
+        self.assertEqual(self.sb.read(bp), APPEARANCE)
+        os.remove(bp)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(sd), os.listdir(sd) if os.path.isdir(sd) else "")
+
+    def forgotten_backup(self, err, vault):
+        """The backup/ copy the forget warning names for vault's
+        appearance.json, with its cp hint."""
+        sd = os.path.join(self.sb.state, "appglass")
+        m = re.search(r"cp (\S+) (\S+) puts it back", err)
+        self.assertIsNotNone(m, err)
+        home = lambda t: self.sb.home + t[1:] if t.startswith("~/") else t
+        self.assertEqual(home(m.group(2)), self.appearance_path(vault))
+        bp = home(m.group(1))
+        self.assertTrue(bp.startswith(os.path.join(sd, "backup") + os.sep), bp)
+        return bp
+
+    def test_a_forgotten_vault_that_comes_back_gets_its_original_from_the_kept_copy(self):
+        # forget-away on a vault only moved: the full remove keeps the
+        # original, the cp hint gives the user's bytes back whole
+        tabbed = APPEARANCE.replace("  ", "\t")
+        b, before = self.two_vaults_synced(tabbed)
+        sd = os.path.join(self.sb.state, "appglass")
+        away = b + ".away"
+        os.rename(b, away)
+        code, out, err = self.sb.run("remove", "--forget-away")
+        self.assertEqual(code, 0, out + err)
+        bp = self.forgotten_backup(err, b)
+        self.assertIn("delete them by hand", err)       # the snippet and its folder
+        self.assertTrue(os.path.isdir(os.path.join(sd, "ring")), err)
+        code, out, err = self.sb.run("restore", "--list")
+        self.assertNotIn("the ring is empty", out + err)
+        os.rename(away, b)
+        shutil.copyfile(bp, self.appearance_path(b))       # the hint
+        os.remove(self.snippet_path(b))
+        os.rmdir(os.path.dirname(self.snippet_path(b)))
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.read(self.appearance_path(b)), tabbed)
+        self.assertFalse(os.path.exists(sd), os.listdir(sd) if os.path.isdir(sd) else "")
+        self.assertEqual(self.sb.tree_hash(), before)
+
+    def test_forget_away_of_one_family_keeps_the_original_through_a_later_full_remove(self):
+        b, before = self.two_vaults_synced()
+        sd = os.path.join(self.sb.state, "appglass")
+        away = b + ".away"
+        os.rename(b, away)
+        code, out, err = self.sb.run("remove", "--only", "obsidian", "--forget-away")
+        self.assertEqual(code, 0, out + err)
+        bp = self.forgotten_backup(err, b)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.read(bp), APPEARANCE)
+        self.assertIn(os.path.basename(bp), err)
 
     def test_glass_off_keeps_the_records_of_a_vault_not_mounted(self):
         b, before = self.two_vaults_synced()
