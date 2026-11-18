@@ -442,7 +442,7 @@ PluginComponent {
 
     // The last status as text, on the clipboard (DMS's own copy command)
     function copyReport() {
-        Quickshell.execDetached([Proc.dmsBin, "cl", "copy", Logic.reportText(statusVar.value, root.pluginData.apps, root.pluginData.glassEnabled !== false)]);
+        Quickshell.execDetached([Proc.dmsBin, "cl", "copy", Logic.reportText(statusVar.value, root.pluginData.apps, root.pluginData.glassEnabled !== false, root.pluginData.levels)]);
         ToastService.showInfo("appGlass: report copied");
         return true;
     }

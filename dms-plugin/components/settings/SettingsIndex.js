@@ -60,6 +60,13 @@ var ENTRIES = [
         "keywords": ["opacity", "transparency", "dms", "window", "rule", "blur", "level"]
     },
     {
+        "id": "followDmsButton",
+        "category": "glass",
+        "label": "Follow the DMS rule",
+        "help": "The level was set in appglass's own settings (appglass set levels.content): this clears it, and the glass follows the DMS window rule again",
+        "keywords": ["opacity", "level", "dms", "rule", "reset", "levels"]
+    },
+    {
         "id": "summaryInfo",
         "category": "glass",
         "label": "Apps on glass",

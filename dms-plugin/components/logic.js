@@ -555,11 +555,11 @@ function capitalise(text) {
 }
 
 // A plain-text report of the last status (Settings > Advanced > Copy report)
-function reportText(status, saved, glassOn) {
+function reportText(status, saved, glassOn, levels) {
     var out = ["appGlass " + VERSION];
     if (!status)
         return out.concat(["no status yet"]).join("\n") + "\n";
-    out.push("glass: " + (glassOn === false ? "paused" : "on") + "; " + levelText(status));
+    out.push("glass: " + (glassOn === false ? "paused" : "on") + "; " + levelText(status, levels));
     if (status.settings_error)
         out.push("settings error: " + status.settings_error);
     out.push("summary: " + summaryText(status));
@@ -574,13 +574,28 @@ function reportText(status, saved, glassOn) {
     return out.join("\n") + "\n";
 }
 
-// "Glass level: 72% (follows the DMS window rule)" and the like
-function levelText(status) {
+// The plugin data levels hold a level of appglass's own (set with
+// `appglass set levels.content` before the plugin took the settings): it wins
+// over the DMS window rule until cleared
+function ownLevels(levels) {
+    var lv = levels && typeof levels === "object" ? levels : {};
+    return _level(lv.content, 0.2, 1.0) !== null || _level(lv.bar, 0.2, 1.0) !== null;
+}
+
+// "Glass level: 72% (bars 72%), from the DMS window rule opacity" and the
+// like; levels: the plugin data levels (where the level comes from)
+function levelText(status, levels) {
     if (!status || !status.levels)
         return "Glass level: not known yet";
     var c = Math.round(Number(status.levels.content) * 100);
     var b = Math.round(Number(status.levels.bar) * 100);
-    return "Glass level: " + c + "% (bars " + b + "%), from the DMS window rule opacity";
+    var lv = levels && typeof levels === "object" ? levels : {};
+    var head = "Glass level: " + c + "% (bars " + b + "%), ";
+    if (_level(lv.content, 0.2, 1.0) !== null)
+        return head + "set in appglass's own settings (levels.content), not from the DMS window rule";
+    if (_level(lv.bar, 0.2, 1.0) !== null)
+        return head + "from the DMS window rule opacity; bars set in appglass's own settings (levels.bar)";
+    return head + "from the DMS window rule opacity";
 }
 
 function inactiveText(status) {

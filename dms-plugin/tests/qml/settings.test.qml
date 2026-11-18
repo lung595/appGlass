@@ -360,6 +360,32 @@ Item {
                     t.press(root.find(p, "reapplyButton"));
                     t.check("re-apply asks the daemon", root.daemon.calls, [["reapply", 0]]);
                     t.check("the page runs nothing", [Proc.calls, Quickshell.detached], [[], []]);
+                    t.check("the level follows the DMS rule: no reset offered", root.shown("followDmsButton"), false);
+                    // a level set from the CLI before the plugin took the
+                    // settings: said so, and one click puts it back on the rule
+                    root.fresh(true, undefined, {
+                        "levels": {
+                            "content": 0.8,
+                            "bar": null
+                        }
+                    });
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.ok("the level says where it comes from", root.find(p, "levelInfo").text.indexOf("set in appglass's own settings") > 0);
+                    t.check("follow the DMS rule offered", root.shown("followDmsButton"), true);
+                    t.press(root.find(p, "followDmsButton"));
+                    t.check("the levels cleared", root.saved("levels"), {
+                        "content": null,
+                        "bar": null
+                    });
+                    t.check("what the daemon will sync", Logic.settingsFromPluginData(SettingsData.getPluginSettingsForPlugin("appGlass")).levels, {
+                        "content": null,
+                        "bar": null
+                    });
+                    t.check("no reset offered any more", root.shown("followDmsButton"), false);
                     root.fresh(true, {
                         "status": null,
                         "lastError": "appglass: sync: boom",

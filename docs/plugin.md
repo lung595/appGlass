@@ -27,6 +27,7 @@ The search goes over every setting on every page and over the app list.
 
 - **Glass for desktop apps**: the main switch. Off pauses the glass in every app; turning it on puts it back. Same as the Pause button and a right click on the bar pill.
 - **Glass level**: read-only. It follows the DMS window opacity (the opacity of the global DMS window rule): content at that level, bars at `max(content, 0.65)`, popups opaque. Text and icons stay opaque. To change it, change the DMS rule.
+- **Follow the DMS rule**: shown only when appglass's own settings hold a level (`appglass set levels.content 0.80`, typed before the plugin took the settings over: the plugin keeps it, and it wins over the DMS rule). The Glass level line then says "set in appglass's own settings"; the button clears that level, and the glass follows the DMS rule again.
 - **Apps on glass**: how many apps have glass, fall back or stay opaque.
 - **Re-apply**: writes every glass file again from the current settings. New and updated apps are picked up on their own (see [engine.md](engine.md#when-it-runs)); Re-apply is for when you want it now.
 

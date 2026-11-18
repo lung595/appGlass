@@ -6,7 +6,8 @@ import qs.Modules.Plugins
 import "../logic.js" as Logic
 
 // Glass: the master switch, the level (read only: it follows the DMS window
-// rule opacity), how many apps are on glass, Re-apply
+// rule opacity, unless appglass's own settings hold one: then Follow the DMS
+// rule clears it), how many apps are on glass, Re-apply
 CategoryPage {
     id: page
 
@@ -30,7 +31,7 @@ CategoryPage {
         StyledText {
             objectName: "levelInfo"
             width: parent.width
-            text: Logic.levelText(page.host.status)
+            text: Logic.levelText(page.host.status, page.host.savedLevels)
             color: Theme.surfaceText
             font.pixelSize: Theme.fontSizeMedium
         }
@@ -48,6 +49,16 @@ CategoryPage {
             color: Theme.surfaceVariantText
             font.pixelSize: Theme.fontSizeSmall
         }
+    }
+
+    ActionRow {
+        view: page.view
+        key: "followDmsButton"
+        visible: page.view.shown("followDmsButton") && page.host.ownLevels
+        buttonText: "Follow the DMS rule"
+        iconName: "sync"
+        available: !page.host.gone
+        onClicked: page.host.followDms()
     }
 
     StyledText {

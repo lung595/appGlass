@@ -339,6 +339,9 @@ Item {
         t.ok("report: header", report.indexOf("appGlass " + Logic.VERSION) === 0);
         t.ok("report: one line per app", status.apps.every(a => report.indexOf("\n  " + a.key + " ") >= 0));
         t.ok("report: the conflict", report.indexOf("vlc.desktop") > 0);
+        t.ok("the report says where a level of appglass's own comes from", Logic.reportText(status, saved, true, {
+            "content": 0.8
+        }).indexOf("set in appglass's own settings") > 0);
         t.check("report before a status", Logic.reportText(null, {}, true), "appGlass " + Logic.VERSION + "\nno status yet\n");
         t.check("version = plugin.json", Logic.VERSION, JSON.parse(t.readFile("plugin.json")).version);
         // the actions: the CLI's own commands, its messages on stdout
@@ -361,6 +364,31 @@ Item {
         t.check("withApp ignores a bad key", Logic.withApp({}, "../x", true), {});
         t.ok("level text", Logic.levelText(status).indexOf("60%") > 0);
         t.check("level text before a status", Logic.levelText(null), "Glass level: not known yet");
+        t.check("level text, the DMS rule", Logic.levelText(status, {
+            "content": null,
+            "bar": null
+        }), "Glass level: 60% (bars 65%), from the DMS window rule opacity");
+        t.check("level text, set in appglass's settings", Logic.levelText({
+            "levels": {
+                "content": 0.8,
+                "bar": 0.8
+            }
+        }, {
+            "content": 0.8,
+            "bar": null
+        }), "Glass level: 80% (bars 80%), set in appglass's own settings (levels.content), not from the DMS window rule");
+        t.check("level text, bars set in appglass's settings", Logic.levelText(status, {
+            "content": null,
+            "bar": 0.7
+        }), "Glass level: 60% (bars 65%), from the DMS window rule opacity; bars set in appglass's own settings (levels.bar)");
+        t.check("own levels", [Logic.ownLevels(null), Logic.ownLevels({}), Logic.ownLevels({
+                "content": null,
+                "bar": null
+            }), Logic.ownLevels({
+                "content": 0.8
+            }), Logic.ownLevels({
+                "bar": 0.7
+            })], [false, false, false, true, true]);
         t.ok("inactive text at the floor", Logic.inactiveText(status).indexOf("no change") > 0);
         t.check("inactive text", Logic.inactiveText({
             "inactive": {

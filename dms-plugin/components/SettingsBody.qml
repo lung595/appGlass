@@ -42,6 +42,9 @@ PluginSettings {
     // The saved switches, reloaded whenever the plugin data changes
     property bool glassOn: true
     property var savedApps: ({})
+    // the plugin data levels: a level of appglass's own wins over the DMS rule
+    property var savedLevels: null
+    readonly property bool ownLevels: Logic.ownLevels(root.savedLevels)
     readonly property var rows: Logic.appRows(root.status, root.savedApps, root.glassOn)
     readonly property var conflicts: root.status && Array.isArray(root.status.hand_files) ? root.status.hand_files.filter(h => h && h.status === "conflict").map(h => String(h.path)) : []
 
@@ -52,6 +55,7 @@ PluginSettings {
         root.glassOn = root.service.loadPluginData(Logic.PLUGIN_ID, "glassEnabled", true) !== false;
         const a = root.service.loadPluginData(Logic.PLUGIN_ID, "apps", {});
         root.savedApps = a && typeof a === "object" && !Array.isArray(a) ? a : {};
+        root.savedLevels = root.service.loadPluginData(Logic.PLUGIN_ID, "levels", null);
     }
 
     // PluginSettings reloads only the widgets declared right in it; these
@@ -77,6 +81,14 @@ PluginSettings {
     }
     function setAppRoute(key, route, on) {
         root.saveApps(Logic.withApp(Logic.withRoute(root.savedApps, key, route), key, on));
+    }
+    // the level follows the DMS window rule again (the daemon syncs it)
+    function followDms() {
+        root.saveValue("levels", {
+            "content": null,
+            "bar": null
+        });
+        root.loadState();
     }
     function setGlass(on) {
         root.saveValue("glassEnabled", !!on);
