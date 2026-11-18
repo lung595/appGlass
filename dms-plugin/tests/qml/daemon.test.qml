@@ -501,6 +501,14 @@ Item {
                     Proc.flush();
                     t.check("then syncs", Proc.pendingIds(), [Logic.SYNC_ID]);
                     Proc.flush();
+                    // `appglass remove` took the matugen hook and the units out:
+                    // they come back once the stored settings are saved (a unit
+                    // started before would apply the defaults)
+                    t.check("then the hook and units", [Proc.pendingIds(), root.vars().action], [[Logic.HOOK_ID], "setup"]);
+                    t.check("no uninstall while it runs", root.d.runAction("uninstall"), false);
+                    Proc.flush();
+                    t.check("hook install argv", Proc.lastCommand(Logic.HOOK_ID), Logic.hookInstallArgv(root.bin));
+                    t.check("the hook step is done", [root.pdata().hookAgain, root.vars().action, Proc.pendingIds()], [false, "", [Logic.STATUS_ID]]);
                     Proc.flush();
                     t.check("set up again only once", root.d.reinstall(), false);
                     root.drop();
@@ -529,8 +537,33 @@ Item {
                     });
                     t.check("then syncs", Proc.pendingIds(), [Logic.SYNC_ID]);
                     Proc.flush();
+                    t.check("then the hook and units", Proc.pendingIds(), [Logic.HOOK_ID]);
+                    Proc.flush();
+                    t.check("the hook installed once", Proc.commandsFor(Logic.HOOK_ID), [Logic.hookInstallArgv(root.bin)]);
                     Proc.flush();
                     t.check("IPC answers again", IpcRegistry.call("appGlass", "toggle") !== "uninstalled", true);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- a restart cut the hook step short: the next load's
+                    // start sync is followed by it; a failed one says so, once
+                    root.fresh(true, undefined, {
+                        "hookAgain": true
+                    });
+                    Proc.setResult(Logic.HOOK_ID, "appglass: hook: boom\n", 1);
+                    t.check("the start sync first", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    Proc.flush();
+                    t.check("then the hook step", Proc.pendingIds(), [Logic.HOOK_ID]);
+                    Proc.flush();
+                    t.ok("a failed hook step says what to run", (root.vars().lastError || "").indexOf("appglass hook install") >= 0);
+                    t.check("tried once", [root.pdata().hookAgain, Proc.pendingIds()], [false, [Logic.STATUS_ID]]);
+                    Proc.flush();
+                    root.d.body.requestSync("test", 0);
+                    Proc.flush();
+                    t.check("a later sync runs no hook step", Proc.commandsFor(Logic.HOOK_ID).length, 1);
+                    Proc.flush();
                     root.drop();
                 }
             },

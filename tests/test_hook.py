@@ -41,6 +41,36 @@ class Hook(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.sb.tree_hash(), before)
 
+    def test_set_up_again_after_remove_brings_the_hook_and_units_back(self):
+        """The plugin's Set up again after an Uninstall: get, sync of the
+        stored settings, then hook install. The sync alone (an event run)
+        never writes the hook or the units back."""
+        self.sb.seed_niri()
+        self.sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+        others = ",".join(n for n in core.discover() if n != "alacritty")
+        run = lambda *a: self.sb.run(*a, assume="alacritty", assume_not=others)
+        units = [hook.unit_path(self.env, n) for n in hook.UNITS]
+        f = self.sb.write("plugin.json.tmp", json.dumps({"fallback": {"mode": "off"}}),
+                          base=self.sb.root)
+        self.assertEqual(run("hook", "install")[0], 0)
+        self.assertEqual(run("sync", "--settings-file", f)[0], 0)
+        self.assertEqual(run("remove")[0], 0)
+        self.assertFalse(any(os.path.lexists(u) for u in units))
+        self.assertEqual(run("get")[0], 0)
+        code, out, err = run("sync", "--settings-file", f)
+        self.assertEqual(code, 0, err)
+        self.assertIn("appglass", self.sb.read(self.sb.cfg("alacritty", "alacritty.toml")))
+        self.assertFalse(any(os.path.lexists(u) for u in units), "a sync wrote a unit")
+        code, out, err = run("hook", "install")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(all(os.path.isfile(u) for u in units), units)
+        with open(self.sb.cfg("matugen", "config.toml"), "rb") as fh:
+            self.assertIn("appglass", tomllib.load(fh)["templates"])
+        self.assertEqual(run("doctor")[0], 0)
+        # and the next Uninstall takes them out again
+        self.assertEqual(run("remove")[0], 0)
+        self.assertFalse(any(os.path.lexists(u) for u in units))
+
     def test_existing_config_appended_and_restored(self):
         self.sb.seed("matugen/config.toml", "matugen/config.toml")
         before = self.sb.tree_hash()

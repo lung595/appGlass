@@ -40,6 +40,8 @@ var ACTION_IDS = {
 };
 // The second step of the uninstall (unlinkArgv)
 var UNLINK_ID = "appGlass.unlink";
+// Set up again: the matugen hook and the units `appglass remove` took out
+var HOOK_ID = "appGlass.hook";
 
 var FALLBACK_MODES = ["opaque", "value", "off"];
 var EASINGS = ["ease-out-cubic", "ease-in-out", "linear"];
@@ -256,6 +258,12 @@ function uninstallArgv(bin) {
 // the plugin)
 function unlinkArgv(bin) {
     return cliArgv(bin, ["plugin", "remove"]);
+}
+
+// Set up again, after the sync of the stored settings: the matugen hook
+// and the user units back
+function hookInstallArgv(bin) {
+    return cliArgv(bin, ["hook", "install"]);
 }
 
 // `appglass plugin remove` worked but found no link of its own (the

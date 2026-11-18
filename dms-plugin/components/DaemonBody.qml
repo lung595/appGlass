@@ -228,7 +228,27 @@ PluginComponent {
             return;
         }
         root.publish(syncingVar, false);
-        root.refreshStatus();
+        if (exitCode === 0 && root.service.loadPluginData(Logic.PLUGIN_ID, "hookAgain", false) === true)
+            root.installHook();
+        else
+            root.refreshStatus();
+    }
+
+    // Set up again, once the stored settings are saved and applied (a unit
+    // started before them would apply the defaults): `appglass remove` took
+    // the matugen hook and the units out, `appglass hook install` puts them
+    // back. One try; hookAgain stays stored until it answers (a restart
+    // meanwhile tries again after its start sync). It holds the action
+    // slot: no Uninstall runs beside it.
+    function installHook() {
+        root.publish(actionVar, "setup");
+        Proc.runCommand(Logic.HOOK_ID, Logic.hookInstallArgv(root.bin), (out, code) => {
+            root.publish(actionVar, "");
+            root.save("hookAgain", false);
+            if (code !== 0)
+                root.fail("the glass is back, but not the theme hook and the units: " + Logic.errorText(out, code) + ". Run 'appglass hook install' in a terminal.");
+            root.refreshStatus();
+        }, 0, Logic.ACTION_TIMEOUT_MS, root);
     }
 
     // --- status ----------------------------------------------------------------
@@ -433,6 +453,7 @@ PluginComponent {
         root.publish(uninstallVar, "");
         root.publish(lastErrorVar, "");
         root.publish(uninstallErrorVar, "");
+        root.save("hookAgain", true);
         root.seed(true);
         return true;
     }
@@ -568,6 +589,7 @@ PluginComponent {
             root.save("seedKeep", true);
             root.save("uninstallState", "");
             root.publish(uninstallVar, "");
+            root.save("hookAgain", true);
             root.seed(true);
             return;
         }
@@ -603,7 +625,7 @@ PluginComponent {
     Component.onDestruction: {
         // nothing else: a plugin disable then enable must not tear down the
         // adopted files and the hook (the enable's sync does not adopt)
-        for (const id of [Logic.SYNC_ID, Logic.STATUS_ID, Logic.SEED_ID, Logic.UNLINK_ID])
+        for (const id of [Logic.SYNC_ID, Logic.STATUS_ID, Logic.SEED_ID, Logic.UNLINK_ID, Logic.HOOK_ID])
             Proc.release(id);
         // an action not launched yet is dropped; one already running finishes
         for (const name of Object.keys(Logic.ACTION_IDS))
