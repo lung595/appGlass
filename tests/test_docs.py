@@ -27,6 +27,15 @@ def doc(name):
     return read("docs", name)
 
 
+def checked_docs():
+    """(name, text) of each doc the command, IPC and settings-key checks
+    read: the new docs and the root README (its Roadmap names commands
+    that do not exist yet)."""
+    readme = read("README.md")
+    readme = readme.replace(section(readme, "Roadmap"), "\n")
+    return [(n, doc(n)) for n in NEW] + [("/README.md", readme)]
+
+
 def subcommands():
     return set(re.findall(r'sub\.add_parser\("([a-z-]+)"', read("appglass", "core.py")))
 
@@ -139,8 +148,8 @@ class Docs(unittest.TestCase):
     def test_every_appglass_command_exists_or_is_marked_todo(self):
         real = subcommands()
         self.assertIn("doctor", real)
-        for name in NEW:
-            for line in code_lines(doc(name)):
+        for name, text in checked_docs():
+            for line in code_lines(text):
                 if TODO_OK.search(line):
                     continue
                 for cmd in re.findall(r"(?<![\w.-])appglass ([a-z][a-z-]*)", line):
@@ -152,8 +161,8 @@ class Docs(unittest.TestCase):
         plugin = doc("plugin.md")
         for f in funcs:
             self.assertRegex(plugin, r"dms ipc call appGlass %s\b" % f, f)
-        for name in NEW:
-            for line in code_lines(doc(name)):
+        for name, text in checked_docs():
+            for line in code_lines(text):
                 if TODO_OK.search(line):
                     continue
                 for f in re.findall(r"dms ipc call appGlass (\w+)", line):
@@ -170,13 +179,15 @@ class Docs(unittest.TestCase):
 
     def test_settings_keys_in_the_docs_are_real(self):
         from appglass import settings
-        for name in NEW:
-            for line in code_lines(doc(name)):
+        for name, text in checked_docs():
+            for line in code_lines(text):
                 for key in re.findall(r"appglass (?:set|get) ([a-zA-Z.<>]+)", line):
                     if key.startswith("<"):
                         continue  # a placeholder: <key>
                     self.assertIn(key.split(".")[0], settings.DEFAULTS, "%s: %s" % (name, line))
-                for key, val in re.findall(r"appglass set ([\w.-]+) (\S+)", line):
+                for key, val in re.findall(r"appglass set ([\w.<>-]+) (\S+)", line):
+                    if "<" in key:
+                        continue
                     # the whole key, as `appglass set` takes it
                     settings.set_key(settings.DEFAULTS, key, settings.parse_value(val))
 
