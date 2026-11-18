@@ -332,7 +332,7 @@ def apply(ctx):
         paths += apply_dir(ctx, host)
     if flatpaks:
         dank = ctx.read_text(os.path.join(host, "dank-colors.css"))
-        for _, app_id, _ in flatpaks:
+        for rx, app_id, _ in flatpaks:
             d = ctx.home_path(".var", "app", app_id, "config", "gtk-4.0")
             if os.path.realpath(d) == os.path.realpath(host):
                 # a link to the host gtk-4.0 (the dir or the whole config):
@@ -342,9 +342,21 @@ def apply(ctx):
                     paths += apply_dir(ctx, host)
                     on_host = True
                 continue
-            if dank is not None:
-                paths.append(ctx.write_owned(os.path.join(d, "dank-colors.css"), dank))
-            paths += apply_dir(ctx, d, warn=False)
+            own = os.path.join(d, "dank-colors.css")
+            mine = [own, os.path.join(d, "dank-glass.css"), os.path.join(d, "gtk.css")]
+            try:
+                if dank is not None and not _host_colors(ctx, own, host):
+                    ctx.write_owned(own, dank)
+                apply_dir(ctx, d, warn=False)
+            except Conflict as ex:
+                # the user's own files in this flatpak's dir: only this one
+                # is skipped (no glass, no niri rule), never the others
+                for p in mine:
+                    ctx.drop(p)
+                ids.remove(rx)
+                ctx.warn("%s: skipped: %s" % (app_id, ex))
+                continue
+            paths += [p for p in mine if p in ctx.ops]
     # a flatpak held opaque by the engine (S7): its launcher goes back to the
     # system text (no gtk-4.0 access) until the next fingerprint. A host
     # GTK4 app reads the global gtk.css: it cannot be made plain on its own.
@@ -368,6 +380,15 @@ def apply(ctx):
         ids += rid
     ctx.app_ids = ids
     return paths
+
+
+def _host_colors(ctx, path, host):
+    """A flatpak's dank-colors.css that is the user's link to the host one
+    (appglass never writes a link): already what appglass would write, kept
+    as it is. A plain copy is not told apart from appglass's own (adopt
+    --rescue records those): it stays a conflict."""
+    return (os.path.islink(path) and not ctx.owns(path) and os.path.realpath(path)
+            == os.path.realpath(os.path.join(host, "dank-colors.css")))
 
 
 def apply_dir(ctx, d, warn=True):

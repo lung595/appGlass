@@ -629,6 +629,50 @@ class Gtk4(unittest.TestCase):
                 shutil.rmtree(self.sb.path("home", ".var"))
                 shutil.rmtree(self.sb.path("flatpak"))
 
+    def test_a_flatpak_with_its_own_dank_colors_skips_that_flatpak_only(self):
+        # a user link to the host dank-colors.css is what appglass would
+        # write: kept, the flatpak gets glass; a file of the user's (a
+        # copy too) skips that one flatpak, never the host apps or the
+        # other flatpaks
+        mc = "io.missioncenter.MissionCenter"
+        for how in ("link", "copy", "other"):
+            with self.subTest(how=how):
+                shutil.rmtree(self.sb.path("flatpak"), True)
+                shutil.rmtree(self.sb.path("home", ".var"), True)
+                self.flatpak("org.gnome.TextEditor")
+                self.flatpak(mc)
+                d = self.sb.path("home", ".var", "app", mc, "config", "gtk-4.0")
+                os.makedirs(d)
+                mine = os.path.join(d, "dank-colors.css")
+                host = self.sb.cfg("gtk-4.0", "dank-colors.css")
+                if how == "link":
+                    os.symlink(host, mine)
+                elif how == "copy":
+                    shutil.copyfile(host, mine)
+                else:
+                    with open(mine, "w") as f:
+                        f.write("@define-color window_bg_color #123456;\n")
+                before = self.sb.tree_hash()
+                code, out, err = self.run_fp("apply", "--only", "gtk4")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.sb.read(self.sb.cfg("gtk-4.0", "gtk.css")), fam.GTK_CSS)
+                te = self.sb.path("home", ".var", "app", "org.gnome.TextEditor", "config",
+                                  "gtk-4.0")
+                self.assertEqual(self.sb.read(os.path.join(te, "gtk.css")), fam.GTK_CSS)
+                self.assertIn(r'r#"^org\.gnome\.TextEditor$"#', self.kdl())
+                if how != "link":
+                    self.assertIn(mc + ": skipped", err)
+                    self.assertNotIn("gtk4: skipped", err)
+                    self.assertEqual(sorted(os.listdir(d)), ["dank-colors.css"])
+                    self.assertNotIn("MissionCenter", self.kdl())
+                else:
+                    self.assertNotIn("skipped", err)
+                    self.assertEqual(self.sb.read(os.path.join(d, "gtk.css")), fam.GTK_CSS)
+                    self.assertIn("MissionCenter", self.kdl())
+                code, out, err = self.run_fp("remove")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+
     def test_flatpak_only_is_installed(self):
         self.flatpak("io.missioncenter.MissionCenter")
         env = core.Env(dict(self.sb.env, PATH=self.sb.path("empty-path"),
