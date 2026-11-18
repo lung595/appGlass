@@ -71,6 +71,14 @@ Item {
                     }, {});
                     t.check("on: the count of apps on glass", [root.find(root.pill, "pillText").text, root.find(root.pill, "pillIcon").name], ["7", "blur_on"]);
                     t.check("vertical pill too", root.find(root.vpill, "pillText").text, "7");
+                    // another plugin's reload reassigns DMS's revision map:
+                    // the pill keeps its one text object (no new one per reload)
+                    const first = root.w.pillText;
+                    for (let i = 0; i < 3; i++)
+                        PluginService._componentRevisions = Object.assign({}, PluginService._componentRevisions, {
+                            "otherPlugin": i + 1
+                        });
+                    t.check("another plugin's reload: the same pill text object", [root.w.pillText === first, root.w.countText], [true, "7"]);
                     // a click opens the settings
                     root.w.triggerPopout();
                     t.check("click opens the plugin settings", PopoutService.opened, ["plugin:appGlass"]);

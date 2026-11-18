@@ -25,13 +25,17 @@ PluginComponent {
     readonly property bool glassOn: root.pluginData.glassEnabled !== false
     readonly property bool gone: uninstallVar.value === "removed" || uninstallVar.value === "linkStays" || uninstallVar.value === "interrupted"
     readonly property bool lit: root.glassOn && !root.gone
-    readonly property var pillText: {
+    // made once, at this load's revision: a binding would read DMS's
+    // revision map, which every other plugin's reload reassigns, and build
+    // a new object each time (the old ones kept alive by their bindings)
+    property var pillText: null
+    Component.onCompleted: {
         const comp = Qt.createComponent(root.freshUrl("components/PillText.qml"), Component.PreferSynchronous);
         if (comp.status !== Component.Ready) {
             console.warn("appGlass: the pill text did not load: " + comp.errorString());
-            return null;
+            return;
         }
-        return comp.createObject(root, {
+        root.pillText = comp.createObject(root, {
             "status": Qt.binding(() => statusVar.value),
             "glassOn": Qt.binding(() => root.glassOn),
             "uninstalled": Qt.binding(() => root.gone)
