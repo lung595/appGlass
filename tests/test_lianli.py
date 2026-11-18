@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -27,6 +28,20 @@ class Lianli(ShimCase, unittest.TestCase):
         self.apply()
         css = self.w.sb.read(self.w.user(self.CSS))
         self.assertIn("var(--bg-base) 60%", css)
+
+    def test_the_main_area_fill_of_1_3_is_cleared(self):
+        """Lian Li Linux 1.3 paints div.main with an opaque fill over the
+        body glass, and its empty device list is a card (div.empty-state):
+        the main area goes clear (the body's content level shows) and the
+        card takes the bar level."""
+        self.enable()
+        self.apply()
+        css = re.sub(r"/\*.*?\*/", "", self.w.sb.read(self.w.user(self.CSS)), flags=re.S)
+        rules = {sel.strip(): body for sels, body in
+                 (r.split("{", 1) for r in css.split("}") if "{" in r)
+                 for sel in sels.split(",")}
+        self.assertIn("background-color: transparent", rules["div.main"])
+        self.assertIn("var(--bg-surface)", rules["div.empty-state"])
 
 
 GCC = shutil.which("gcc")
