@@ -490,6 +490,57 @@ Item {
                 }
             },
             {
+                "run": () => {
+                    // --- a reload (or a shell restart) while `appglass remove`
+                    // runs: the old body's callback never comes; the new one
+                    // neither seeds nor syncs, it runs the remove again
+                    root.drop();
+                    root.fresh(true);
+                    Proc.flush();
+                    Proc.flush();
+                    root.d.runAction("uninstall");
+                    t.check("the uninstall is kept before it runs", root.pdata().uninstallState, "removing");
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    root.mark = Proc.calls.length;
+                    root.d = daemonComponent.createObject(root);
+                    t.check("the new body runs the remove again, no seed, no sync", Proc.calls.slice(root.mark).map(c => c.id), [Logic.ACTION_IDS.uninstall]);
+                    t.check("it says uninstalling", [IpcRegistry.call("appGlass", "sync"), IpcRegistry.call("appGlass", "pause"), root.vars().action], ["uninstalling", "uninstalling", "uninstall"]);
+                    t.check("no second uninstall beside it", root.d.runAction("uninstall"), false);
+                    Proc.flush();       // remove
+                    Proc.flush();       // unlink
+                    t.check("then uninstalled", [root.d.uninstalled, root.pdata().uninstallState, root.pdata().seeded, root.vars().action], [true, "removed", false, ""]);
+                    t.check("and never synced", Proc.calls.slice(root.mark).map(c => c.id), [Logic.ACTION_IDS.uninstall, Logic.UNLINK_ID]);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // the same reload, and the remove run again fails: the
+                    // glass goes on from the stored data
+                    root.fresh(true, undefined, {
+                        "uninstallState": "removing"
+                    });
+                    Proc.setResult(Logic.ACTION_IDS.uninstall, "appglass: remove: boom\n", 1);
+                    t.check("a stored removing runs the remove", Proc.pendingIds(), [Logic.ACTION_IDS.uninstall]);
+                    Proc.flush();
+                    t.check("it stopped: back to syncing", [root.d.uninstalled, root.pdata().uninstallState, Proc.pendingIds()], [false, "", [Logic.SYNC_ID]]);
+                    Proc.flush();
+                    Proc.flush();
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    root.fresh(true);
+                    Proc.flush();
+                    Proc.flush();
+                }
+            },
+            {
                 // --- teardown
                 "run": () => {
                     root.d.destroy();

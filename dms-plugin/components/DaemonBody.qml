@@ -62,7 +62,8 @@ PluginComponent {
     // plugin once its link is gone). Kept in the plugin data
     // (uninstallState): a reload or a shell restart while the link stays
     // seeds and syncs nothing either; only reinstall() (the page's "Set up
-    // again") brings the glass back
+    // again") brings the glass back. "removing" while the remove runs: a
+    // reload then runs it again
     property bool uninstalled: false
 
     PluginGlobalVar {
@@ -284,6 +285,10 @@ PluginComponent {
             // a new try: the last one's stop is old news
             root.publish(uninstallErrorVar, "");
             root.sweeping = true;
+            // kept at once: a reload or a shell restart before removeDone
+            // runs the remove again instead of seeding and syncing the glass
+            // back (the callback of a remove whose owner is gone never comes)
+            root.save("uninstallState", "removing");
             // a sync waiting for its debounce: kept for a failed remove
             if (debounce.running)
                 root.again = true;
@@ -314,6 +319,7 @@ PluginComponent {
             // goes with it)
             root.sweeping = false;
             root.again = false;
+            root.save("uninstallState", "");
             root.publish(actionVar, "");
             root.fail(Logic.errorText(output, exitCode));
             root.publish(uninstallErrorVar, "Uninstall stopped: " + Logic.errorText(output, exitCode) + ". Glass is set up again from the current settings");
@@ -481,7 +487,18 @@ PluginComponent {
             return;
         }
         root.publish(uninstallVar, "");
-        if (root.service.loadPluginData(Logic.PLUGIN_ID, "seeded", false) === true) {
+        const seeded = root.service.loadPluginData(Logic.PLUGIN_ID, "seeded", false) === true;
+        if (gone === "removing") {
+            // an uninstall a reload cut short: `appglass remove` again (it
+            // is idempotent), never a seed or a sync; a remove that stops
+            // goes back to syncing (removeDone)
+            root.ready = seeded;
+            root.sweeping = true;
+            root.publish(actionVar, "uninstall");
+            root.launchRemove();
+            return;
+        }
+        if (seeded) {
             root.ready = true;
             root.requestSync("start", 0);
         } else {
