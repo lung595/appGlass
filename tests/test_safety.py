@@ -1824,3 +1824,22 @@ class Durable(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LinkedStateDir(Base):
+    """w2 r3: the state dir is a symlink to a folder of the user's: a full
+    remove empties that folder and keeps the link and the folder."""
+
+    def test_remove_keeps_the_link(self):
+        alt = os.path.join(self.sb.home, "elsewhere", "appglass")
+        os.makedirs(alt)
+        os.makedirs(self.sb.state, exist_ok=True)
+        os.symlink(alt, self.state_dir)
+        before = self.sb.tree_hash()
+        self.apply()
+        self.assertTrue(os.path.isfile(os.path.join(alt, "state.json")))
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(os.path.islink(self.state_dir))
+        self.assertEqual(os.listdir(alt), [])
+        self.assertEqual(self.sb.tree_hash(), before, self.sb.files())

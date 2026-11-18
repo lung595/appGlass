@@ -558,7 +558,24 @@ class State:
         kept = [n for n in self.unnamed_backups() if not self.back_in_place(n)]
         if kept:
             return kept
-        if os.path.isdir(d):
+        if os.path.islink(d):
+            # a link to a folder of the user's: empty it, keep the link and
+            # the folder (never a base folder the link may name by mistake)
+            env, real = self.env, os.path.realpath(d)
+            bases = {os.path.realpath(x) for x in (env.home, env.config_home, env.data_home,
+                                                   env.state_home, env.cache_home)}
+            if real in bases or any(b.startswith(real + os.sep) for b in bases) \
+                    or not os.path.isdir(real):
+                raise AppglassError("%s is a link to %s: not emptied (take appglass's state "
+                                    "out of it by hand)" % (env.tilde(d), real))
+            env.guard(real)
+            for n in os.listdir(real):
+                q = os.path.join(real, n)
+                if os.path.isdir(q) and not os.path.islink(q):
+                    shutil.rmtree(q)
+                else:
+                    os.remove(q)
+        elif os.path.isdir(d):
             self.env.guard(d)
             shutil.rmtree(d)
         from . import engine
