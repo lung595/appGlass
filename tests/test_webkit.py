@@ -519,7 +519,8 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "border")) fk_frame(win, 12, 0);     // a bare frame round the view
     if (!strcmp(mode, "margin")) fk_frame(view, 0, 6);
     webkit_web_view_load_html(view, "<p>page</p>", 0);
-    fk_map(win); fk_idle(); fk_report("mapped", win, view);
+    fk_map(win); fk_report("painting", win, view);   // the page not there yet
+    fk_idle(); fk_report("mapped", win, view);
     if (!strcmp(mode, "nav")) {      // another document while opaque
         fk_show(side); fk_idle(); fk_navigate(view); fk_idle(); fk_report("navigated", win, view);
     }
@@ -599,6 +600,13 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r["mapped"], self.GLASS)
         self.assertEqual(r["navigated"], self.OPAQUE)
         self.assertEqual(r["hidden"], self.GLASS)
+
+    def test_the_window_waits_for_the_first_document(self):
+        """Mapped before the page is committed: the view is clear already but
+        the window keeps its own background (not the bare blur) until then."""
+        r = self.run_driver("late")
+        self.assertEqual(r["painting"], "paintable=0 bg_alpha=0 sheets=1 scripts=2 page=0")
+        self.assertEqual(r["mapped"], self.GLASS)
 
     def test_a_border_or_a_margin_round_the_view_is_not_filling(self):
         """A container border-width or a widget margin leaves a frame of the

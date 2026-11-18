@@ -9,7 +9,8 @@
 // border-width and margins, fk_idle runs the queued
 // idles, then finishes the page loads asked for (a document runs the user
 // scripts registered when it finishes loading, as WebKit's do at document
-// end: fk_navigate starts another document), fk_report prints one line of the
+// end, and the view emits load-changed committed then finished: fk_navigate
+// starts another document), fk_report prints one line of the
 // window and the view.
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +26,8 @@ typedef struct W {
     unsigned border; int margin;         // container border-width; the same margin on each side
     D *data; H *handlers;
     GdkRGBA bg; int sheets, scripts;     // a WebView: its background, its content manager
-    int loading, page;                   // ... a document loading; the scripts its document ran
+    int loading, page, shown;            // ... a document loading; the scripts its document ran;
+                                         //     a document committed once
 } W;
 static W *loads[16]; static int nloads;
 static void load(W *v) { v->loading = 1; if (nloads < 16) loads[nloads++] = v; }
@@ -69,7 +71,13 @@ void fk_idle(void) {
         Idle q[256]; int n = nidle; memcpy(q, idles, sizeof q); nidle = 0;
         for (int i = 0; i < n; i++) { q[i].fn(q[i].data); if (q[i].destroy) q[i].destroy(q[i].data); }
     }
-    for (int i = 0; i < nloads; i++) if (loads[i]->loading) { loads[i]->loading = 0; loads[i]->page = loads[i]->scripts; }
+    for (int i = 0; i < nloads; i++) if (loads[i]->loading) {
+        W *v = loads[i];
+        v->loading = 0; v->page = v->scripts; v->shown = 1;
+        for (int ev = 2; ev <= 3; ev++)   // WEBKIT_LOAD_COMMITTED, WEBKIT_LOAD_FINISHED
+            for (H *h = v->handlers; h; h = h->next)
+                if (!strcmp(h->sig, "load-changed")) ((void (*)(void *, int, void *))h->fn)(v, ev, h->data);
+    }
     nloads = 0;
 }
 
@@ -137,6 +145,8 @@ void gtk_widget_queue_draw(void *w) { ((W *)w)->draws++; }
 // ------------------------------------------------------------------- webkit
 void webkit_web_view_set_background_color(void *v, const GdkRGBA *c) { ((W *)v)->bg = *c; }
 void webkit_web_view_load_html(void *v, const char *html, const char *base) { (void)html; (void)base; load(v); }
+int webkit_web_view_is_loading(void *v) { return ((W *)v)->loading; }
+const char *webkit_web_view_get_uri(void *v) { return ((W *)v)->shown || ((W *)v)->loading ? "about:blank" : NULL; }
 void *webkit_web_view_get_user_content_manager(void *v) { return v; }   // the view counts its items
 void *webkit_web_view_get_settings(void *v) { return v; }
 void webkit_settings_set_enable_write_console_messages_to_stdout(void *s, int on) { (void)s; (void)on; }

@@ -174,10 +174,11 @@ static int fills(void *view, void *top) {
 
 static int add_sheet(void *view);
 
-// glass on (the view clear, the page styled, the window app-paintable) or off (the view's own
-// background, the stylesheet out, the window as the app draws it). The state is kept
-// on the view (appglass-state: 1 glass, 2 opaque; none yet: the view clear and the page styled
-// since its first load, the window not yet app-paintable).
+// glass on (the view clear, the page styled, the window app-paintable once the first document is
+// committed: before, the clear view would show the bare blur) or off (the view's own background,
+// the stylesheet out, the window as the app draws it). The state is kept on the view
+// (appglass-state: 1 glass, 2 opaque; none yet: the view clear and the page styled since its first
+// load, the window not yet app-paintable).
 static void set_glass(void *view, void *top, int on) {
     long st = (long)obj_get(view, "appglass-state");
     if (st == (on ? 1 : 2)) return;
@@ -195,9 +196,11 @@ static void set_glass(void *view, void *top, int on) {
         real_set_bg(view, k ? k : &white);
         remove_sheet(view);
     }
-    if (set_paintable) set_paintable(top, on);
+    int now = on && obj_get(view, "appglass-shown");
+    if (set_paintable) set_paintable(top, now);
     if (queue_draw) queue_draw(top);
-    if (on) LOG("toplevel %p: app-paintable (the view fills it)", top);
+    if (now) LOG("toplevel %p: app-paintable (the view fills it)", top);
+    else if (on) LOG("toplevel %p: the view fills it, app-paintable at the first document", top);
     else LOG("toplevel %p: native widgets beside the view, left opaque", top);
 }
 
@@ -374,14 +377,38 @@ static void inject(void *view) {
     }
 }
 
+// the first document committed: a window glassed meanwhile turns app-paintable now
+static void first_document(void *view) {
+    if (obj_get(view, "appglass-shown")) return;
+    obj_set(view, "appglass-shown", (void *)1, NULL);
+    void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
+    void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
+    void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
+    void *top = get_toplevel ? get_toplevel(view) : NULL;
+    if (!top || (long)obj_get(view, "appglass-state") != 1) return;
+    if (set_paintable) set_paintable(top, 1);
+    if (queue_draw) queue_draw(top);
+    LOG("toplevel %p: app-paintable (first document)", top);
+}
+static void on_load_changed(void *view, int ev, void *data) {
+    (void)data;
+    if (ev >= 2) first_document(view);   // WEBKIT_LOAD_COMMITTED (2), FINISHED (3)
+}
+
 static void glassify(void *view) {
     if (obj_get(view, "appglass")) return;
     obj_set(view, "appglass", (void *)1, NULL);
     GdkRGBA clear = { 0, 0, 0, 0 };
     real_set_bg(view, &clear);
+    unsigned long (*connect)(void *, const char *, void *, void *, void *, int) = sym("g_signal_connect_data");
+    gboolean (*is_loading)(void *) = sym("webkit_web_view_is_loading");
+    const char *(*get_uri)(void *) = sym("webkit_web_view_get_uri");
+    if (connect) connect(view, "load-changed", (void *)on_load_changed, NULL, NULL, 0);
+    // seen at its map (GTK_MODULES) with a page in already; no way to tell: glass at once
+    if (!connect || !is_loading || !get_uri || (!is_loading(view) && get_uri(view)))
+        obj_set(view, "appglass-shown", (void *)1, NULL);
     inject(view);
     if (!glass_toplevel(view)) {  // not in a window yet (wry builds the view first): when it is
-        unsigned long (*connect)(void *, const char *, void *, void *, void *, int) = sym("g_signal_connect_data");
         if (connect) connect(view, "hierarchy-changed", (void *)on_hierarchy, NULL, NULL, 0);
     }
 }
