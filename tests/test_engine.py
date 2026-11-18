@@ -530,6 +530,30 @@ class Routing(unittest.TestCase):
         with open(os.path.join(home, os.path.relpath(colours, self.sb.home))) as f:
             self.assertIn("window_bg_color", f.read())
 
+    def test_stage_carries_the_level_sources_at_0_80(self):
+        """The level of the hidden session is the user's: the shims and the
+        launchers read it at run time (`appglass keys`, `appglass levels`)
+        from the DMS window rule, so the throwaway HOME holds it. The real
+        desktop shape: the rule at 0.80, foregroundLayerTransparency 0.5."""
+        self.sb.seed_niri()
+        self.sb.set_level(0.8)
+        self.sb.write("dms/settings.json", json.dumps(
+            {"foregroundLayerTransparency": 0.5, "currentThemeName": "x", "weatherLocation": "y"}))
+        g = bin_elf(self.w, "gtkapp", GTK3)
+        self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
+        self.run_ok("apply", "--only", "gtk3")
+        app = core.App(self.sb.env, quiet=True)
+        self.assertAlmostEqual(app.levels.content, 0.8)
+        run = self.sb.path("stage-run")
+        os.makedirs(run)
+        home = verify.stage(app, engine.record_for(app, "gtkapp"), run)
+        staged = core.Env({"HOME": home})
+        self.assertAlmostEqual(core.Levels.from_env(staged).content, 0.8)
+        # only the level key of the DMS settings goes (no personal settings)
+        with open(staged.config_path("dms", "settings.json")) as f:
+            self.assertEqual(json.load(f), {"foregroundLayerTransparency": 0.5})
+        self.assertAlmostEqual(verify.staged_level(home), 0.8)
+
     def test_xdg_data_home_outside_home_is_staged_under_the_throwaway_home(self):
         """XDG_DATA_HOME outside HOME: the theme goes to the default data dir
         under the throwaway HOME, where the hidden session looks for it."""
@@ -1359,6 +1383,37 @@ class Harness(unittest.TestCase):
             r = verify.run_harness(app, {"key": "x", "fp": "1"}, 0.6)
             self.assertEqual(r, {"result": "unverifiable", "reason": "gamescope not installed"})
         finally:
+            sb.cleanup()
+
+    def test_a_hidden_session_at_another_level_is_unverifiable(self):
+        """The judge wants the user's level (0.80 here): a throwaway HOME
+        whose level sources give another one would run the app at that
+        level, so the check says it cannot judge instead of failing."""
+        sb = Sandbox()
+        orig = verify.stage
+        try:
+            fake = sb.path("fakebin")
+            os.makedirs(fake)
+            mark = sb.path("started")
+            for t in ("gamescope", "niri", "dbus-run-session", "ffmpeg"):
+                with open(os.path.join(fake, t), "w") as f:
+                    f.write("#!/bin/sh\ntouch %s\n" % mark)
+                os.chmod(os.path.join(fake, t), 0o755)
+            base = sb.path("vb")
+            os.makedirs(base)
+            sb.env.update(APPGLASS_VERIFY_HARNESS="builtin", PATH=fake, APPGLASS_VERIFY_BASE=base)
+            app = core.App(sb.env, quiet=True)
+
+            def bare(app, rec, run):
+                os.makedirs(os.path.join(run, "h"))
+                return os.path.join(run, "h")
+            verify.stage = bare
+            r = verify.run_harness(app, {"key": "x", "fp": "1"}, 0.8)
+            self.assertEqual(r["result"], "unverifiable")
+            self.assertIn("level 0.60, not 0.80", r["reason"])
+            self.assertFalse(os.path.exists(mark))
+        finally:
+            verify.stage = orig
             sb.cleanup()
 
     def test_script_is_valid_and_refuses_the_real_runtime_dir(self):

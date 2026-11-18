@@ -244,6 +244,19 @@ def stage(app, rec, run):
             with open(p, "rb") as f:
                 staged[p] = (f.read(), stat.S_IMODE(os.stat(p).st_mode))
     staged.update(candidate(app, owner, rec.get("key")) if owner else {})
+    # the level sources (core.Levels.from_env): the shims and the launchers
+    # read the level at run time, so without them the hidden app runs at the
+    # 0.60 default while the judge wants the user's level. The window rule
+    # goes as it is; of the DMS settings only the one key the level reads
+    rules = env.config_path("niri", "dms", "windowrules.kdl")
+    if os.path.isfile(rules):
+        with open(rules, "rb") as f:
+            staged[rules] = (f.read(), 0o644)
+    from . import core
+    dms = core._load_json(env.config_path("dms", "settings.json"))
+    if isinstance(dms, dict) and isinstance(dms.get("foregroundLayerTransparency"), (int, float)):
+        staged[env.config_path("dms", "settings.json")] = (json.dumps(
+            {"foregroundLayerTransparency": dms["foregroundLayerTransparency"]}).encode(), 0o644)
     # what those files import by file:// URL (the AppGlass themes import
     # ~/.config/gtk-3.0/dank-colors.css): without it their colours are undefined
     rx = re.compile(r"file://(%s/[^\s\"')]+)" % re.escape(env.home))
@@ -283,6 +296,13 @@ def stage(app, rec, run):
             f.write(data)
         os.chmod(dst, mode if mode is not None else 0o644)
     return home
+
+
+def staged_level(home):
+    """The content level the hidden session reads in the throwaway HOME."""
+    from . import core, settings as _s
+    e = core.Env({"HOME": home})
+    return core.Levels.from_env(e, _s.load(e)[0]).content
 
 
 def seed(app, rec, home):
@@ -670,6 +690,11 @@ def run_harness(app, rec, level):
             home = stage(app, rec, run)
         except Unstageable as e:
             return {"result": "unverifiable", "reason": str(e)}
+        lv = staged_level(home)
+        if abs(lv - level) > 0.005:
+            return {"result": "unverifiable",
+                    "reason": "the hidden session would run at level %.2f, not %.2f"
+                              % (lv, level)}
         why = seed(app, rec, home)
         if why:
             return {"result": "unverifiable", "reason": why}
