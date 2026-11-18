@@ -21,10 +21,11 @@
 //      (the stylesheet fades the content background on it)
 // Everything is resolved with dlsym, so in processes without GTK/WebKit
 // (WebKitWebProcess, NetworkProcess, helpers) the shim is inert.
-// At load (a constructor) it keeps its APPGLASS_* settings and takes them and
-// its own LD_PRELOAD entry out of the environment: the UI process does all the
-// work, so no child (the WebKit helpers, anything the app runs) inherits the
-// shim or the paths; other LD_PRELOAD entries stay.
+// At load (a constructor) it keeps its APPGLASS_* settings and takes every
+// APPGLASS_* variable (its own, the hidden check's, the e2e's) and its own
+// LD_PRELOAD entry out of the environment: the UI process does all the work,
+// so no child (the WebKit helpers, anything the app runs) inherits the shim or
+// the paths; other LD_PRELOAD entries stay.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdio.h>
@@ -85,6 +86,9 @@ static void drop_preload(void) {
 __attribute__((constructor)) static void appglass_wk_init(void) {
     char *d = take("APPGLASS_DEBUG"); g_dbg = d != NULL; free(d);
     g_css = take("APPGLASS_CSS"); g_js = take("APPGLASS_JS"); g_js_start = take("APPGLASS_JS_START");
+    for (char **e = environ; e && *e; ) {   // the rest of APPGLASS_* (none is the app's)
+        if (strncmp(*e, "APPGLASS_", 9) == 0) env_drop(e); else e++;
+    }
     drop_preload();
 }
 #define LOG(...) do { if (dbg()) { fprintf(stderr, "[appglass-wk] " __VA_ARGS__); fputc('\n', stderr); } } while (0)

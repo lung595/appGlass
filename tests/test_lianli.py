@@ -51,7 +51,9 @@ class ShimEnvironment(unittest.TestCase):
     def child_env(self, preload):
         env = {"PATH": os.environ.get("PATH", os.defpath), "LD_PRELOAD": preload,
                "APPGLASS_CSS": "/x/glass.css", "APPGLASS_JS": "/x/end.js",
-               "APPGLASS_JS_START": "/x/start.js", "APPGLASS_DEBUG": "1", "KEEP": "1"}
+               "APPGLASS_JS_START": "/x/start.js", "APPGLASS_DEBUG": "1", "KEEP": "1",
+               # the hidden check's and the e2e's: not the app's either
+               "APPGLASS_VERIFY_FP": "fp1", "APPGLASS_HARNESS": "/x/h.sh", "APPGLASS_E2E_OUT": "/x/out"}
         r = subprocess.run(["sh", "-c", "exec env"], env=env, capture_output=True, text=True,
                            timeout=60, check=True)
         return dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)

@@ -29,7 +29,8 @@ ag_require() {
     trap ag_cleanup EXIT
 }
 
-ag_harness() { "$APPGLASS_HARNESS" "$@"; }
+# the e2e's own variables stay out of the harness and what it runs
+ag_harness() { env -u APPGLASS_HARNESS -u APPGLASS_E2E_OUT "$APPGLASS_HARNESS" "$@"; }
 
 # real (read-only) inputs; fixtures when missing
 ag_real_config() { echo "${XDG_CONFIG_HOME:-$HOME/.config}"; }

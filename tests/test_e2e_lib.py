@@ -217,6 +217,16 @@ class SessionDoors(unittest.TestCase):
         with open(self.sb.path("asked")) as f:
             self.assertTrue(f.read().startswith("--user "))
 
+    def test_the_harness_does_not_pass_the_e2e_variables_on(self):
+        """APPGLASS_HARNESS and APPGLASS_E2E_OUT are the e2e's, not the app's."""
+        h = os.path.join(self.bin, "harness.sh")
+        with open(h, "w") as f:
+            f.write("#!/bin/bash\nenv | grep ^APPGLASS_ || true\necho args \"$*\"\n")
+        os.chmod(h, 0o755)
+        r = subprocess.run(["bash", "-c", '. "%s"; ag_harness run n -- app' % LIB],
+                           capture_output=True, text=True,
+                           env=dict(os.environ, APPGLASS_HARNESS=h, APPGLASS_E2E_OUT="/x"))
+        self.assertEqual(r.stdout.splitlines(), ["args run n -- app"], r.stderr)
 
 if __name__ == "__main__":
     unittest.main()
