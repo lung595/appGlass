@@ -86,12 +86,19 @@ The widget is optional. The glass works without it.
 
 ## Features
 
-| Unfocused windows fade | The level follows DMS | A new app gets glass |
-| --- | --- | --- |
-| ![Two tiled windows: the focus moves from one to the other, and the unfocused one gets a little more transparent while its text stays sharp](docs/media/unfocused-fade.gif) | ![The same three windows at DMS glass levels 0.90, 0.75 and 0.60](docs/media/levels.gif) | ![A music app opens over the other windows, already with glass](docs/media/new-app.gif) |
-| *Shown at level 0.80 with a 20 % fade amount.* | *The DMS window rule opacity at 0.90, 0.75 and 0.60.* | *The window opens with glass. No command needed.* |
+**Unfocused windows fade.** Shown at level 0.80 with a 20 % fade amount.
 
-The GIFs are crossfades between real screenshots, taken in a separate test session. The music window is a small libadwaita demo app.
+[![Two tiled windows: the focus moves from one to the other, and the unfocused one gets a little more transparent while its text stays sharp](docs/media/unfocused-fade.gif)](docs/media/unfocused-fade.gif)
+
+**The level follows DMS.** The DMS window rule opacity at 0.90, 0.75 and 0.60.
+
+[![The same three windows at DMS glass levels 0.90, 0.75 and 0.60](docs/media/levels.gif)](docs/media/levels.gif)
+
+**A new app gets glass.** The window opens with glass. No command needed.
+
+[![A music app opens over the other windows, already with glass](docs/media/new-app.gif)](docs/media/new-app.gif)
+
+The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the second GIF was added afterwards. The music window is a small libadwaita demo app: like every GTK4 app, it gets its glass from the GTK4 CSS, so it needs no routing. Apps of other toolkits are routed by the sync unit within seconds.
 
 - **Only the background turns glass.** niri keeps the window at `opacity 1.0`. Each app paints its own background with alpha. Text, icons and logos stay fully opaque.
 - **Three levels, from one number.** Content follows the DMS level. Bars (header bars, sidebars, tab bars) stay at `max(content, 0.65)`. Menus, popovers and dialogs stay opaque.

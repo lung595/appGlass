@@ -730,6 +730,17 @@ class Updating(unittest.TestCase):
         self.assertRegex(section(r, "License"), r"wallpaper[^\n]*not covered by the MIT")
 
 
+class FeatureGifs(unittest.TestCase):
+    def test_one_gif_per_row_and_the_label_is_owned_up_to(self):
+        f = section(read("README.md"), "Features")
+        gifs = re.findall(r"docs/media/[\w-]+\.gif", f)
+        self.assertEqual(len(set(gifs)), 3)
+        for line in f.splitlines():
+            self.assertLessEqual(len(set(re.findall(r"docs/media/[\w-]+\.gif", line))), 1, line)
+        self.assertRegex(f, r"level label[^\n]*added")
+        self.assertIn("GTK4 CSS", f)
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""
