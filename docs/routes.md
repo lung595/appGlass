@@ -138,7 +138,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 ## Lian Li (WebKitGTK shim)
 
 - **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/lianli/`, the page CSS, the wrapper `~/.local/bin/appglass-lianli` and a launcher override. The shim is preloaded for that one launch: it clears the WebView background, gives the window an alpha visual and adds the CSS.
-- **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)).
+- **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)); in a nested niri with its daemon hidden (`tests/e2e/lianli.sh`), content 153 and bars 166.
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only lianli`.
@@ -149,6 +149,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 - **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/webkit/`, `webkit-glass.css` (the levels, rendered at every start) and `webkit-glass.js`, the wrapper `~/.local/bin/appglass-webkit` and one launcher override per app (`Exec=appglass-webkit <key> <its Exec>`).
 - **How:** the same shim as Lian Li; the page script reads the page's own colours: the page colour at the content level, large boxes of another colour (sidebars, headers, status bars, cards) at the bar level, popups (dialogs, menus, listboxes, tooltips, floating boxes) left opaque, text never touched. See [webkit.md](webkit.md#the-generic-route-family-webkit).
 - **Measured:** Kiri 0.2.1 in a nested niri: content 153, bars 166, text 255, its language dialog 255; at 0.80, 204 focused and 184 unfocused.
+- **Check:** with no network and the `/run` entries its binaries name hidden. Kiri's passes in `tests/e2e/webkit.sh` (it waits at default settings, `appglass verify kiri` passes, the next apply gives it the glass); no other WebKitGTK app was checked.
 - **Default:** on, live per app once its hidden check passes (or at once when you switch the app on). Switch an app off in Settings > Apps.
 - **Undo:** `appglass remove --only webkit`. The next launch is the plain app.
 
