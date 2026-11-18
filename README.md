@@ -110,7 +110,7 @@ The GIFs are crossfades between real screenshots, taken in a separate test sessi
 - **Only the background turns glass.** niri keeps the window at `opacity 1.0`. Each app paints its own background with alpha. Text, icons and logos stay fully opaque.
 - **Three levels, from one number.** Content follows the DMS level. Bars (header bars, sidebars, tab bars) stay at `max(content, 0.65)`. Menus, popovers and dialogs stay opaque.
 - **Colours follow DMS.** A wallpaper or scheme change re-renders the app colours through the matugen hook.
-- **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin and the WebKitGTK apps (Kiri; Lian Li has it built in but stays opaque while its check fails). Recorded in a session: GTK3, VLC, Feishin, Jellyfin and Kiri; the others are unit-tested only ([routes.md](docs/routes.md) says so per app). Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
+- **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin and the WebKitGTK apps (Kiri; Lian Li has it built in but stays opaque while its check fails). Recorded in a session: the fade of GTK3, VLC, Feishin and Jellyfin; for Kiri, the focused and unfocused levels (204 and 184 at 0.80, `tests/e2e/webkit.sh`), not the steps of the fade; the others are unit-tested only ([routes.md](docs/routes.md) says so per app). Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
 - **New and updated apps are found on their own.** A new app is routed within seconds.
 - **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts everything back byte for byte.
 - **Never touched:** games, root GUIs, the windows DMS draws itself, and Firefox-family browsers (those belong to [browserGlass](https://github.com/lung595/browserGlass)).
@@ -201,7 +201,7 @@ Open **Settings → Plugins → App Glass**. A search field sits on top (**Ctrl+
 
 | Page | What is there |
 | --- | --- |
-| **Glass** | **Glass for desktop apps** (the main switch), **Glass level** (read-only, from DMS), **Apps on glass**, **Re-apply** |
+| **Glass** | **Glass for desktop apps** (the main switch), **Glass level** (read-only, from DMS), **Follow the DMS rule** (shown when appglass's own settings hold a level), **Apps on glass**, **Re-apply** |
 | **Apps** | The **App list**: one row per app, with its status chip, route and kind, reason and switch |
 | **Fade** | **Fade unfocused windows** (on), **Fade amount** (0 to 20 %, default 10 %), **Fade duration** (0 to 400 ms, default 180 ms), **Fade easing**, **Dim apps that cannot fade** (off) |
 | **Fallback** | **Apps without glass**: Opaque (default), Translucent (text too), or DMS opacity. **Fallback opacity** (50 to 100 %, default 70 %) |

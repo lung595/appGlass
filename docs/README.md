@@ -56,79 +56,7 @@ The full matrix per family, with the measured verify numbers, is in [apps.md](ap
 
 Tested: run in a nested niri session, with the window alpha measured from window screenshots. Documented: from docs and sources only, not run. Window screenshots are premultiplied RGBA: the alpha values are reliable, but contrast ratios from the early composites (which treated them as straight alpha) are too pessimistic, light themes most of all. The docs quote a contrast ratio only where a premultiplied-correct composite was used, and say "to re-measure" otherwise.
 
-TODO(adapters): this table is from the first per-app tests and is kept as a record. Many rows are out of date (Discord, Feishin, Lian Li, VLC, Jellyfin, LocalSend, the terminals, Kate, Konsole, mpv, GIMP, Zed and VSCodium now have routes, see [routes.md](routes.md)); [apps.md](apps.md) is the current list. It will be rebuilt from `apps.json`.
-
-| App | Category | Installed | Tested | Works | Method | Doc |
-|---|---|---|---|---|---|---|
-| Alacritty 0.17.0 | terminal | yes | yes | yes | `[window] opacity = 0.60`, `transparent_background_colors = false`, DMS `dank-theme.toml` via `general.import`; palette overrides | [terminal.md](terminal.md) |
-| kitty | terminal | no | no | yes (expected) | `background_opacity 0.60` + `include dank-theme.conf` | [terminal.md](terminal.md) |
-| foot | terminal | no | no | yes (expected) | `alpha=0.60` in `[colors-dark]` (`dank-colors.ini`) | [terminal.md](terminal.md) |
-| Ghostty | terminal | no | no | yes (expected) | `background-opacity = 0.60` (+ `background-opacity-cells`), `theme = dankcolors` | [terminal.md](terminal.md) |
-| WezTerm | terminal | no | no | yes (expected) | `window_background_opacity = 0.60` + `text_background_opacity` | [terminal.md](terminal.md) |
-| Konsole | terminal / qt | no | no | partial (expected) | colour scheme `[General] Opacity=0.6`; terminal area only, tabs and menus opaque | [terminal.md](terminal.md), [qt.md](qt.md) |
-| Ptyxis | terminal | no | no | partial (expected) | GSettings `org.gnome.Ptyxis.Profile` `opacity 0.6`; terminal area only | [terminal.md](terminal.md) |
-| Nautilus (Files) 51.1 | gtk4 | yes | yes | yes | `gtk-4.0/gtk.css`: alpha on libadwaita bg roles, `dialog sheet` rule, `--dim-opacity: 0.80`, `:backdrop` filter fix | [gtk4.md](gtk4.md) |
-| libadwaita role test app | gtk4 | yes | yes | yes | same `gtk.css` | [gtk4.md](gtk4.md) |
-| GNOME Software 51.1 | gtk4 | yes | no | yes (expected) | same `gtk.css` | [gtk4.md](gtk4.md) |
-| xdg-desktop-portal-gnome (file chooser) | gtk4 | yes | no | yes (expected) | inherits `gtk.css` | [gtk4.md](gtk4.md) |
-| Zenity | gtk4 | yes | no | yes (expected) | inherits `gtk.css` | [gtk4.md](gtk4.md) |
-| Flatseal (flatpak) | gtk4 | no | no | partial (expected) | `gtk.css` + `flatpak override --user --filesystem=xdg-config/gtk-4.0:ro` | [gtk4.md](gtk4.md) |
-| GTK3 test app (Gtk 3.24.52) | gtk3 | yes | yes | partial | `appglass-gtk3.css` after `dank-colors.css` + notebook add-on; `GtkDialog` bodies not covered | [gtk3.md](gtk3.md) |
-| Solaar 1.1.20 | gtk3 | yes | yes | yes | same CSS; mode B via `~/.config/autostart/solaar.desktop` with `GTK_THEME=AppGlass` | [gtk3.md](gtk3.md) |
-| nvidia-settings | gtk3 | yes | yes | partial | same CSS + notebook add-on; column-header text too faint with the add-on | [gtk3.md](gtk3.md) |
-| Timeshift 25.12.4 | gtk3 | yes | no | no | fallback (runs as root through XWayland, no RGBA visual) | [gtk3.md](gtk3.md) |
-| Thunar | gtk3 | no | no | yes (expected) | same CSS (mode A or B) | [gtk3.md](gtk3.md) |
-| Inkscape 1.x | gtk3 | no | no | partial (expected) | glass rules in `~/.config/inkscape/ui/style.css`; panels only, canvas opaque | [gtk3.md](gtk3.md) |
-| GIMP 2.10 / 3.x | gtk3 | no | no | no | fallback (or keep opaque) | [gtk3.md](gtk3.md) |
-| LibreOffice (VCL gtk3) | gtk3 | no | no | no | fallback | [gtk3.md](gtk3.md) |
-| Thunderbird | gtk3 (Gecko) | no | no | no | fallback; Gecko/userChrome not covered yet | [gtk3.md](gtk3.md) |
-| Obsidian 1.15.1 (flatpak) | electron | yes | yes | partial | vault CSS snippet `appglass.css` (clear every layer, paint once) + `--text-faint` fix; dark and light themes (same colours under `body.theme-dark` and `body.theme-light`) | [electron.md](electron.md) |
-| Any Electron app (decision rule) | electron | yes | yes | partial | only if the app's code sets `backgroundColor` `#00000000`; no flag or env var works | [electron.md](electron.md) |
-| Google Chrome (flatpak) | electron | yes | yes | no | fallback (255 everywhere) | [electron.md](electron.md) |
-| Discord (rpm) | electron | yes | no | no | fallback (`transparent:false` hard-coded, no user CSS) | [electron.md](electron.md) |
-| Feishin (flatpak) | electron | yes | no | no | fallback (`custom.css` recolours only) | [electron.md](electron.md) |
-| Steam (flatpak, CEF) | electron | yes | no | no | fallback | [electron.md](electron.md) |
-| Vesktop / Vencord / Equibop | electron | no | no | partial (unverified) | "Transparent window" + alpha variant of DMS `dank-discord.css` | [electron.md](electron.md) |
-| VSCodium 1.143 (flatpak) | electron | yes | yes | yes (on, after its check) | `vscodium` family: electron hook via the wrapper `appglass-vscodium` + workbench CSS ([apps.md](apps.md)) | [electron.md](electron.md) |
-| VS Code (Microsoft build) | electron | no | no | no | fallback | [electron.md](electron.md) |
-| Element / Signal / Slack / Spotify | electron | no | no | no | fallback | [electron.md](electron.md) |
-| Kiri (`kiri-window`, GTK3 + WebKitGTK 4.1) | webkit | yes | yes | yes | family `webkit`, found by its toolkit: `appglass-wk.so` + page CSS/JS from the page's own colours; 153 / 166 / 255, language dialog 255, measured on its setup screen (no engine in the harness) | [webkit.md](webkit.md) |
-| Any host GTK3 WebKitGTK 4.x app whose window is one WebView | webkit | n/a | no (documented; Kiri and Lian Li are the tested ones) | yes (expected), after its check | family `webkit` (generic, as for Kiri); native widgets beside the view keep it opaque; flatpaks and WebKitGTK 6 (GTK4) stay on the fallback | [webkit.md](webkit.md) |
-| Lian Li Linux (`lianli-gui`, Tauri 2) | webkit | yes | yes | no: opaque (its check fails) | family `lianli`: the same shim with its own CSS (was: fallback, transparency compiled in, `gtk.css` has no effect) | [webkit.md](webkit.md) |
-| Tauri/wry app built with `transparent: true` (demo) | webkit | no | yes | partial | the app paints alpha: RGBA visual, WebView bg rgba 0, rgba CSS per level; needs a rebuild | [webkit.md](webkit.md) |
-| GNOME Web / Epiphany 51 | webkit | yes | yes | partial | chrome only via libadwaita roles in `gtk-4.0/gtk.css` (gtk4 family, `opacity 1.0` rule); page always opaque | [webkit.md](webkit.md) |
-| Geary / Evolution / Yelp / GOA web views | webkit | no | no | no | GTK3 ones take the generic route, but the shim keeps a WebView with native widgets beside it opaque and the check fails it: fallback | [webkit.md](webkit.md) |
-| Dux Files (`dfiles`) | qtquick | yes | yes | partial | merge keys into `~/.config/dfiles/ui-settings.json` (w 0.60, f 0.0); levels inverted | [qtquick.md](qtquick.md) |
-| Dux Calendar (`dcal`) | qtquick | yes | yes | partial | merge keys into `~/.config/dankcal/ui-settings.json` (w 0.60, f 0.65), restart; levels inverted | [qtquick.md](qtquick.md) |
-| DMS windows (Settings, modals) | qtquick | yes | no | yes (already done) | DMS paints them itself; `dms-window-opaque` rule already present | [qtquick.md](qtquick.md) |
-| VLC 3.0.24 (Qt6) | qt | yes | yes | no | fallback (255 in every palette variant) | [qt.md](qt.md) |
-| Jellyfin Desktop 2.0.0 (flatpak) | qt | yes | no | no | fallback (QML compiled in) | [qt.md](qt.md) |
-| Qt6 Widgets + `WA_TranslucentBackground` (test program) | qt | yes | yes | partial | Fusion, palette alpha 153; one level only, alpha-0 holes | [qt.md](qt.md) |
-| Qt Quick window colour (`qml` runner) | qt | yes | yes | yes | `ApplicationWindow.color` alpha 0.60, bars 0.125, opaque popups; only for QML you control | [qt.md](qt.md) |
-| Kvantum (style engine) | qt | no | no | partial (expected) | `QT_STYLE_OVERRIDE=kvantum`, `translucent_windows=true`, `reduce_window_opacity=40`, `reduce_menu_opacity=0` | [qt.md](qt.md) |
-| Dolphin / KDE apps (Breeze) | qt | no | no | no | fallback (kcolorscheme alpha gives opaque dark) | [qt.md](qt.md) |
-| KeePassXC | qt | no | no | no | fallback | [qt.md](qt.md) |
-| Krita | qt | no | no | no | fallback (or opaque for colour work) | [qt.md](qt.md) |
-| OBS Studio | qt | no | no | no | fallback | [qt.md](qt.md) |
-| qBittorrent (QSS-themed apps) | qt | no | no | no | fallback | [qt.md](qt.md) |
-| LocalSend 1.18.2 (flatpak) | flutter | yes | yes | no | fallback; optional accent tint + in-app dark theme | [flutter.md](flutter.md) |
-| Other Flutter apps (AppFlowy, Spotube, ...) | flutter | no | no | no | fallback unless the app ships its own transparency | [flutter.md](flutter.md) |
-| Herdr 0.1.16 (gpui) | gpu | yes | yes | partial | theme `dankglass.json` (`#rrggbbaa`) + cloned layout `glass.json` + `shared.json` `layout: glass`; ANSI 0/5/8 taken from DMS roles (outline / tertiary / on_surface_variant) and lifted | [gpu.md](gpu.md) |
-| ArtCraft Launcher 0.19.2 (egui/wgpu) | gpu | yes | yes | yes (forced) | `ck-shim` family `artcraft`: on a Vulkan GPU the layer `VK_LAYER_APPGLASS_glass` (PRE_MULTIPLIED swapchain, colour keys on the GPU); otherwise Mesa EGL + wgpu GL + colour keys, 60 fps cap; no opaque region on both | [artcraft-gpu.md](artcraft-gpu.md) |
-| Zed (gpui) | gpu | no | no | yes (expected) | user copy of DMS `dank-zed.json` with per-level alpha | [gpu.md](gpu.md) |
-
-"partial" means the glass works and text stays opaque, but some target levels are missed or a readability fix is still open. "(expected)" marks documented-only results.
-
-### Fallback apps
-
-These get the fallback rule (opaque by default, see Method step 4), not the glass rule:
-
-- **Chrome, Discord, Feishin, Steam, VS Code (Microsoft build), Element, Signal, Slack, Spotify**: an Electron/Chromium window is see-through only if the app's own code sets a transparent background colour.
-- **Lian Li Linux, Kiri** and other GTK3 WebKitGTK/Tauri apps: transparency is compiled in (Tauri `transparent: true`, `webkit_web_view_set_background_color`), so the WebKit shim does it for one launch (family `lianli`, or the generic `webkit` for any other such app) when the window is the WebView alone; native widgets beside the view keep it opaque. WebKitGTK flatpaks and WebKitGTK 6 (GTK4) apps keep the fallback.
-- **VLC, Jellyfin, KDE apps, KeePassXC, Krita, OBS, qBittorrent**: Qt Widgets palette alpha lands on an opaque buffer; real glass needs a style plugin (Kvantum, not installed).
-- **LocalSend** and other Flutter apps: the `FlView` is opaque unless the app's runner clears it.
-- **Timeshift**: runs as root through XWayland, no RGBA visual.
-- **GIMP, LibreOffice, Thunderbird**: they paint their own opaque surfaces.
+Which route each app takes today, and why an app stays opaque, is in [routes.md](routes.md) (the opaque ones: [routes.md#opaque](routes.md#opaque)). The research notes per toolkit (below, under Docs) keep the first per-app tests as a record.
 
 ## CLI
 
@@ -168,7 +96,7 @@ appglass keys <key> dark|light               # (wrappers) the colour keys of an 
 
 ## Unfocused windows
 
-With `inactive.enabled` (on by default) an unfocused window's background goes a little more transparent, with a short fade; text, icons and logos stay opaque. niri switches an opacity rule at once, so each app fades its own background. Recorded in a session: GTK3, VLC, Feishin and Jellyfin (LocalSend: no fade), and for the generic WebKit route the unfocused level of Kiri (204 focused, 184 unfocused at 0.80, `tests/e2e/webkit.sh`; the steps of the fade were not recorded); the other routes below are unit-tested only, [routes.md](routes.md) says so per app, with the reason.
+With `inactive.enabled` (on by default) an unfocused window's background goes a little more transparent, with a short fade; text, icons and logos stay opaque. niri switches an opacity rule at once, so each app fades its own background. Recorded in a session: the fade of GTK3, VLC, Feishin and Jellyfin; for Kiri (the generic WebKit route), the focused and unfocused levels (204 and 184 at 0.80, `tests/e2e/webkit.sh`), not the steps of the fade (LocalSend: no fade); the other routes below are unit-tested only, [routes.md](routes.md) says so per app, with the reason.
 
 - **GTK4, GTK3**: `window.background:backdrop` at the lower alpha, with a CSS transition (GTK3 also fades the CSD headerbar from the bar level). While the fade is on, unfocused text keeps its focused look: GTK4 bar contents get `filter: none` on `:backdrop` (instead of the `opacity(0.8)` cue), GTK3 text, notebook tabs, spin buttons and headerbar button edges keep their focused colours (instead of Adwaita's grey, which switches at once). With the fade off, the old cues come back. The GTK4 rule uses libadwaita's `--window-bg-color`, so plain GTK4 apps (Default theme, no libadwaita) keep their own opaque background when unfocused instead of turning to glass.
 - **Obsidian**: `body:not(.is-focused)` lowers the snippet colours, with a transition.

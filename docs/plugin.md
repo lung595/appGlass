@@ -59,7 +59,7 @@ Unfocused windows get a little more transparent. Only the background fades: text
 - **Fade easing**: the curve of the fade animation: Ease out (default), Ease in and out, Linear.
 - **Dim apps that cannot fade** (off by default): a niri rule for the other apps. It is instant, and their text dims too.
 
-The apps that fade their own background: the GTK4 and GTK3 apps, Obsidian, Alacritty, Discord (Vencord), Feishin, Jellyfin, Lian Li, the WebKitGTK apps (Kiri) and the Qt style apps (VLC, Kate, Konsole's tabs and menus, and the Qt apps the engine finds). The fade is recorded for GTK3, VLC, Feishin and Jellyfin; for the others it is unit-tested, not recorded ([routes.md](routes.md) says so per app). The level is written into each app's files and launcher, so most open apps pick up a change when they restart.
+The apps that fade their own background: the GTK4 and GTK3 apps, Obsidian, Alacritty, Discord (Vencord), Feishin, Jellyfin, Lian Li, the WebKitGTK apps (Kiri) and the Qt style apps (VLC, Kate, Konsole's tabs and menus, and the Qt apps the engine finds). Recorded in a session: the fade of GTK3, VLC, Feishin and Jellyfin; for Kiri, the focused and unfocused levels (204 and 184 at 0.80, `tests/e2e/webkit.sh`), not the steps of the fade; for the others it is unit-tested, not recorded ([routes.md](routes.md) says so per app). The level is written into each app's files and launcher, so most open apps pick up a change when they restart.
 
 TODO(fade): the terminals other than Alacritty, Zed, mpv, GIMP, VSCodium and the colour-key apps (LocalSend, ArtCraft) do not fade yet: only "Dim apps that cannot fade" reaches them. Konsole's terminal area gets neither: the Qt style fades its tabs and menus, so the dim leaves Konsole out.
 

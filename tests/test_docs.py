@@ -293,7 +293,12 @@ class DocsSayWhatTheCodeDoes(unittest.TestCase):
     def test_readme_matches_the_sync(self):
         r = doc("README.md")
         self.assertNotIn("(or its family is switched off)", r)
-        self.assertRegex(section(r, "Apps"), r"TODO\(adapters\)")
+        # (the per-app table of the first tests is gone: apps.md and
+        # routes.md are the current lists)
+        apps = section(r, "Apps")
+        self.assertNotIn("TODO(adapters)", apps)
+        self.assertIn("(apps.md)", apps)
+        self.assertIn("(routes.md)", apps)
 
 
 class PerAppSwitch(unittest.TestCase):
