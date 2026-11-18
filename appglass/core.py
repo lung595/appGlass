@@ -1954,6 +1954,9 @@ def cmd_remove(app, only=None, keep_hook=False, forget_away=False):
                             "nothing removed. %s"
                             % ("unreadable" if app.state_unreadable else "missing",
                                app.env.tilde(app.state.path), RESCUE_HINT))
+    # no record and no ring, but marked files on disk: remove would delete
+    # nothing of them and still drop the cache; it refuses like apply does
+    refuse_orphans(app)
     if only:
         names = _selected(app, only)
         parked = app.state.data.get("parked")

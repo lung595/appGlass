@@ -667,6 +667,30 @@ class EditMarkers(Base):
             self.assertEqual(self.sb.readb(p), data[p])
         self.assertFalse(os.path.exists(self.state_json))
 
+    def test_remove_refuses_after_the_whole_state_dir_is_gone(self):
+        # no state.json, no ring, no backup/: the marked files are the only
+        # trace, and remove (full or --only) writes nothing, cache included
+        self.apply()
+        cache = os.path.join(self.sb.cache, "appglass")
+        os.makedirs(cache, exist_ok=True)
+        with open(os.path.join(cache, "keep"), "w") as f:
+            f.write("x")
+        shutil.rmtree(self.state_dir)
+        os.makedirs(os.path.join(self.state_dir, "ring"))
+        os.makedirs(os.path.join(self.state_dir, "backup"))
+        # the core lock is the one file a refusal leaves (as apply's does:
+        # unlinking a lock another run may hold would break the flock)
+        lock = os.path.join(self.state_dir, ".lock")
+        open(lock, "w").close()
+        before = self.sb.tree_hash()
+        for argv in (("remove",), ("remove", "--only", "alacritty")):
+            with self.subTest(argv=argv):
+                code, out, err = self.sb.run(*argv, assume="alacritty")
+                self.assertEqual(code, 1, out + err)
+                self.assertIn(self.env.tilde(self.owned()), err)
+                self.assertIn("adopt --rescue", err)
+                self.assertEqual(self.sb.tree_hash(), before)
+
     def test_a_clean_edited_file_does_not_count(self):
         self.apply()
         code, out, err = self.sb.run("remove")
