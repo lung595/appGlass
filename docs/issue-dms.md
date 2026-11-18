@@ -56,7 +56,7 @@ Measured from window screenshots composited over black and white, in nested niri
 
 - **Safe by default:**
   - no system files, no sudo; app binaries, asars and flatpak deploys are not modified (the Vencord route, on by default once its check passes, re-runs the user's Vencord installer after a Discord update);
-  - every file it writes is recorded and restored byte for byte on uninstall, with a backup ring of the last 5 applies;
+  - every file it writes is recorded and put back as it was on uninstall (files it created are deleted, the user's later edits are kept), with a backup ring of the last 5 applies;
   - games are never touched: no file, env or preload, `opacity 1.0` and blur off;
   - root GUIs stay opaque, password managers get native routes only, and game launchers never get a preload;
   - the preload and style variables are taken out of the environment of the app's child processes;
@@ -100,7 +100,7 @@ TODO(engine): one `appglass setup` for the steps above.
 
 - Settings: global pause, per-app switch and route, and the reason for each app that stays opaque.
 - Turning the plugin off removes nothing.
-- Uninstall: Settings > Advanced > Uninstall appGlass, or `appglass remove && appglass plugin remove`. Every file is restored byte for byte, and `appglass remove` takes the hook and the units too.
+- Uninstall: Settings > Advanced > Uninstall appGlass, or `appglass remove && appglass plugin remove`. Every file is put back as it was (files it created are deleted, later edits are kept), and `appglass remove` takes the hook and the units too.
 
 I'm happy to turn parts of this into PRs (templates, levels in `dms-colors.json`, the niri slot) in whatever shape fits DMS, or to keep it as a plugin.
 
