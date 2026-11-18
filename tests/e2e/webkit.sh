@@ -30,7 +30,10 @@
 #    starts Kiri through appglass-webkit
 # 3. Kiri with its language step done (~/.kiri/ui.json): shoot, measure the
 #    content level (153), the bars and cards (166), text opaque, contrast on
-#    the wallpaper; at content 0.80, unfocused (another window has the
+#    the wallpaper; the glass window says it is not opaque (its last
+#    wl_surface.set_opaque_region is nil, WAYLAND_DEBUG: at niri opacity 1.0
+#    niri would skip what is behind it), and the rule file blends it at
+#    0.999 too; at content 0.80, unfocused (another window has the
 #    focus): the content eases to the inactive level, text still opaque
 # 4. Kiri on a first start: its language dialog (role=dialog) is a popup,
 #    opaque (255) over the glass
@@ -74,6 +77,9 @@ grep -q 'appglass-webkit kiri ' "$PRE/data/applications/kiri.desktop" \
     || ag_die "scratch: no kiri launcher override"
 KDL=$(ag_extra_kdl "$PRE")
 printf '%s\n' "$KDL" | grep -q 'kiri' || ag_die "the rule file has no kiri rule"
+# the blend block (opacity 0.999): its GTK3 window says it is opaque without the shim
+printf '%s\n' "$KDL" | awk '/says it is opaque/ {b = 1} b && /^}/ {exit} b && /\^kiri\$/ {k = 1}
+    b && /opacity 0\.999/ {o = 1} END {exit !(k && o)}' || ag_die "kiri is not in the 0.999 blend block"
 printf '%s\n' "$KDL" > "$AG_OUT/extra.kdl"
 ag_appglass "$PRE" remove >/dev/null || ag_die "pre-remove failed"
 [ "$(ag_tree_hash "$PRE")" = "$P0" ] || ag_die "scratch round trip: tree differs after remove"
@@ -134,8 +140,8 @@ mapfile -t HIDE < <(ag_hide_args /run/kiri /run/podman "$RT/podman" "$RT/docker.
 printf '%s\n' "${HIDE[@]}" | grep -qx /run/kiri || ag_die "no /run/kiri to hide"
 ag_out_of_reach "${HIDE[@]}"
 [ "${#NONET[@]}" = 0 ] || ag_no_dns bwrap --dev-bind / / "${HIDE[@]}" --die-with-parent "${NONET[@]}"
-kiri_up() {
-    NOBUS=1 ag_harness run "$NAME" -- env -u DOCKER_HOST bwrap --dev-bind / / "${HIDE[@]}" \
+kiri_up() {   # [VAR=value ...]: more environment for Kiri
+    NOBUS=1 ag_harness run "$NAME" -- env -u DOCKER_HOST "$@" bwrap --dev-bind / / "${HIDE[@]}" \
         --die-with-parent "${NONET[@]}" "${EXEC[@]}" >&2
     ag_wait_window "$NAME" "$APPID" 30 || { tail -20 "$SB/app.log" >&2 || true; ag_die "no Kiri window"; }
 }
@@ -152,10 +158,18 @@ kiri_down() {
 # 3. the app, past its language step
 mkdir -p "$SB/home/.kiri"
 printf '{"langAsked":true}\n' > "$SB/home/.kiri/ui.json"
-ID=$(kiri_up)
+LOG0=$(wc -c < "$SB/app.log" 2>/dev/null || echo 0)
+ID=$(kiri_up WAYLAND_DEBUG=client)
 sleep 4
 SHOT=$AG_OUT/kiri.png
 ag_harness shot "$NAME" "$SHOT" "$ID" >&2
+# each surface's last opaque region: nil on the glass window (GTK3 sets it
+# whole from the window's CSS background; the shim clears it)
+REGION_RC=0
+tail -c +$((LOG0 + 1)) "$SB/app.log" | sed -n 's/.*-> \(wl_surface#[0-9]*\)\.set_opaque_region(\(.*\))$/\1 \2/p' \
+    | awk '{last[$1] = $2} END {for (s in last) print s, last[s]}' > "$AG_OUT/opaque-region.txt"
+[ -s "$AG_OUT/opaque-region.txt" ] || grep -q 'wl_surface#[0-9]*\.commit' "$SB/app.log" || REGION_RC=2
+grep -qv ' nil$' "$AG_OUT/opaque-region.txt" && REGION_RC=1
 # (Kiri's muted grey on 60% glass over white: 1.85:1, the page's own choice of grey)
 args=(--content 153 --tol 6 --bar 166 --bar-tol 8 --text "$TEXT" --text "$MUTED" --min-contrast 1.8)
 WP=$(ag_wallpaper); [ -n "$WP" ] && args+=(--wallpaper "$WP")
@@ -274,6 +288,8 @@ for f in m["fails"] + u.get("fails", []):
     print("  fail: " + f)
 PY
 [ "$MEASURE_RC" = 0 ] || ag_die "measurements failed (see $AG_OUT/measure.json)"
+[ "$REGION_RC" != 2 ] || ag_die "no wayland requests in the app log (WAYLAND_DEBUG)"
+[ "$REGION_RC" = 0 ] || ag_die "the glass window says it is opaque (see $AG_OUT/opaque-region.txt)"
 [ "$FADE_RC" = 0 ] || ag_die "unfocused level wrong (see $AG_OUT/measure-unfocused.json)"
 [ "$POPUP_RC" = 0 ] || ag_die "language dialog not opaque (see $AG_OUT/popup.json)"
 [ "$REMOVE_RC" = 0 ] || ag_die "remove left files behind"
