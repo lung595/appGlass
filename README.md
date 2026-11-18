@@ -101,7 +101,7 @@ The widget is optional. The glass works without it.
 | [![A music app opens over the other windows, already with glass](docs/media/new-app.gif)](docs/media/new-app.gif) |
 | *The window opens with glass. No command needed.* |
 
-The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the second GIF was added afterwards. The music window is a small libadwaita demo app: like every GTK4 app, it gets its glass from the GTK4 CSS, so it needs no routing. Apps of other toolkits are routed by the sync unit within seconds.
+The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the second GIF was added afterwards. The music window is a small libadwaita demo app: like every libadwaita app, it gets its glass from the GTK4 CSS, so it needs no routing. Plain GTK4 apps without libadwaita stay opaque (not tested). Apps of other toolkits are routed by the sync unit within seconds.
 
 - **Only the background turns glass.** niri keeps the window at `opacity 1.0`. Each app paints its own background with alpha. Text, icons and logos stay fully opaque.
 - **Three levels, from one number.** Content follows the DMS level. Bars (header bars, sidebars, tab bars) stay at `max(content, 0.65)`. Menus, popovers and dialogs stay opaque.
@@ -129,7 +129,7 @@ The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, meas
 | --- | --- | --- | --- |
 | Terminal opacity key | Native | Alacritty, foot, Konsole | Works |
 | Terminal opacity key | Native | kitty, Ghostty, WezTerm | Untested |
-| GTK4 CSS | Native | Nautilus, GNOME Software, Zenity, the file chooser, Flatseal, GNOME Text Editor, Mission Center, Resources, other GTK4 apps | Works |
+| GTK4 CSS | Native | Nautilus, GNOME Software, Zenity, the file chooser, Flatseal, GNOME Text Editor, Mission Center, Resources, other libadwaita apps | Works; plain GTK4 apps without libadwaita stay opaque (not tested) |
 | GTK3 theme | Native | Solaar, nvidia-settings, other host GTK3 apps | Partial: dialog bodies stay opaque |
 | Qt style plugin | Native | VLC, Kate, Konsole (flatpak), other host Qt 6 Widgets apps | Works |
 | App config | Native | Kate (editor theme), mpv, GIMP 3 | Works |

@@ -751,6 +751,15 @@ class FeatureGifs(unittest.TestCase):
             self.assertRegex(lines[i - 1], r"^\| *-+ *\|$")
             self.assertRegex(lines[i - 2], r"^\| [A-Z][^|]+ \|$")
 
+    def test_glass_is_claimed_for_libadwaita_apps_only(self):
+        # gtk4.py paints --window-bg-color, which only libadwaita defines
+        self.assertIn("--window-bg-color", read("appglass", "families", "gtk4.py"))
+        r = read("README.md")
+        self.assertNotIn("every GTK4 app", r)
+        self.assertNotIn("other GTK4 apps |", r)
+        self.assertIn("other libadwaita apps", r)
+        self.assertRegex(r, r"plain GTK4 apps without libadwaita stay opaque \(not tested\)")
+
 
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
