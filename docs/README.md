@@ -173,7 +173,7 @@ With `inactive.enabled` (on by default) an unfocused window's background goes a 
 - **Alacritty**: `appglass vibrancy`, run by `appglass-vibrancy.service` (installed by `hook install`), follows the niri focus and eases `window.opacity` over Alacritty's IPC socket.
 - **Discord (Vencord), Feishin, Jellyfin, Lian Li**: a class on the page root (`html:not(.app-focused)`, set by Discord itself; `html.agl-inactive`, set by agl-hook.js, jfglass or appglass-wk.so) lowers the content background, with a CSS transition.
 - **Qt style apps** (VLC, Kate, the Kate and Konsole flatpaks, and the Qt apps the engine finds): the style animates the window fill on deactivation.
-- **Others**: nothing, unless `inactive.instantFallback` adds a niri `is-active=false` rule (instant, and the text dims too). Deferred: the ck-shim apps (LocalSend, ArtCraft), VSCodium, the terminal area of the other terminals (Konsole's tabs and menus fade through the Qt style), mpv, GIMP and Zed. Plain GTK4 apps without libadwaita stay opaque, focused or not.
+- **Others**: nothing, unless `inactive.instantFallback` adds a niri `is-active=false` rule (instant, and the text dims too). Deferred: the ck-shim apps (LocalSend, ArtCraft), VSCodium, the terminal area of the other terminals (Konsole's tabs and menus fade through the Qt style, and `instantFallback` leaves Konsole out, so its terminal area gets no dim either), mpv, GIMP and Zed. Plain GTK4 apps without libadwaita stay opaque, focused or not.
 
 The unfocused level is content x `factor` (0.90 by default), never below 0.60: at the default content level 0.60 nothing changes until the content level is raised.
 
