@@ -38,6 +38,10 @@ Item {
     // A clean shell, then a daemon. Nothing launches until Proc.flush().
     function fresh(seeded, getAnswer, extra) {
         if (root.d) {
+            // destroy() is deferred: the dying daemon would see the stub
+            // reset below as a settings change (DMS never resets its data)
+            if (root.d.body)
+                root.d.body.ready = false;
             root.d.destroy();
             root.d = null;
         }
@@ -146,7 +150,32 @@ Item {
                     root.mark = root.syncs().length;
                     // the same settings saved again: nothing to do
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 10);
+                    t.check("nothing owed after the start sync", PluginService.loadPluginData("appGlass", "syncPending", false), false);
                     // two changes close together: one sync
+                    PluginService.savePluginData("appGlass", "inactiveDurationMs", 250);
+                    PluginService.savePluginData("appGlass", "inactiveMorePct", 20);
+                    // owed at once, before the debounce: a restart now keeps it
+                    t.check("a change waiting for its sync is owed", PluginService.loadPluginData("appGlass", "syncPending", false), true);
+                }
+            },
+            {
+                // a shell restart within the debounce: the next start sync
+                // applies the switch (not --no-switch), then nothing is owed
+                "run": () => {
+                    root.fresh(true, undefined, {
+                        "syncPending": true,
+                        "glassEnabled": false
+                    });
+                    t.check("an owed change: the start sync applies the switch", Proc.calls[0].command, Logic.syncArgv(root.bin, root.runFile, false));
+                    Proc.flush();
+                    t.check("synced off", root.lastSyncSettings().enabled, false);
+                    t.check("then nothing owed", PluginService.loadPluginData("appGlass", "syncPending", false), false);
+                    Proc.flush();
+                    // back to the run above
+                    root.fresh(true);
+                    Proc.flush();
+                    Proc.flush();
+                    root.mark = root.syncs().length;
                     PluginService.savePluginData("appGlass", "inactiveDurationMs", 250);
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 20);
                 }

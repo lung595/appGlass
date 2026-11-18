@@ -142,6 +142,11 @@ PluginComponent {
             root.announce = true;
         // only a start sync with nothing else asked since is no switch
         root.startSync = reason === "start" && (root.startSync || (!root.busy && !debounce.running));
+        // a change owes a sync with its switches: saved now, so a shell
+        // restart before the debounce ends still applies it (the next start
+        // sync is then no --no-switch)
+        if (reason !== "start" && root.pending() !== true)
+            root.save("syncPending", true);
         root.publish(syncingVar, true);
         if (root.busy) {
             root.again = true;
@@ -156,6 +161,12 @@ PluginComponent {
             debounce.restart();
         }
         return true;
+    }
+
+    property bool runNoSwitch: false
+
+    function pending() {
+        return root.service.loadPluginData(Logic.PLUGIN_ID, "syncPending", false);
     }
 
     function launchSync() {
@@ -181,8 +192,9 @@ PluginComponent {
             return;
         }
         root.busy = true;
-        const noSwitch = root.startSync;
+        const noSwitch = root.startSync && root.pending() !== true;
         root.startSync = false;
+        root.runNoSwitch = noSwitch;
         Proc.runCommand(Logic.SYNC_ID, Logic.syncArgv(root.bin, root.settingsFile, noSwitch), (out, code) => root.syncDone(out, code), 0, Logic.SYNC_TIMEOUT_MS, root);
     }
 
@@ -196,6 +208,9 @@ PluginComponent {
             return;
         }
         if (exitCode === 0) {
+            // what was owed is applied (unless more came meanwhile)
+            if (!root.runNoSwitch && !root.again && root.pending() === true)
+                root.save("syncPending", false);
             root.publish(lastErrorVar, "");
             root.publish(lastSyncVar, new Date().toISOString());
             if (root.announce)
