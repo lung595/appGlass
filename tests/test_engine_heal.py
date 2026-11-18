@@ -379,6 +379,23 @@ class Spawners(unittest.TestCase):
         self.w.app("glview.desktop", "GV", "glview", Categories="Graphics;")
         self.assertEqual(self.recs()["glview"]["toolkit"], "qt-widgets")
 
+    def test_a_gtk4_game_stays_out_of_the_games_block(self):
+        # w2 r2: a host GTK4 app reads the global gtk.css (the glass CSS)
+        # whatever its route; the games block (blur off) would leave it
+        # see-through with nothing behind. A GTK3 or Qt game stays in it
+        self.w.exe("sdlgtk4", elf(["libSDL2-2.0.so.0", "libgtk-4.so.1", "libc.so.6"]))
+        self.w.app("org.example.Gtk4Game.desktop", "G4", "sdlgtk4", Categories="Game;")
+        self.w.exe("sdlgtk", elf(["libSDL2-2.0.so.0"] + GTK3))
+        self.w.app("sdlgtk.desktop", "SG", "sdlgtk", Categories="Game;")
+        app = core.App(self.sb.env, quiet=True)
+        recs = self.recs()
+        rs = [(recs[k], adapters.resolve(recs[k], app.families, app.settings))
+              for k in ("org.example.Gtk4Game", "sdlgtk")]
+        self.assertEqual([r["state"] for _, r in rs], ["excluded", "excluded"])
+        fb, games = core._niri_ids(rs)
+        self.assertNotIn(recs["org.example.Gtk4Game"]["app_ids"][0], games)
+        self.assertIn(recs["sdlgtk"]["app_ids"][0], games)
+
 
 class Elevators(unittest.TestCase):
     """S9: every elevation front-end is the root class, in Exec or in a
