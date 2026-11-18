@@ -29,7 +29,8 @@ PluginSettings {
     readonly property string lastError: root.vars.lastError || ""
     readonly property bool syncing: root.vars.syncing === true
     readonly property string action: root.vars.action || ""
-    // "" | "removed" | "linkStays": the files are back (and the link stayed)
+    // "" | "removed" | "linkStays": the files are back (and the link stayed);
+    // "interrupted": a reload cut the uninstall short (Uninstall again)
     readonly property string uninstallState: root.vars.uninstallState || ""
     // uninstalled: the daemon syncs nothing, so nothing here offers a change
     readonly property bool gone: root.uninstallState !== ""
@@ -188,7 +189,7 @@ PluginSettings {
                         objectName: "headerStatus"
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 30
-                        text: root.gone ? "Uninstalled: every file restored" : !root.glassOn ? "Glass paused" : (root.status ? "Glass on, " + Logic.glassCount(root.status, true) + " apps on glass" : "Waiting for appglass")
+                        text: root.uninstallState === "interrupted" ? "Uninstall did not finish" : root.gone ? "Uninstalled: every file restored" : !root.glassOn ? "Glass paused" : (root.status ? "Glass on, " + Logic.glassCount(root.status, true) + " apps on glass" : "Waiting for appglass")
                         color: Theme.surfaceText
                         font.pixelSize: Theme.fontSizeMedium
                         font.weight: Theme.fontWeightMedium

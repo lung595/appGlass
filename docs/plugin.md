@@ -93,6 +93,8 @@ On confirm, the plugin:
 
 If step 2 fails, nothing is half-removed: the page says "Uninstall stopped: <error>. Glass is set up again from the current settings", and the glass comes back from a sync. If step 3 fails, the page says: "Every file is restored, but this plugin's link stays: run 'appglass plugin remove' in a terminal to finish." The bar pill then says "uninstalled". While the plugin is still loaded after an uninstall, **Set up again** brings the glass back, as on a first start.
 
+If DMS reloads the plugin or restarts while step 2 runs, the plugin starts without a sync (a sync would write the glass back) and the page says "Uninstall did not finish": **Uninstall** again finishes it, **Set up again** keeps the glass.
+
 The same from a terminal: `appglass remove && appglass plugin remove`.
 
 ## About

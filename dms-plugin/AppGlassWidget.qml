@@ -23,7 +23,7 @@ PluginComponent {
     readonly property string id_: root.pluginId || "appGlass"
     readonly property var service: root.pluginService || PluginService
     readonly property bool glassOn: root.pluginData.glassEnabled !== false
-    readonly property bool gone: uninstallVar.value === "removed" || uninstallVar.value === "linkStays"
+    readonly property bool gone: uninstallVar.value === "removed" || uninstallVar.value === "linkStays" || uninstallVar.value === "interrupted"
     readonly property bool lit: root.glassOn && !root.gone
     readonly property var pillText: {
         const comp = Qt.createComponent(root.freshUrl("components/PillText.qml"), Component.PreferSynchronous);

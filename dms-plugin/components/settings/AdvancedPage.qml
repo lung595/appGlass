@@ -77,7 +77,8 @@ CategoryPage {
         danger: true
         busy: page.host.action === "uninstall"
         // once the files are back, never again (the link may stay: below)
-        available: page.idle && page.host.uninstallState === ""
+        // (again, after a reload cut it short)
+        available: page.idle && (page.host.uninstallState === "" || page.host.uninstallState === "interrupted")
         onClicked: page.asking = "uninstall"
     }
     StyledText {

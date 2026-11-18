@@ -63,8 +63,10 @@ PluginComponent {
     // (uninstallState): a reload or a shell restart while the link stays
     // seeds and syncs nothing either; only reinstall() (the page's "Set up
     // again") brings the glass back. "removing" while the remove runs: a
-    // reload then runs it again
+    // reload then finds it cut short (interrupted: it syncs nothing, and
+    // only Uninstall or Set up again goes on)
     property bool uninstalled: false
+    property bool interrupted: false
 
     PluginGlobalVar {
         id: statusVar
@@ -278,16 +280,23 @@ PluginComponent {
     // worked, the plugin link (`appglass plugin remove`).
     function runAction(name) {
         const argv = root.bin ? Logic.actionArgv(name, root.bin) : null;
-        if (!argv || root.uninstalled || root.sweeping || actionVar.value)
+        const retry = name === "uninstall" && root.interrupted;
+        if (!argv || (root.uninstalled && !retry) || root.sweeping || actionVar.value)
             return false;
         root.publish(actionVar, name);
         if (name === "uninstall") {
+            if (retry) {
+                // the uninstall a reload cut short, asked again
+                root.uninstalled = false;
+                root.interrupted = false;
+                root.publish(uninstallVar, "");
+            }
             // a new try: the last one's stop is old news
             root.publish(uninstallErrorVar, "");
             root.sweeping = true;
             // kept at once: a reload or a shell restart before removeDone
-            // runs the remove again instead of seeding and syncing the glass
-            // back (the callback of a remove whose owner is gone never comes)
+            // must not seed and sync the glass back (the callback of a
+            // remove whose owner is gone never comes)
             root.save("uninstallState", "removing");
             // a sync waiting for its debounce: kept for a failed remove
             if (debounce.running)
@@ -355,9 +364,11 @@ PluginComponent {
         if (!root.uninstalled || root.sweeping || actionVar.value || !root.bin)
             return false;
         root.uninstalled = false;
+        root.interrupted = false;
         root.save("uninstallState", "");
         root.publish(uninstallVar, "");
         root.publish(lastErrorVar, "");
+        root.publish(uninstallErrorVar, "");
         root.seed();
         return true;
     }
@@ -378,6 +389,8 @@ PluginComponent {
     // The IPC answer to a change while uninstalling, or after ("" when
     // none): such a change is not saved
     function ipcRefusal() {
+        if (root.interrupted)
+            return "uninstalling";
         return root.uninstalled ? "uninstalled" : (root.sweeping ? "uninstalling" : "");
     }
 
@@ -431,10 +444,8 @@ PluginComponent {
         target: "appGlass"
 
         function sync(): string {
-            if (root.uninstalled)
-                return "uninstalled";
-            if (root.sweeping)
-                return "uninstalling";
+            if (root.ipcRefusal())
+                return root.ipcRefusal();
             return root.requestSync("reapply", 0) ? "OK" : "not ready";
         }
         function status(): string {
@@ -489,13 +500,15 @@ PluginComponent {
         root.publish(uninstallVar, "");
         const seeded = root.service.loadPluginData(Logic.PLUGIN_ID, "seeded", false) === true;
         if (gone === "removing") {
-            // an uninstall a reload cut short: `appglass remove` again (it
-            // is idempotent), never a seed or a sync; a remove that stops
-            // goes back to syncing (removeDone)
+            // an uninstall a reload cut short (its callback never came): no
+            // seed and no sync (they would write the glass back), and no
+            // remove either (no plugin event runs one): the page offers
+            // Uninstall again or Set up again
             root.ready = seeded;
-            root.sweeping = true;
-            root.publish(actionVar, "uninstall");
-            root.launchRemove();
+            root.uninstalled = true;
+            root.interrupted = true;
+            root.publish(uninstallVar, "interrupted");
+            root.publish(uninstallErrorVar, "Uninstall did not finish (the shell reloaded while it ran). Uninstall again to finish it, or Set up again to keep the glass");
             return;
         }
         if (seeded) {
