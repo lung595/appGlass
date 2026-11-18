@@ -554,6 +554,25 @@ class Routing(unittest.TestCase):
             self.assertEqual(json.load(f), {"foregroundLayerTransparency": 0.5})
         self.assertAlmostEqual(verify.staged_level(home), 0.8)
 
+    def test_stage_carries_what_the_family_asks_for(self):
+        """A family's verify_stage(env) -> {real path: bytes} (Obsidian's
+        vault list) goes to the throwaway HOME, the real HOME rewritten."""
+        g = bin_elf(self.w, "gtkapp", GTK3)
+        self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
+        self.run_ok("apply", "--only", "gtk3")
+        app = core.App(self.sb.env, quiet=True)
+        fam = app.families["gtk3"]
+        real = app.env.config_path("gtkapp", "list.json")
+        fam.verify_stage = lambda env: {real: ('{"path": "%s/Notes"}' % env.home).encode()}
+        try:
+            run = self.sb.path("stage-run")
+            os.makedirs(run)
+            home = verify.stage(app, engine.record_for(app, "gtkapp"), run)
+        finally:
+            del fam.verify_stage
+        with open(os.path.join(home, ".config", "gtkapp", "list.json")) as f:
+            self.assertEqual(json.load(f), {"path": home + "/Notes"})
+
     def test_xdg_data_home_outside_home_is_staged_under_the_throwaway_home(self):
         """XDG_DATA_HOME outside HOME: the theme goes to the default data dir
         under the throwaway HOME, where the hidden session looks for it."""

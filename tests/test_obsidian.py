@@ -82,6 +82,21 @@ class Obsidian(unittest.TestCase):
         return self.sb.read(self.snippet_path(vault))
 
     # content
+    def test_the_check_stages_the_vault_list(self):
+        """The hidden check: without obsidian.json in the throwaway HOME,
+        Obsidian opens its vault chooser (no snippet, alpha 5). The list
+        goes with the vaults under HOME only (one outside cannot be staged:
+        the hidden app would open the real one); no note is staged."""
+        out = os.path.join(self.sb.root, "elsewhere")
+        os.makedirs(out)
+        self.config = self.obsidian_json([self.vault, out])
+        env = core.Env(self.sb.env)
+        files = fam.verify_stage(env)
+        self.assertEqual(list(files), [self.config])
+        data = json.loads(files[self.config].decode())
+        self.assertEqual(data, {"vaults": {"0000000000000001": {
+            "path": self.vault, "ts": 1, "open": True}}})
+
     def test_content_and_keys(self):
         self.apply()
         css = self.css()

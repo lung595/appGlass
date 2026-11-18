@@ -244,6 +244,11 @@ def stage(app, rec, run):
             with open(p, "rb") as f:
                 staged[p] = (f.read(), stat.S_IMODE(os.stat(p).st_mode))
     staged.update(candidate(app, owner, rec.get("key")) if owner else {})
+    # what the family says the app needs to open on its glass window
+    # (Obsidian: its vault list), {real path: bytes}
+    hook = getattr(app.families.get(owner or ""), "verify_stage", None)
+    if hook:
+        staged.update({p: (data, 0o644) for p, data in (hook(env) or {}).items()})
     # the level sources (core.Levels.from_env): the shims and the launchers
     # read the level at run time, so without them the hidden app runs at the
     # 0.60 default while the judge wants the user's level. The window rule

@@ -117,6 +117,30 @@ def vaults(env, warn=None, unreadable=None):
     return out
 
 
+def verify_stage(env):
+    """The hidden check (appglass verify): {obsidian.json: bytes} to stage in
+    the throwaway HOME, else Obsidian opens its vault chooser there. Only the
+    vaults under HOME go (their paths are rehomed with the staged snippet;
+    one elsewhere would be the real vault): paths, never notes."""
+    out = {}
+    for cfg in (flatpak_config(env), native_config(env)):
+        try:
+            with open(cfg, "rb") as f:
+                data = json.loads(f.read().decode("utf-8"))
+        except (OSError, ValueError):
+            continue
+        vs = data.get("vaults") if isinstance(data, dict) else None
+        keep = {}
+        for vid, v in (vs.items() if isinstance(vs, dict) else ()):
+            p = v.get("path") if isinstance(v, dict) else None
+            if isinstance(p, str) and os.path.isdir(p) and \
+                    os.path.abspath(p).startswith(env.home + os.sep):
+                keep[vid] = {k: v[k] for k in ("path", "ts", "open") if k in v}
+        if keep:
+            out[cfg] = json.dumps({"vaults": keep}).encode("utf-8")
+    return out
+
+
 def skip_reason(env, rec):
     """Why a glass Obsidian is plain: no vault to put the snippet in (apply
     skips the family), else None. An obsidian.json that does not read says
