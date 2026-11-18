@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # e2e: GTK3 glass (AppGlass theme, mode B) in a nested niri.
 #
-#   APPGLASS_HARNESS=<harness.sh> [APPGLASS_E2E_OUT=<dir>] tests/e2e/gtk3.sh
+#   APPGLASS_HARNESS=<harness.sh> [APPGLASS_E2E_OUT=<dir>] [APPGLASS_E2E_LEVEL=0.80] tests/e2e/gtk3.sh
+#
+# APPGLASS_E2E_LEVEL sets the content level in the sandbox (at 0.60, the
+# DMS default, the unfocused level is the same and there is no fade to see)
 #
 # 1. generate appglass.kdl in a scratch sandbox, start the nested niri with
 #    the global Glass blur rule + that rule file (+ a rule for the role
@@ -17,6 +20,8 @@
 #    * tests/e2e/gtk3_roles.py: headerbar/menubar/toolbar/sidebar at the bar
 #      level and an opaque popover
 #    content glass, bars, opaque text >= 2:1
+#    * unfocused: a second role window takes the focus; the first one's
+#      background is at the inactive level (the CSS fade), its text opaque
 # 4. appglass remove; every appglass-relevant file is byte-identical to the
 #    snapshot (the apps' own runtime files are not ours)
 
@@ -40,6 +45,7 @@ seed() {
     ag_mkroot "$r"
     ag_seed_dms "$r"
     ag_seed_niri "$r"
+    [ -z "${APPGLASS_E2E_LEVEL:-}" ] || ag_set_level "$r" "$APPGLASS_E2E_LEVEL"
     ag_copy_in "$(ag_real_config)/gtk-3.0/dank-colors.css" "$AG_FIX/gtk/dank-colors.css" \
         "$r/config/gtk-3.0/dank-colors.css"
 }
@@ -113,7 +119,7 @@ cp "$THEME" "$AG_OUT/AppGlass-gtk.css-$RUN"
 
 # expected levels and colours: dank-colors.css, then the theme's overrides; text from
 # the Adwaita stylesheet the theme imports
-read -r CONTENT8 BAR8 FG POPOVER DISABLED < <(python3 -I - "$AG_REPO" "$SB" "$THEME" <<'PY'
+read -r CONTENT8 BAR8 FG POPOVER DISABLED UNFOCUSED8 < <(python3 -I - "$AG_REPO" "$SB" "$THEME" <<'PY'
 import os, re, sys
 sys.path.insert(0, sys.argv[1])
 from appglass import core
@@ -138,11 +144,14 @@ fg = re.search(r"@define-color\s+theme_fg_color\s+(#[0-9a-fA-F]{6})", css).group
 wf, wb = c["window_fg_color"], c["window_bg_color"]
 dis = "#" + "".join("%02x" % round(int(wf[i:i + 2], 16) * 0.8 + int(wb[i:i + 2], 16) * 0.2)
                     for i in (1, 3, 5))
-print(lv.content8, lv.bar8, fg, c["popover_bg_color"], dis)
+from appglass import inactive, settings
+p = inactive.params(settings.load(env)[0])
+unf = inactive.level(lv.content, p["factor"]) if p["enabled"] else lv.content
+print(lv.content8, lv.bar8, fg, c["popover_bg_color"], dis, round(unf * 255))
 PY
 )
-[ -n "$DISABLED" ] || ag_die "could not read the expected colours"
-ag_log "expected content $CONTENT8 bar $BAR8 text $FG disabled text $DISABLED popover $POPOVER"
+[ -n "$UNFOCUSED8" ] || ag_die "could not read the expected colours"
+ag_log "expected content $CONTENT8 bar $BAR8 text $FG disabled text $DISABLED popover $POPOVER unfocused $UNFOCUSED8"
 WP=$(ag_wallpaper); WPA=(); [ -n "$WP" ] && WPA=(--wallpaper "$WP")
 BASE=(--content "$CONTENT8" --tol 6 --text "$FG" "${WPA[@]}")
 FAILS=0
@@ -199,6 +208,35 @@ fi
 ID=$(show roles-popover "$ROLES_ID" 20 env GTK_THEME=AppGlass python3 -I "$ROLES" popover) \
     || ag_die "no role window"
 measure roles-popover "$(shoot roles-popover "$ID")" "${BASE[@]}" --bar "$BAR8" --popup "$POPOVER"
+closewin "$ID"
+
+# 3d. unfocused: a second role window takes the focus, the first one fades
+# its own background (window.background:backdrop, a CSS transition) and keeps
+# its text opaque, at the focused colour
+ID=$(show roles-unfocused "$ROLES_ID" 20 env GTK_THEME=AppGlass python3 -I "$ROLES" plain) \
+    || ag_die "no role window"
+measure roles-focused "$(shoot roles-focused "$ID")" "${BASE[@]}"
+NOBUS=1 ag_harness run "$NAME" -- env GTK_THEME=AppGlass python3 -I "$ROLES" plain >&2
+ID2=""
+for _ in $(seq 1 100); do
+    ID2=$(ag_harness windows "$NAME" 2>/dev/null | jq -r --arg re "$ROLES_ID" --argjson id "$ID" \
+        'select(.app_id != null and (.app_id | test($re)) and .id != $id) | .id' | head -1 || true)
+    [ -n "$ID2" ] && break
+    sleep 0.2
+done
+[ -n "$ID2" ] || ag_die "no second role window"
+ag_harness msg "$NAME" action focus-window --id "$ID2" >/dev/null
+sleep 2
+[ "$(ag_harness msg "$NAME" -j focused-window | jq -r .id)" = "$ID2" ] \
+    || ag_die "the second role window did not take the focus"
+if [ "$UNFOCUSED8" -lt "$CONTENT8" ]; then
+    measure roles-unfocused "$(shoot roles-unfocused "$ID")" --content "$UNFOCUSED8" --tol 6 --text "$FG" "${WPA[@]}"
+else
+    # no fade at this level: the old unfocused cues (Adwaita's backdrop text)
+    measure roles-unfocused "$(shoot roles-unfocused "$ID")" --content "$CONTENT8" --tol 6 --glyph-min 0 "${WPA[@]}"
+    ag_log "no fade at content $CONTENT8 (APPGLASS_E2E_LEVEL=0.80 shows it)"
+fi
+closewin "$ID2"
 closewin "$ID"
 
 # 4. remove

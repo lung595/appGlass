@@ -74,6 +74,28 @@ ag_seed_dms() {
         "$r/cache/dms/dms-colors.json"
 }
 
+# ag_set_level <root> <v>: the content level the way the user sets it: DMS
+# foregroundLayerTransparency and the Glass blur rule's opacity (as the
+# sandbox fixture's set_level)
+ag_set_level() {
+    python3 -I - "$1" "$2" <<'PY'
+import json, os, re, sys
+r, v = sys.argv[1], float(sys.argv[2])
+sp = os.path.join(r, "config", "dms", "settings.json")
+with open(sp) as f:
+    s = json.load(f)
+s["foregroundLayerTransparency"] = v
+with open(sp, "w") as f:
+    json.dump(s, f)
+rp = os.path.join(r, "config", "niri", "dms", "windowrules.kdl")
+if os.path.exists(rp):
+    with open(rp) as f:
+        t = f.read()
+    with open(rp, "w") as f:
+        f.write(re.sub(r"opacity 0\.\d+", "opacity %.2f" % v, t, count=1))
+PY
+}
+
 ag_seed_niri() {
     local r=$1
     mkdir -p "$r/config/niri/dms"
