@@ -33,23 +33,45 @@ static int g_dbg;
 static char *g_css, *g_js, *g_js_start;   // APPGLASS_CSS, APPGLASS_JS, APPGLASS_JS_START
 static int dbg(void) { return g_dbg; }
 
+// The environment is edited in the environ array itself, not with
+// unsetenv/setenv: a shell (bash) exports its own getenv/setenv/unsetenv,
+// which in its constructor do not reach the environ it later builds its
+// children from, so a launcher script would pass the shim on.
+extern char **environ;
+
+static char **env_find(const char *name) {   // the environ slot of name, or NULL
+    size_t n = strlen(name);
+    for (char **e = environ; e && *e; e++) if (strncmp(*e, name, n) == 0 && (*e)[n] == '=') return e;
+    return NULL;
+}
+
+static void env_drop(char **slot) {   // the entry out of the array, the rest moved up
+    do slot[0] = slot[1]; while (*slot++);
+}
+
 static char *take(const char *name) {   // the value, out of the environment
-    const char *v = getenv(name); char *c = v ? strdup(v) : NULL;
-    unsetenv(name); return c;
+    char **e, *c = NULL;
+    while ((e = env_find(name))) { if (!c) c = strdup(*e + strlen(name) + 1); env_drop(e); }
+    return c;
 }
 
 // LD_PRELOAD without the entries named appglass-wk.so (':' or ' ' separated)
 static void drop_preload(void) {
-    const char *v = getenv("LD_PRELOAD"); if (!v) return;
-    char *in = strdup(v), *out = calloc(1, strlen(v) + 1); if (!in || !out) { free(in); free(out); return; }
+    char **e = env_find("LD_PRELOAD"); if (!e) return;
+    const char *v = *e + strlen("LD_PRELOAD=");
+    char *in = strdup(v), *out = calloc(1, strlen("LD_PRELOAD=") + strlen(v) + 1);
+    if (!in || !out) { free(in); free(out); return; }
+    strcpy(out, "LD_PRELOAD=");
+    size_t head = strlen(out);
     for (char *save = NULL, *t = strtok_r(in, ": ", &save); t; t = strtok_r(NULL, ": ", &save)) {
         const char *b = strrchr(t, '/'); b = b ? b + 1 : t;
         if (strcmp(b, "appglass-wk.so") == 0) continue;
-        if (*out) strcat(out, ":");
+        if (strlen(out) > head) strcat(out, ":");
         strcat(out, t);
     }
-    if (*out) setenv("LD_PRELOAD", out, 1); else unsetenv("LD_PRELOAD");
-    free(in); free(out);
+    free(in);
+    if (strlen(out) > head) *e = out;   // kept for the life of the process, as putenv's
+    else { free(out); env_drop(e); }
 }
 
 __attribute__((constructor)) static void appglass_wk_init(void) {
