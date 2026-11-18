@@ -93,7 +93,7 @@ CategoryPage {
     StyledText {
         objectName: "uninstallLinkHint"
         width: parent.width
-        visible: page.host.uninstallState === "linkStays"
+        visible: page.view.shown("uninstallButton") && page.host.uninstallState === "linkStays"
         text: "Every file is restored, but this plugin's link stays: run 'appglass plugin remove' in a terminal to finish."
         color: Theme.error
         font.pixelSize: Theme.fontSizeSmall
@@ -102,7 +102,7 @@ CategoryPage {
     StyledText {
         objectName: "uninstallExternalHint"
         width: parent.width
-        visible: page.host.uninstallState === "external"
+        visible: page.view.shown("uninstallButton") && page.host.uninstallState === "external"
         text: "Every file is restored, but DMS loads this plugin from outside appglass's link: turn it off in DMS Settings > Plugins."
         color: Theme.error
         font.pixelSize: Theme.fontSizeSmall

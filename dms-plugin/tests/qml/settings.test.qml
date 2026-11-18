@@ -619,6 +619,12 @@ Item {
                     t.check("the link stays: Uninstall stays off", root.find(p, "uninstallButton").enabled, false);
                     t.check("and says how to finish", [root.shown("uninstallLinkHint"), root.find(p, "uninstallLinkHint").text.indexOf("appglass plugin remove") >= 0], [true, true]);
                     t.check("not the outside-link hint", root.shown("uninstallExternalHint"), false);
+                    root.type("learn");
+                }
+            },
+            {
+                "run": () => {
+                    t.check("a search for something else: no link hint", [root.shown("learnButton"), root.shown("uninstallLinkHint")], [true, false]);
                     // --- DMS loads the plugin from outside appglass's link:
                     // `appglass plugin remove` can do nothing there
                     root.fresh(true, {
@@ -639,6 +645,12 @@ Item {
                     t.check("says to turn it off in DMS", [root.shown("uninstallExternalHint"), root.find(p, "uninstallExternalHint").text.indexOf("DMS Settings > Plugins") >= 0], [true, true]);
                     t.check("set up again offered", root.shown("reinstallButton"), true);
                     t.check("the header says it", root.find(p, "headerStatus").text.indexOf("Uninstalled") === 0, true);
+                    root.type("learn");
+                }
+            },
+            {
+                "run": () => {
+                    t.check("a search for something else: no outside-link hint", [root.shown("learnButton"), root.shown("uninstallExternalHint"), root.shown("reinstallButton")], [true, false, false]);
                     root.fresh(true, {
                         "status": root.status,
                         "lastError": "",
