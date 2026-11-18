@@ -277,19 +277,19 @@
    "app": "Lian Li Linux (lianli-gui)",
    "toolkit": "Tauri / WebKitGTK",
    "family": "lianli",
-   "route": "webkit-shim appglass-wk.so; opt-in",
+   "route": "webkit-shim appglass-wk.so; opt-in. e2e in a nested niri with its daemon hidden: content 153, bars 166",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "commit 7b90b43"
+   "evidence": "tests/e2e/lianli.sh, commit 84ce964"
   },
   {
    "app": "Kiri 0.2.1 (kiri-window)",
    "toolkit": "Tauri / WebKitGTK",
    "family": "webkit",
-   "route": "webkit-shim appglass-wk.so + page CSS/JS from the page's own colours, found by toolkit (any host GTK3 WebKitGTK 4.x app); opt-in",
+   "route": "webkit-shim appglass-wk.so + page CSS/JS from the page's own colours, found by toolkit (any host GTK3 WebKitGTK 4.x app); opt-in. e2e in a nested niri: content 153 (94% within 6), bars 166, language dialog 255; its hidden check passes (background 153, opaque text) and then applies the glass",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "tests/e2e/webkit.sh"
+   "evidence": "tests/e2e/webkit.sh, commit 7e67ea2"
   },
   {
    "app": "Discord + Vencord",
