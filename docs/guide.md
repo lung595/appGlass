@@ -99,7 +99,7 @@ appglass set apps.<key>.enabled true --apply   # on again (a Forced route you tu
 appglass set apps.<key>.route <name>           # pick a route, when the app lists several
 ```
 
-`<key>` is the family name (`alacritty`, `gtk3`, `feishin`, ...), or the key `appglass status` shows for a Forced or Mod app, when it has no dots (`discord`). An app id with dots in it (`org.gnome.Nautilus`, every flatpak id) does not work here: `appglass set` reads each dot as a level of the key and refuses ("unknown key in apps.org"). Switch such an app from the settings page or with IPC (`dms ipc call appGlass app org.jeffvli.feishin off`). While the plugin is installed and enabled it owns the settings, and `appglass set` refuses with a hint: use the settings page or IPC then.
+`<key>` is the family name (`alacritty`, `gtk3`, `feishin`, ...), or the key `appglass status` shows for a Forced or Mod app, when it has no dots (`discord`). An app id with dots in it (`org.gnome.Nautilus`, every flatpak id) does not work here: `appglass set` reads each dot as a level of the key and refuses ("unknown key in apps.org: gnome"). Switch such an app from the settings page or with IPC (`dms ipc call appGlass app org.jeffvli.feishin off`). While the plugin is installed and enabled it owns the settings, and `appglass set` refuses with a hint: use the settings page or IPC then.
 
 TODO(engine): `appglass set` taking an app id with dots.
 
@@ -148,7 +148,8 @@ appglass learn [--json] [--dry-run]     # record the toolkit of each open window
 appglass apply [--only f1,f2] [--dry-run]
 appglass apply --all [--adopt] [--dry-run]
 appglass adopt [paths] [--dry-run]      # hand known hand-made glass files to appglass, backed up first
-appglass remove [--only f1,f2]
+appglass adopt --rescue [--dry-run]     # state.json lost, none to restore: record its files again
+appglass remove [--only f1,f2] [--forget-away]
 appglass restore [id] [--list]
 appglass get [key]                      # settings.json, or one dotted key
 appglass set <key> <value> [--apply]

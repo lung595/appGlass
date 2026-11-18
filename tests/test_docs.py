@@ -841,6 +841,10 @@ class FadeRoutes(unittest.TestCase):
         self.assertNotIn("every glass route", bullet)
         for name in self.NAMES.values():
             self.assertIn(name, bullet, name)
+        # w2 r2: Lian Li has the fade built in but is opaque (its check fails);
+        # and the fade is recorded only for some routes
+        self.assertRegex(bullet, r"Lian Li[^.;]*opaque")
+        self.assertRegex(bullet, r"recorded in a session for [^.]*Kiri")
 
     def test_the_roadmap_names_dux_and_herdr(self):
         road = section(read("README.md"), "Roadmap")
@@ -1060,6 +1064,8 @@ class FadeBullet(unittest.TestCase):
         line = next(l for l in f.splitlines() if l.startswith("- **Unfocused windows fade"))
         for name in FadeRoutes.NAMES.values():
             self.assertIn(name, line, name)
+        self.assertRegex(line, r"Lian Li[^.;]*opaque")
+        self.assertRegex(line, r"Recorded in a session: [^.]*Kiri")
         self.assertIn("#roadmap", line)
 
 

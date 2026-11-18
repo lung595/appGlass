@@ -109,7 +109,7 @@ The GIFs are crossfades between real screenshots, taken in a separate test sessi
 - **Only the background turns glass.** niri keeps the window at `opacity 1.0`. Each app paints its own background with alpha. Text, icons and logos stay fully opaque.
 - **Three levels, from one number.** Content follows the DMS level. Bars (header bars, sidebars, tab bars) stay at `max(content, 0.65)`. Menus, popovers and dialogs stay opaque.
 - **Colours follow DMS.** A wallpaper or scheme change re-renders the app colours through the matugen hook.
-- **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin, Lian Li and the WebKitGTK apps (Kiri). Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
+- **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin and the WebKitGTK apps (Kiri; Lian Li has it built in but stays opaque while its check fails). Recorded in a session: GTK3, VLC, Feishin, Jellyfin and Kiri; the others are unit-tested only ([routes.md](docs/routes.md) says so per app). Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
 - **New and updated apps are found on their own.** A new app is routed within seconds.
 - **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts everything back byte for byte.
 - **Never touched:** games, root GUIs, the windows DMS draws itself, and Firefox-family browsers (those belong to [browserGlass](https://github.com/lung595/browserGlass)).
@@ -344,7 +344,7 @@ These are plans, not promises. They have no dates.
 
 ## Credits
 
-Built on [DMS](https://github.com/duxlabs-dev/dux-shell) (Dux Modular Shell, formerly DankMaterialShell), [Quickshell](https://quickshell.org) and [niri](https://github.com/YaLTeR/niri).
+Built on [DMS](https://github.com/duxlabs-dev/dux-shell) (Dux Modular Shell, formerly DankMaterialShell), [Quickshell](https://quickshell.org) and [niri](https://github.com/niri-wm/niri).
 
 The levels come from [browserGlass](https://github.com/lung595/browserGlass): the bar level of 0.65 and the opaque menus are its own.
 
