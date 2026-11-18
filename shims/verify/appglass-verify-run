@@ -13,6 +13,10 @@ RUN=$1 RX=$2 SHOT=$3 WAIT=${4:-10}
 case "$XDG_RUNTIME_DIR" in "$RUN"/*) ;; *) echo "refusing: runtime dir not private"; exit 2 ;; esac
 [ -n "${AGV_REAL_NIRI:-}" ] && [ "$AGV_REAL_NIRI" = "${NIRI_SOCKET:-}" ] && { echo refusing; exit 2; }
 unset NIRI_SOCKET WAYLAND_DISPLAY DISPLAY AGV_REAL_NIRI
+# headless gamescope segfaults when it is stopped (SIGTERM, or its own
+# shutdown once niri ends): it is only ever killed (SIGKILL dumps no core),
+# and nothing here may dump one
+ulimit -c 0
 gamescope --backend headless -W 1280 -H 800 -w 1280 -h 800 -r 30 --expose-wayland -- \
     niri -c "$RUN/niri.kdl" >"$RUN/niri.log" 2>&1 </dev/null &
 GPID=$!
@@ -24,8 +28,12 @@ done
 APID=''
 end() {
     [ -n "$APID" ] && { kill -TERM -- "-$APID" 2>/dev/null; sleep 0.5; kill -KILL -- "-$APID" 2>/dev/null; }
-    [ -n "${NPID:-}" ] && kill "$NPID" 2>/dev/null; sleep 0.5
-    kill "$GPID" 2>/dev/null; sleep 0.5; kill -9 "$GPID" 2>/dev/null
+    kill -KILL "$GPID" 2>/dev/null; wait "$GPID" 2>/dev/null
+    # niri ends with its display; a niri that hangs on is stopped
+    if [ -n "${NPID:-}" ]; then
+        for _ in $(seq 1 20); do kill -0 "$NPID" 2>/dev/null || break; sleep 0.1; done
+        kill "$NPID" 2>/dev/null
+    fi
     wait 2>/dev/null
 }
 if [ -z "$sock" ]; then echo "window=none (no niri)"; end; exit 0; fi

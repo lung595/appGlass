@@ -1370,6 +1370,51 @@ class Harness(unittest.TestCase):
         finally:
             sb.cleanup()
 
+    def test_teardown_kills_gamescope_never_terms_it(self):
+        # w2 r2: headless gamescope segfaults on SIGTERM and on its own
+        # shutdown after niri ends; either leaves a crash record. SIGKILL
+        # dumps nothing: the run kills gamescope, niri ends with its display
+        sb = Sandbox()
+        try:
+            run = sb.path("run")
+            rt = os.path.join(run, "rt")
+            fake = sb.path("fakebin")
+            for d in (rt, fake):
+                os.makedirs(d)
+            log = os.path.join(run, "gs.log")
+            with open(os.path.join(fake, "gamescope"), "w") as f:
+                f.write('#!/bin/sh\necho "core=$(ulimit -c)" >>"%s"\n'
+                        'trap \'echo TERM >>"%s"; exit 139\' TERM\n'
+                        'while [ "$1" != "--" ]; do shift; done; shift\n'
+                        '"$@" &\nwait $!\necho own-shutdown >>"%s"\nexit 139\n' % (log, log, log))
+            with open(os.path.join(fake, "niri"), "w") as f:
+                f.write('#!/bin/sh\n[ "$1" = msg ] && { echo "[]"; exit 0; }\n'
+                        's="$XDG_RUNTIME_DIR/niri.wayland-9.$$.sock"; : >"$s"\n'
+                        'echo "niri=$$" >>"%s"\n'
+                        'while kill -0 $PPID 2>/dev/null; do sleep 0.05; done\n'
+                        'rm -f "$s"\n' % log)
+            for n in ("gamescope", "niri"):
+                os.chmod(os.path.join(fake, n), 0o755)
+            with open(os.path.join(run, "cmd.sh"), "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            r = subprocess.run(["bash", verify.harness_script(), run, "^x$", sb.path("s.png"), "1"],
+                               env={"PATH": fake + ":/usr/bin:/bin", "XDG_RUNTIME_DIR": rt},
+                               capture_output=True, text=True, timeout=30)
+            self.assertIn("window=none", r.stdout)
+            with open(log) as f:
+                got = f.read()
+            self.assertIn("core=0", got)
+            self.assertNotIn("TERM", got)
+            self.assertNotIn("own-shutdown", got)
+            npid = int(re.search(r"niri=(\d+)", got).group(1))
+            for _ in range(40):
+                if not os.path.exists("/proc/%d" % npid):
+                    break
+                time.sleep(0.05)
+            self.assertFalse(os.path.exists("/proc/%d" % npid), "niri left running")
+        finally:
+            sb.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
