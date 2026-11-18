@@ -18,8 +18,9 @@
 # e2e looks, under the same mask, that no bus path is a socket and no socket
 # is left under either systemd dir (only paths: nothing real is asked). No
 # network (unshare -n when available; under it no host name may resolve).
-# The user's Lian Li data is only listed, before and after, and the lianli-*
-# units must stay quiet in both the system and the user journal while it runs.
+# The user's Lian Li data is only listed, before and after, and neither
+# systemd manager may log a job line about a lianli-* unit while it runs (the
+# real daemon's own log is not one).
 #
 # 1. scratch sandbox: apply/remove round trip (whole tree back to the same
 #    sha256), the rule file for the nested niri
@@ -159,7 +160,7 @@ PY
 [ "$REMOVE_RC" = 0 ] || ag_die "remove did not bring the sandbox back"
 [ "$REAL_OK" = 1 ] || ag_die "the user's Lian Li data changed"
 [ -n "$JMARK" ] || ag_die "the system journal is not readable: cannot show the units stayed quiet"
-[ -z "$JOURNAL" ] || ag_die "lianli-* units ran while the GUI was up (see $AG_OUT/journal.txt)"
+[ -z "$JOURNAL" ] || ag_die "the system manager ran lianli-* units while the GUI was up (see $AG_OUT/journal.txt)"
 [ -n "$UJMARK" ] || ag_die "the user journal is not readable: cannot show the user units stayed quiet"
-[ -z "$UJOURNAL" ] || ag_die "lianli-* user units ran while the GUI was up (see $AG_OUT/journal-user.txt)"
+[ -z "$UJOURNAL" ] || ag_die "the user manager ran lianli-* units while the GUI was up (see $AG_OUT/journal-user.txt)"
 echo "e2e lianli: PASS"

@@ -221,21 +221,35 @@ ag_no_dns() {
 ag_journal_mark() {
     journalctl -q -n 0 --show-cursor --no-pager 2>/dev/null | sed -n 's/^-- cursor: //p'
 }
-# ag_journal_since <cursor> <unit>... -> the entries of those units after it
-ag_journal_since() {
-    local c=$1 u a=(); shift
-    [ -n "$c" ] || return 0
-    for u in "$@"; do a+=(-u "$u"); done
-    journalctl -q --no-pager --after-cursor="$c" "${a[@]}" 2>/dev/null || true
+# ag_journal_select <field> <unit glob>... -> "<unit>: <message>" for each
+# journal entry (JSON lines on stdin) of the manager whose <field> names one
+# of those units: _PID 1 (UNIT) or a user manager (_COMM systemd, USER_UNIT).
+# A unit's own log (the real daemon at work) is not a manager's job line.
+ag_journal_select() {
+    local f=$1 u re=; shift
+    for u in "$@"; do
+        u=$(printf '%s' "$u" | sed 's/[.^$+(){}|\\[]/\\&/g; s/\*/.*/g; s/?/./g')
+        re="${re:+$re|}^($u)\$"
+    done
+    jq -r --arg f "$f" --arg re "$re" 'select(
+        (if $f == "UNIT" then ._PID == "1" else ._COMM == "systemd" end)
+        and (.[$f] | type == "string") and (.[$f] | test($re))) | "\(.[$f]): \(.MESSAGE)"' 2>/dev/null || true
 }
-# ag_user_journal_mark / ag_user_journal_since <cursor> <unit>...: the same
-# in the user journal (units of the user manager)
+# ag_journal_since <cursor> <unit glob>... -> the system manager's lines
+# about those units after it
+ag_journal_since() {
+    local c=$1; shift
+    [ -n "$c" ] || return 0
+    journalctl -q --no-pager --after-cursor="$c" -o json _PID=1 2>/dev/null | ag_journal_select UNIT "$@"
+}
+# ag_user_journal_mark / ag_user_journal_since <cursor> <unit glob>...: the
+# same in the user journal (the user manager's lines about its units)
 ag_user_journal_mark() {
     journalctl --user -q -n 0 --show-cursor --no-pager 2>/dev/null | sed -n 's/^-- cursor: //p'
 }
 ag_user_journal_since() {
-    local c=$1 u a=(); shift
+    local c=$1; shift
     [ -n "$c" ] || return 0
-    for u in "$@"; do a+=(--user-unit "$u"); done
-    journalctl --user -q --no-pager --after-cursor="$c" "${a[@]}" 2>/dev/null || true
+    journalctl --user -q --no-pager --after-cursor="$c" -o json _COMM=systemd 2>/dev/null \
+        | ag_journal_select USER_UNIT "$@"
 }

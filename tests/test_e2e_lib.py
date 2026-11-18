@@ -176,11 +176,40 @@ class SessionDoors(unittest.TestCase):
         self.assertIn('grep -qx /run/lianli || ag_die', src)
         self.assertIn("ag_user_journal_since", src)
 
-    def test_the_user_journal_is_read_by_user_unit(self):
-        self.fake("journalctl", 'echo "$*"\n')
-        r = self.sh("ag_user_journal_since c1 'lianli-*'")
+    # one entry of each kind: the daemon's own log, a manager's job line
+    DAEMON = '{"_PID":"812","_COMM":"lianli-daemon","_SYSTEMD_UNIT":"lianli-daemon.service","MESSAGE":"fan 2 rpm 900"}'
+    PID1 = '{"_PID":"1","_COMM":"systemd","UNIT":"lianli-control-recovery.service","MESSAGE":"Starting lianli-control-recovery.service..."}'
+    GUI = '{"_PID":"9001","_COMM":"lianli-gui","_SYSTEMD_USER_UNIT":"lianli-gui.scope","MESSAGE":"window up"}'
+    USERMGR = '{"_PID":"1500","_COMM":"systemd","USER_UNIT":"lianli-session.service","MESSAGE":"Starting lianli-session.service..."}'
+
+    def journal(self, lines):
+        # the fake ignores the matches it is given: the filter must hold alone
+        self.fake("journalctl", 'echo "$*" >> "%s/jargs"\ncat <<\'J\'\n%s\nJ\n'
+                  % (self.sb.path(), "\n".join(lines)))
+
+    def test_the_system_journal_gate_sees_only_the_managers_job_lines(self):
+        """The real daemon logging (fans, lights) is no unit start: only the
+        system manager's own lines about a lianli-* unit fail the gate."""
+        self.journal([self.DAEMON])
+        self.assertEqual(self.sh("ag_journal_since c1 'lianli-*'").stdout, "")
+        self.journal([self.DAEMON, self.PID1])
+        r = self.sh("ag_journal_since c1 'lianli-*'")
         self.assertEqual(r.stdout.strip(),
-                         "--user -q --no-pager --after-cursor=c1 --user-unit lianli-*")
+                         "lianli-control-recovery.service: Starting lianli-control-recovery.service...")
+        with open(self.sb.path("jargs")) as f:
+            self.assertEqual(f.read().splitlines()[-1],
+                             "-q --no-pager --after-cursor=c1 -o json _PID=1")
+        self.assertEqual(self.sh("ag_journal_since '' 'lianli-*'").stdout, "")
+
+    def test_the_user_journal_is_read_by_user_unit(self):
+        self.journal([self.GUI, self.DAEMON])
+        self.assertEqual(self.sh("ag_user_journal_since c1 'lianli-*'").stdout, "")
+        self.journal([self.GUI, self.USERMGR])
+        r = self.sh("ag_user_journal_since c1 'lianli-*'")
+        self.assertEqual(r.stdout.strip(), "lianli-session.service: Starting lianli-session.service...")
+        with open(self.sb.path("jargs")) as f:
+            self.assertEqual(f.read().splitlines()[-1],
+                             "--user -q --no-pager --after-cursor=c1 -o json _COMM=systemd")
         self.assertEqual(self.sh("ag_user_journal_since '' 'lianli-*'").stdout, "")
         self.fake("journalctl", 'echo "$*" > "%s/asked"; echo "-- cursor: s=abc"\n' % self.sb.path())
         r = self.sh("ag_user_journal_mark")
