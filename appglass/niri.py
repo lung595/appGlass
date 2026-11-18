@@ -222,9 +222,21 @@ def instant_inactive(app):
     for every glass app; else, with inactive.instantFallback, the inactive
     ratio for the families that cannot fade their own background."""
     from . import inactive as _inactive
+    # an app a lever family fades (Kate and Konsole through the Qt style)
+    # is not dimmed a second time, whichever family also lists it
+    levers = set(_inactive.fading(app.state))
+    faded = {a for name in app.state.families() if name in levers
+             for a in app.state.owners[name].get("app_ids", [])}
+    ids = []
+    for name in app.state.families():
+        if name in levers:
+            continue
+        ids += [a for a in app.state.owners[name].get("app_ids", [])
+                if a not in ids and a not in faded]
     fbi = app.settings.get("fallback", {}).get("inactive")
     if fbi is not None:
-        return fbi, None
+        # every glass app but the faded ones (None: all, the engine's too)
+        return fbi, (ids if faded else None)
     p = _inactive.params(app.settings)
     content = getattr(getattr(app, "levels", None), "content", None)
     if not (p["enabled"] and p["instantFallback"]) or content is None:
@@ -232,16 +244,6 @@ def instant_inactive(app):
     r = _inactive.ratio(content, p["factor"])
     if r >= 1:
         return None, None
-    # an app a lever family fades (Kate and Konsole through the Qt style)
-    # is not dimmed a second time, whichever family also lists it
-    faded = {a for name in app.state.families() if name in _inactive.LEVER_FAMILIES
-             for a in app.state.owners[name].get("app_ids", [])}
-    ids = []
-    for name in app.state.families():
-        if name in _inactive.LEVER_FAMILIES:
-            continue
-        ids += [a for a in app.state.owners[name].get("app_ids", [])
-                if a not in ids and a not in faded]
     return (r, ids) if ids else (None, None)
 
 

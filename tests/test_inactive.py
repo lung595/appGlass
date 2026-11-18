@@ -105,10 +105,14 @@ def fake_app(owners, s, content=0.8):
                                  levels=types.SimpleNamespace(content=content))
 
 
+VIBRANCY = {"files": {"/h/.config/systemd/user/appglass-vibrancy.service": {}}}
+
+
 class NiriInstant(unittest.TestCase):
     OWNERS = {"gtk4": {"app_ids": [r"^org\.gnome\.Nautilus$"]},
               "herdr": {"app_ids": [r"^herdr$"]},
-              "alacritty": {"app_ids": [r"^Alacritty$"]}}
+              "alacritty": {"app_ids": [r"^Alacritty$"]},
+              "hook": VIBRANCY}
 
     def test_off_by_default(self):
         self.assertEqual(niri.instant_inactive(fake_app(self.OWNERS, {})), (None, None))
@@ -146,7 +150,25 @@ class NiriInstant(unittest.TestCase):
     def test_fallback_inactive_still_wins(self):
         app = fake_app(self.OWNERS, {"fallback": {"inactive": 0.55},
                                      "inactive": {"instantFallback": True}})
+        self.assertEqual(niri.instant_inactive(app), (0.55, [r"^herdr$"]))
+
+    def test_fallback_inactive_leaves_the_faded_apps_out(self):
+        """w2: fallback.inactive dimmed every glass app, the ones that fade
+        their own background too (dimmed twice)."""
+        app = fake_app(self.OWNERS, {"fallback": {"inactive": 0.55}})
+        self.assertEqual(niri.instant_inactive(app), (0.55, [r"^herdr$"]))
+        app = fake_app({"herdr": {"app_ids": [r"^herdr$"]}}, {"fallback": {"inactive": 0.55}})
         self.assertEqual(niri.instant_inactive(app), (0.55, None))
+
+    def test_alacritty_fades_only_with_the_vibrancy_unit(self):
+        """w2: without appglass-vibrancy.service nothing fades Alacritty:
+        it gets the dim like the apps with no lever."""
+        owners = {k: v for k, v in self.OWNERS.items() if k != "hook"}
+        on = {"inactive": {"instantFallback": True}}
+        self.assertEqual(niri.instant_inactive(fake_app(owners, on)),
+                         (0.9, [r"^Alacritty$", r"^herdr$"]))
+        self.assertEqual(niri.instant_inactive(fake_app(dict(owners, hook=VIBRANCY), on)),
+                         (0.9, [r"^herdr$"]))
 
     def test_every_lever_family_exists(self):
         for name in inactive.LEVER_FAMILIES:

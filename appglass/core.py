@@ -2285,7 +2285,7 @@ def _inactive_doc(app):
     p = inactive.params(app.settings)
     return dict(p, level=inactive.level(app.levels.content, p["factor"]),
                 active=inactive.active(app.settings, app.levels.content),
-                fades=[n for n in inactive.LEVER_FAMILIES if n in app.state.owners])
+                fades=inactive.fading(app.state))
 
 
 def status_doc(app):

@@ -40,7 +40,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Text:** the palette entries that are too faint on glass (DMS black, magenta, bright black, dim colours) are moved toward white on a dark scheme, toward black on a light one, until text reaches 2.25:1 over any backdrop.
 - **Measured:** before, under the DMS rule alone, every pixel of the window, text included, is alpha 153. After, the background is 153 and the text 255. Source: [terminal.md](terminal.md).
 - **Reload:** live.
-- **Fade, not recorded:** `appglass vibrancy` eases `window.opacity` over Alacritty's IPC socket when the niri focus changes; not recorded in a session for this version; the easing and the focus tracking are unit-tested (`tests/test_vibrancy.py`).
+- **Fade, not recorded:** `appglass vibrancy` eases `window.opacity` over Alacritty's IPC socket when the niri focus changes; not recorded in a session for this version; the easing and the focus tracking are unit-tested (`tests/test_vibrancy.py`). The service comes with `appglass hook install`; without it Alacritty does not fade, and "Dim apps that cannot fade" reaches it instead.
 - **Undo:** `appglass remove --only alacritty` restores `alacritty.toml` byte for byte.
 
 ### kitty, foot, Ghostty, WezTerm, Konsole

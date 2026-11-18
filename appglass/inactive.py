@@ -67,6 +67,16 @@ LEVER_FAMILIES = ("gtk4", "gtk3", "obsidian", "alacritty", "vencord", "feishin",
                   "jellyfin", "lianli", "qtstyle")
 
 
+def fading(state):
+    """The applied lever families that fade now: Alacritty only while the
+    hook installed appglass-vibrancy.service (nothing else eases it)."""
+    from .hook import VIBRANCY_UNIT
+    hook_files = state.owners.get("hook", {}).get("files", {})
+    vibrancy = any(p.rsplit("/", 1)[-1] == VIBRANCY_UNIT for p in hook_files)
+    return [n for n in LEVER_FAMILIES if n in state.owners
+            and (n != "alacritty" or vibrancy)]
+
+
 def params(settings):
     """The inactive block of a validated settings dict (defaults filled in)."""
     p = dict(DEFAULTS)
