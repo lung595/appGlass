@@ -1214,6 +1214,11 @@ class App:
         b = _read(p)
         if b is None:
             raise AppglassError("backup %s is missing" % p)
+        if rec.get("orig_sha256") and sha(b) != rec["orig_sha256"]:
+            # damaged on the disk or by hand: never put back as the original
+            raise AppglassError("backup %s does not match the original recorded for it "
+                                "(sha256): nothing restored from it (appglass restore "
+                                "--list shows the ring)" % self.env.tilde(p))
         return b
 
     def backup(self, p, cur):
@@ -1610,8 +1615,7 @@ class App:
             except Exception as ex:
                 self.warn("%s: undo failed (%s); restoring the original" % (p, ex))
         keep = _aside_name(env, p)   # an earlier saved-aside version stays
-        with open(keep, "wb") as f:
-            f.write(cur)
+        _write_durable(keep, cur)   # on the disk before the original goes over p
         _inplace_write(p, orig)
         self.warn("%s changed since apply; original restored, your version saved as %s" % (p, keep))
 
@@ -3370,8 +3374,7 @@ def cmd_rescue(app, dry_run=False):
                 path = os.path.join(bdir, b)
                 env.guard(path)
                 os.makedirs(bdir, exist_ok=True)
-                with open(path, "wb") as f:
-                    f.write(orig)
+                _write_durable(path, orig)
                 rec = {"kind": "modified", "how": "edit", "sha256": sha(data),
                        "backup": os.path.join("backup", b), "orig_sha256": sha(orig)}
                 used.add(b)
@@ -3552,8 +3555,7 @@ def _save_aside(app, paths):
         if not os.path.isfile(p) or os.path.islink(p):
             continue
         keep = _aside_name(app.env, p)
-        with open(keep, "wb") as f:
-            f.write(_read(p))
+        _write_durable(keep, _read(p))
         app.warn("%s re-rendered; your version saved as %s"
                  % (app.env.tilde(p), app.env.tilde(keep)))
 
@@ -3656,7 +3658,16 @@ def doctor_drift(app):
     for name in sorted(st.owners):
         for p, rec in sorted(st.owners[name].get("files", {}).items()):
             b = rec.get("backup")
-            if not b or os.path.isfile(os.path.join(env.state_dir, b)):
+            if b and os.path.isfile(os.path.join(env.state_dir, b)):
+                bb = _read(os.path.join(env.state_dir, b))
+                if rec.get("orig_sha256") and sha(bb) != rec["orig_sha256"]:
+                    out.append(("%s: %s: its original %s does not match the original "
+                                "recorded (sha256): remove refuses to put it back "
+                                "(appglass restore --list shows the ring)"
+                                % (name, tilde(p), tilde(os.path.join(env.state_dir, b))),
+                                None))
+                continue
+            if not b:
                 continue
             cur = _read(p) if os.path.isfile(p) else None
             if cur is not None and sha(cur) == rec.get("orig_sha256"):

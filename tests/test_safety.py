@@ -1626,6 +1626,55 @@ class Durable(Base):
         # one more fsync per backup and blob than per replace
         self.assertGreater(sum(k == "fsync" for k, _ in log), 2 * len(replaced))
 
+    def backed_up(self):
+        with open(self.state_json) as f:
+            st = json.load(f)
+        return [(p, r) for o in st["owners"].values()
+                for p, r in o.get("files", {}).items() if r.get("backup")]
+
+    def test_a_damaged_original_is_never_put_back(self):
+        """An original in backup/ that is not the bytes state.json recorded
+        (a disk error, a hand edit): remove gives nothing back from it and
+        doctor names it."""
+        self.apply()
+        p, rec = self.backed_up()[0]
+        b = os.path.join(self.state_dir, rec["backup"])
+        with open(b, "wb") as f:
+            f.write(b"not the original\n")
+        before = self.sb.readb(p)
+        code, out, err = self.sb.run("remove")
+        self.assertNotEqual(code, 0)
+        self.assertIn("does not match", err)
+        self.assertEqual(self.sb.readb(p), before)
+        code, out, err = self.sb.run("doctor")
+        self.assertEqual(code, 1)
+        self.assertIn("does not match the original recorded", out + err)
+
+    def test_rescue_and_save_aside_copies_are_synced(self):
+        """The originals adopt --rescue writes into backup/ and a version
+        saved aside as <file>.appglass-changed are on the disk before the
+        file is overwritten or state.json names them."""
+        self.apply()
+        p, rec = self.backed_up()[0]
+        shutil.rmtree(self.state_dir)
+        synced = []
+        real = core._write_durable
+        with unittest.mock.patch.object(core, "_write_durable",
+                                        lambda q, d: (synced.append(q), real(q, d))):
+            code, out, err = self.sb.run("adopt", "--rescue")
+        self.assertEqual(code, 0, err)
+        self.assertIn(os.path.join(self.state_dir, "backup", core._bname(p)), synced)
+        # doctor --fix re-renders an owned file changed by hand: its version aside
+        o = self.owned()
+        with open(o, "a") as f:
+            f.write("# mine\n")
+        synced.clear()
+        with unittest.mock.patch.object(core, "_write_durable",
+                                        lambda q, d: (synced.append(q), real(q, d))):
+            code, out, err = self.sb.run("doctor", "--fix")
+        self.assertIn(o + ".appglass-changed", synced)
+        self.assertIn("# mine", self.sb.read(o + ".appglass-changed"))
+
 
 if __name__ == "__main__":
     unittest.main()
