@@ -238,6 +238,14 @@ def set_key(s, key, value):
             raise SettingsError("%s is not an object" % ".".join(parts[:i + 1]))
     if parts[-1] not in cur and parts[0] != "apps":
         raise SettingsError("no setting %s" % key)
+    if parts[0] == "apps" and len(parts) == 3 and parts[2] == "route":
+        # what the user types names an adapter (a saved file that names one
+        # an older appglass had still loads: resolve falls back for it)
+        from .adapters import BY_NAME, CATALOGUE
+        if not isinstance(value, str) or value not in BY_NAME:
+            raise SettingsError("apps.%s.route must be an adapter name (%s), not %s"
+                                % (parts[1], ", ".join(a.NAME for a in CATALOGUE),
+                                   json.dumps(value)))
     cur[parts[-1]] = value
     return validate(new)
 

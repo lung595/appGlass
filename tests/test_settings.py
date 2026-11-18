@@ -59,6 +59,15 @@ class Schema(unittest.TestCase):
             settings.set_key(s, "levels.nope", 1)
         with self.assertRaises(settings.SettingsError):
             settings.set_key(s, "fallback.mode", "dim")
+        # a route is an adapter's name; a file that names an unknown one
+        # (an older appglass's) still loads
+        with self.assertRaises(settings.SettingsError) as cm:
+            settings.set_key(s, "apps.gtk3.route", "foo")
+        self.assertIn("gtk3", str(cm.exception))
+        self.assertEqual(settings.set_key(s, "apps.vlc.route", "gtk3")["apps"],
+                         {"vlc": {"route": "gtk3"}})
+        self.assertEqual(settings.validate({"apps": {"vlc": {"route": "foo"}}})["apps"],
+                         {"vlc": {"route": "foo"}})
         self.assertEqual(settings.parse_value("0.7"), 0.7)
         self.assertIsNone(settings.parse_value("null"))
         self.assertEqual(settings.parse_value("opaque"), "opaque")
@@ -137,7 +146,8 @@ class Cli(unittest.TestCase):
         self.sb.run("set", "fallback.mode", "off")
         raw = self.sb.readb(self.path)
         for k, v in (("fallback.mode", "dim"), ("levels.content", "3"),
-                     ("levels.bar", "0.1"), ("nope", "1"), ("apps.x.y", "1")):
+                     ("levels.bar", "0.1"), ("nope", "1"), ("apps.x.y", "1"),
+                     ("apps.gtk3.route", "foo")):
             code, out, err = self.sb.run("set", k, v)
             self.assertEqual(code, 1, (k, v))
             self.assertIn("set %s" % k, err)
