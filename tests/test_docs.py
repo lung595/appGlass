@@ -770,6 +770,18 @@ class CommandLine(unittest.TestCase):
         self.assertIn("--dry-run goes with install", read("appglass", "core.py"))
 
 
+class RequirementRows(unittest.TestCase):
+    def test_pkg_config_sits_on_the_qt_row(self):
+        req = section(read("README.md"), "Requirements").splitlines()
+        c_row = next(l for l in req if "C shims" in l)
+        qt_row = next(l for l in req if "moc" in l)
+        self.assertNotIn("pkg-config", c_row)
+        self.assertIn("pkg-config", qt_row)
+        # the C shims build with cc alone, the Qt ones with pkg-config
+        self.assertIn('("cc",))', read("appglass", "shims.py"))
+        self.assertIn('("cxx", "moc", "pkgconfig")', read("appglass", "families", "qtstyle.py"))
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""
