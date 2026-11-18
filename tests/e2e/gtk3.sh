@@ -175,7 +175,7 @@ measure() {   # measure <label> <shot> args...
 }
 show() {   # show <label> <app id regex> <timeout> cmd... -> window id, maximized
     local l=$1 re=$2 t=$3 id; shift 3
-    NOBUS=1 ag_harness run "$NAME" -- "$@" >&2
+    ag_run "$NAME" "$@" >&2
     id=$(ag_wait_window "$NAME" "$re" "$t") || { tail -20 "$SB/app.log" >&2 || true; return 1; }
     ag_harness msg "$NAME" action focus-window --id "$id" >/dev/null
     ag_harness msg "$NAME" action maximize-column >/dev/null
@@ -216,7 +216,7 @@ closewin "$ID"
 ID=$(show roles-unfocused "$ROLES_ID" 20 env GTK_THEME=AppGlass python3 -I "$ROLES" plain) \
     || ag_die "no role window"
 measure roles-focused "$(shoot roles-focused "$ID")" "${BASE[@]}"
-NOBUS=1 ag_harness run "$NAME" -- env GTK_THEME=AppGlass python3 -I "$ROLES" plain >&2
+ag_run "$NAME" env GTK_THEME=AppGlass python3 -I "$ROLES" plain >&2
 ID2=""
 for _ in $(seq 1 100); do
     ID2=$(ag_harness windows "$NAME" 2>/dev/null | jq -r --arg re "$ROLES_ID" --argjson id "$ID" \

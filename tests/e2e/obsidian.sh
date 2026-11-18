@@ -173,7 +173,8 @@ OPERATOR=$(cssvar color-red) NUMBER=$(cssvar color-purple)
 
 # 3. the app
 mkdir -p "$SB/cdp"
-NOBUS=1 ag_harness run "$NAME" -- bwrap --dev-bind / / --ro-bind "$RUNTIME" "$RUNTIME" \
+mapfile -t MASK < <(ag_mask_args) && [ "${#MASK[@]}" -gt 0 ] || ag_die "no mask for the app"
+NOBUS=1 ag_harness run "$NAME" -- bwrap --dev-bind / / "${MASK[@]}" --ro-bind "$RUNTIME" "$RUNTIME" \
     --unshare-net --die-with-parent -- \
     python3 -I "$CDP" serve "$SB/cdp" -- "$OBS" --ozone-platform=wayland --no-sandbox \
     --enable-features=WaylandWindowDecorations >&2

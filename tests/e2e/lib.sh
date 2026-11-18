@@ -216,6 +216,23 @@ AG_SYSTEM_SOCKETS=(/run/dbus/system_bus_socket /run/systemd)
 # says) and the session bus socket (for anything that ignores NOBUS's address)
 AG_SESSION_SOCKETS=("${XDG_RUNTIME_DIR:-/nonexistent}/systemd" "${XDG_RUNTIME_DIR:-/nonexistent}/bus")
 
+# ag_mask_args -> the bwrap args (one per line) that hide the real session's
+# and the system manager's sockets from an app, checked out of reach first
+ag_mask_args() {
+    local hide
+    mapfile -t hide < <(ag_hide_args "${AG_SESSION_SOCKETS[@]}" "${AG_SYSTEM_SOCKETS[@]}")
+    ag_out_of_reach "${hide[@]}"
+    printf '%s\n' "${hide[@]}"
+}
+
+# ag_run <name> <command>...: an app in the nested session with no session
+# bus (NOBUS=1) and the real session's and system's sockets hidden (bwrap)
+ag_run() {
+    local n=$1 mask; shift
+    mapfile -t mask < <(ag_mask_args) && [ "${#mask[@]}" -gt 0 ] || ag_die "no mask for the app"
+    NOBUS=1 ag_harness run "$n" -- bwrap --dev-bind / / "${mask[@]}" --die-with-parent -- "$@"
+}
+
 # ag_out_of_reach <bwrap hide args>... -> dies unless, under that mask, the
 # session bus and the system bus are no sockets and no socket at all is left
 # under the dirs of the systemd user manager and the system manager. Only

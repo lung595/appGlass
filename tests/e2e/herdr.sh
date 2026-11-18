@@ -128,7 +128,7 @@ chmod +x "$LAUNCH"
 hdo() { "$LAUNCH" do "$@" >/dev/null; }
 
 herdr_up() {
-    NOBUS=1 ag_harness run "$NAME" -- "$LAUNCH" >&2
+    ag_run "$NAME" "$LAUNCH" >&2
     ag_wait_window "$NAME" "$APPID" 30 || { tail -20 "$SB/app.log" >&2 || true; ag_die "no Herdr window"; }
 }
 herdr_down() {

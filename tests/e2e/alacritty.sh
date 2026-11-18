@@ -105,7 +105,9 @@ L.append("exec sleep 600")
 print("\n".join(L))
 PY
 chmod +x "$DEMO"
-NOBUS=1 ag_harness run "$NAME" -- alacritty -e "$DEMO" >&2
+# its IPC socket in the sandbox, not the runtime dir (a killed alacritty
+# leaves it behind)
+ag_run "$NAME" alacritty --socket "$SB/alacritty.sock" -e "$DEMO" >&2
 ID=$(ag_wait_window "$NAME" "$APPID" 20) || { cat "$SB/app.log" >&2 || true; ag_die "no Alacritty window"; }
 sleep 2
 SHOT=$AG_OUT/alacritty-run$RUN.png

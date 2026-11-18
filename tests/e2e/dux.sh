@@ -368,7 +368,7 @@ dux_cleanup() {
     exit $rc
 }
 trap dux_cleanup EXIT
-NOBUS=1 ag_harness run "$NAME" -- dfiles run >&2
+ag_run "$NAME" dfiles run >&2
 ID=$(ag_wait_window "$NAME" '^dev\.duxlabs\.files$' 30) \
     || { tail -n 40 "$SB/app.log" >&2 || true; ag_die "no dfiles window"; }
 sleep 3
@@ -383,7 +383,7 @@ measure dfiles "$SHOT_F" --content "$(j .dfiles.pane)" --tol 6 \
 stop_dfiles
 
 # 3b. Dux Calendar
-NOBUS=1 ag_harness run "$NAME" -- env DANKCAL_DB_PATH="$SB/dcal.db" DANKCAL_DISABLE_HTTP=1 \
+ag_run "$NAME" env DANKCAL_DB_PATH="$SB/dcal.db" DANKCAL_DISABLE_HTTP=1 \
     DANKCAL_NO_TRAY=1 dcal run >&2
 ID=$(ag_wait_window "$NAME" '^dev\.duxlabs\.calendar$' 30) \
     || { tail -n 40 "$SB/app.log" >&2 || true; ag_die "no dcal window"; }

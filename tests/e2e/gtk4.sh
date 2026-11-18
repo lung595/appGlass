@@ -136,7 +136,7 @@ measure() {   # measure <label> <shot> args...
 }
 
 # 3. Nautilus
-NOBUS=1 ag_harness run "$NAME" -- env ADW_DEBUG_COLOR_SCHEME=prefer-dark \
+ag_run "$NAME" env ADW_DEBUG_COLOR_SCHEME=prefer-dark \
     nautilus --new-window "$SB/home/Demo" >&2
 ID=$(ag_wait_window "$NAME" "$NAUT_ID" 30) || { tail -20 "$SB/app.log" >&2 || true; ag_die "no Nautilus window"; }
 ag_harness msg "$NAME" action focus-window --id "$ID" >/dev/null
@@ -147,7 +147,7 @@ measure nautilus "$S" "${BASE[@]}"
 closewin "$ID"
 
 # 4. the role window: plain shot + menu popover, then the alert dialog
-NOBUS=1 ag_harness run "$NAME" -- env ADW_DEBUG_COLOR_SCHEME=prefer-dark \
+ag_run "$NAME" env ADW_DEBUG_COLOR_SCHEME=prefer-dark \
     python3 -I "$ROLES" menu >&2
 ID=$(ag_wait_window "$NAME" "$ROLES_ID" 20) || { tail -20 "$SB/app.log" >&2 || true; ag_die "no role window"; }
 ag_harness msg "$NAME" action maximize-column >/dev/null
@@ -156,7 +156,7 @@ S=$(shoot roles-menu "$ID")
 measure roles-menu "$S" "${BASE[@]}" --popup "$POPOVER"
 closewin "$ID"
 
-NOBUS=1 ag_harness run "$NAME" -- env ADW_DEBUG_COLOR_SCHEME=prefer-dark \
+ag_run "$NAME" env ADW_DEBUG_COLOR_SCHEME=prefer-dark \
     python3 -I "$ROLES" dialog >&2
 ID=$(ag_wait_window "$NAME" "$ROLES_ID" 20) || { tail -20 "$SB/app.log" >&2 || true; ag_die "no role window (dialog)"; }
 ag_harness msg "$NAME" action maximize-column >/dev/null
