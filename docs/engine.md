@@ -72,7 +72,7 @@ A launcher whose target is gone (an Exec that is not on `PATH`, an absolute path
 ### Routes by toolkit
 
 - **GTK3:** every GTK3 app gets the `GTK_THEME=AppGlass` launcher override.
-- **Qt6 Widgets (host):** every app that needs `libQt6Widgets` gets `QT_STYLE_OVERRIDE=appglass`, with the unfocused fade.
+- **Qt6 Widgets (host):** every app that needs `libQt6Widgets` and not Qt Quick gets `QT_STYLE_OVERRIDE=appglass`, with the unfocused fade. An app that also links `libQt6Quick` or `libQt6Qml` is classed Qt Quick (its QML scene does not draw through a widget style) and keeps the fallback, unless it has its own route (Dux, Jellyfin).
 - **GTK4:** the global `gtk-4.0/gtk.css`. A GTK4 flatpak gets a launcher override that adds `--filesystem=xdg-config/gtk-4.0:ro` to that launch only. appglass never writes a persistent `flatpak override`.
 - **Electron:** only the per-app routes (Obsidian, Vencord for Discord, the Feishin and VSCodium inspector hook).
 - **Chrome and Chromium browsers:** no route. Web content has no window alpha, so they stay opaque.

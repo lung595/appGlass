@@ -481,6 +481,20 @@ class Routing(unittest.TestCase):
         self.run_ok("remove")
         self.assertFalse(os.path.exists(self.user_launcher("org.example.QtThing.desktop")))
 
+    def test_a_qt6_widgets_app_that_also_links_qt_quick_is_not_styled(self):
+        """docs/engine.md and routes.md: the Qt style reaches a Widgets app,
+        not one that also links Qt Quick/QML (classed qt-quick: its QML
+        scene does not draw through a widget style), which keeps the
+        fallback."""
+        self.run_ok("apply")
+        q = bin_elf(self.w, "qmlthing", QT6 + ["libQt6Quick.so.6", "libQt6Qml.so.6"])
+        self.w.launcher("org.example.QmlThing.desktop", desktop("Qml Thing", q))
+        self.run_ok("apply", "--from-hook")
+        self.assertFalse(os.path.exists(self.user_launcher("org.example.QmlThing.desktop")))
+        r = routes(self.sb)["org.example.QmlThing"]
+        self.assertNotEqual(r.get("family"), "qtstyle")
+        self.assertNotEqual(r["state"], "glass")
+
     def test_a_new_qt_app_gets_the_unfocused_fade(self):
         """The engine's generic Qt launcher passes the fade like the
         hand-listed ones (qtstyle.launcher)."""
