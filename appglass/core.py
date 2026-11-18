@@ -3195,7 +3195,9 @@ def _json_owner(app, p):
 def _rescue_dirs(app, records, history):
     """The dirs appglass made for the files it created (records): the ones
     the ring saw missing before the first write, and the parents that hold
-    nothing but such files (up to a base dir)."""
+    nothing but such files (up to a base dir). With no ring, a best guess
+    (docs/README.md, Lost state.json): an empty dir of the app's own that
+    appglass wrote into is counted, ~/.local/bin never is."""
     env = app.env
     created = {p for p, r in records.items() if r.get("kind") == "created"}
     out = set()
