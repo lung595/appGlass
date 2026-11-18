@@ -3988,7 +3988,10 @@ def main(argv=None, environ=None, out=None, err=None):
         if hookrun:
             # (a queued check starts appglass-verify.service: a program, so
             # that run is not cacheable either)
-            inputs.save(env, sys.argv[1:], rc == 0 and not app.errors and not app.changed)
+            # (nothing applied, no state: after a full remove the cache it
+            # took out stays out; the next run costs a full one, still a no-op)
+            inputs.save(env, sys.argv[1:], rc == 0 and not app.errors and not app.changed
+                        and bool(app.state.owners))
         return 1 if app.errors else rc
     except AppglassError as ex:
         print("appglass: %s" % ex, file=err)

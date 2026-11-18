@@ -369,6 +369,23 @@ class Cache(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotEqual(r.stdout, "")
 
+    def test_a_hook_run_after_a_full_remove_leaves_no_cache(self):
+        """remove takes ~/.cache/appglass out; a hook run that comes after
+        it (the path unit fired on the way out) has nothing to apply and
+        writes no digest back."""
+        from appglass import inputs
+        self.settle()
+        self.assertEqual(self.w.run("remove")[0], 0)
+        p = inputs.path(core.Env(self.w.sb.env))
+        self.assertFalse(os.path.exists(p))
+        for _ in range(2):
+            r = self.hook_proc()
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(p))
+        self.assertFalse(os.path.exists(os.path.dirname(p)),
+                         [os.path.join(d, f) for d, _, fs in os.walk(os.path.dirname(
+                             os.path.dirname(p))) for f in fs])
+
     def test_a_new_appglass_version_runs_in_full(self):
         from appglass import inputs
         self.settle()
