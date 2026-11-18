@@ -46,6 +46,20 @@ class Accepts(unittest.TestCase):
         self.assertIn("GTK4", webkit.accepts(rec(evidence=["links libwebkitgtk-6.0.so.4 -> webkitgtk"])))
         self.assertIn("libgtk-3", webkit.accepts(rec(evidence=["links libwebkit2gtk-4.1.so.0 -> webkitgtk"])))
 
+    def test_a_script_launcher_is_refused_with_its_reason(self):
+        # the shim stays in the first process (the shell) and scrubs itself
+        # from what it starts: the app would start plain, and fail its check
+        # as "opaque" with no word on why
+        with tempfile.TemporaryDirectory() as d:
+            sh, bin_ = os.path.join(d, "thing"), os.path.join(d, "thing-bin")
+            with open(sh, "w") as f:
+                f.write("#!/bin/sh\nexec %s \"$@\"\n" % bin_)
+            with open(bin_, "wb") as f:
+                f.write(b"\x7fELF" + b"\0" * 60)
+            self.assertIn("launcher is a script", webkit.accepts(rec(exec=sh)))
+            self.assertIsNone(webkit.accepts(rec(exec=bin_)))
+            self.assertIsNone(webkit.accepts(rec(exec=os.path.join(d, "gone"))))
+
     def test_resolve_by_toolkit(self):
         fams = core.discover()
         r = adapters.resolve(rec(), fams)

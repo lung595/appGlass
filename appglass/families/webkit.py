@@ -33,7 +33,9 @@ Files (all owned, removed by remove):
   ~/.local/share/applications/<app>.desktop          Exec= appglass-webkit <key> <the app's Exec>
 """
 
-from .. import shims
+import os
+
+from .. import detect, shims
 from ..core import Conflict
 
 NAME = "webkit"
@@ -56,7 +58,8 @@ def installed(env):
 
 def accepts(rec):
     """None for a host app that links WebKitGTK 4.x with GTK3 (the shim's
-    window code is GTK3), else why not."""
+    window code is GTK3) and is started by its binary, not a script, else
+    why not."""
     if rec.get("flatpak"):
         return "WebKitGTK flatpak: a host-built preload does not load in its runtime (ABI)"
     if rec.get("user_only"):
@@ -68,6 +71,11 @@ def accepts(rec):
         return "no libwebkit2gtk-4.x in its binary: the shim has nothing to hook"
     if "libgtk-3" not in ev:
         return "no libgtk-3 in its binary: the shim's window code is GTK3 only"
+    exe = rec.get("exec")
+    if exe and os.path.isfile(exe) and not detect.is_elf(exe):
+        # the shim stays in the first process it loads in and scrubs itself
+        # from the environment of what that starts (appglass-wk.c)
+        return "launcher is a script: the preload does not reach the app (point Exec= at the binary)"
     return None
 
 
