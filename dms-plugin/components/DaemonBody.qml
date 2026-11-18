@@ -60,7 +60,8 @@ PluginComponent {
     property bool holding: false
     // `appglass remove` worked: nothing is synced any more (DMS drops the
     // plugin once its link is gone). Kept in the plugin data
-    // (uninstallState): a reload or a shell restart while the link stays
+    // (uninstallState; "unlinking" while `appglass plugin remove` runs,
+    // read as linkStays on a load): a reload or a shell restart while the link stays
     // seeds and syncs nothing either; only reinstall() (the page's "Set up
     // again") brings the glass back. "removing" while the remove runs: a
     // reload then finds it cut short (interrupted: it syncs nothing, and
@@ -380,13 +381,16 @@ PluginComponent {
         root.ready = false;
         // a later install starts again from `appglass get`
         root.save("seeded", false);
-        root.save("uninstallState", "removed");
+        // "unlinking" until the unlink answers: a restart that kills it
+        // comes back with the link in place (linkStays, its hint shown)
+        root.save("uninstallState", "unlinking");
         root.publish(lastErrorVar, "");
         root.publish(uninstallErrorVar, "");
         root.publish(uninstallVar, "removed");
         Proc.runCommand(Logic.UNLINK_ID, Logic.unlinkArgv(root.bin), (out, code) => {
             root.publish(actionVar, "");
             if (code === 0) {
+                root.save("uninstallState", "removed");
                 ToastService.showInfo("appGlass: uninstalled, every file restored");
             } else {
                 root.save("uninstallState", "linkStays");
@@ -530,7 +534,13 @@ PluginComponent {
         root.publish(uninstallErrorVar, "");
         const dir = PluginService.getPluginPath(root.pluginId) || root.shellDir;
         root.pluginDir = String(dir).replace(/\/+$/, "");
-        const gone = root.service.loadPluginData(Logic.PLUGIN_ID, "uninstallState", "");
+        let gone = root.service.loadPluginData(Logic.PLUGIN_ID, "uninstallState", "");
+        if (gone === "unlinking") {
+            // the files were back, the unlink was cut short: this load
+            // means the link is still there
+            gone = "linkStays";
+            root.save("uninstallState", gone);
+        }
         if (gone === "removed" || gone === "linkStays") {
             // uninstalled before this load: no seed, no sync
             root.uninstalled = true;

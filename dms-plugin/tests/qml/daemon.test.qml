@@ -357,6 +357,8 @@ Item {
                     t.check("uninstall argv", Proc.lastCommand(Logic.ACTION_IDS.uninstall), Logic.uninstallArgv(root.bin));
                     t.check("remove has no timeout", Proc.calls.filter(c => c.id === Logic.ACTION_IDS.uninstall).map(c => c.timeoutMs).pop(), Proc.noTimeout);
                     t.check("then the plugin link", [Proc.pendingIds(), root.d.uninstalled], [[Logic.UNLINK_ID], true]);
+                    // a restart that kills the unlink must not hide that the link may stay
+                    t.check("the unlink is kept before it runs", root.pdata().uninstallState, "unlinking");
                     Proc.flush();
                     t.check("unlink argv", Proc.lastCommand(Logic.UNLINK_ID), Logic.unlinkArgv(root.bin));
                     t.check("seed again on a new install", root.pdata().seeded, false);
@@ -461,6 +463,17 @@ Item {
                 "wait": 700,
                 "run": () => {
                     t.check("no sync after a half uninstall", [Proc.pendingIds(), root.syncs().length - root.mark], [[], 0]);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    // --- a restart that killed `appglass plugin remove`:
+                    // the files are back, the link loaded this body again
+                    root.fresh(true, undefined, {
+                        "uninstallState": "unlinking"
+                    });
+                    t.check("a cut unlink: uninstalled, the link stays", [root.d.uninstalled, root.vars().uninstallState, root.pdata().uninstallState, Proc.calls.map(c => c.id)], [true, "linkStays", "linkStays", []]);
                     root.drop();
                 }
             },
