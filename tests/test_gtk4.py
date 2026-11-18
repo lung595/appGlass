@@ -595,6 +595,36 @@ class Gtk4(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.sb.tree_hash(), self.before)
 
+    def test_flatpak_dir_linked_to_the_host_one(self):
+        # w2 r3: ~/.var/app/<id>/config/gtk-4.0 (or the whole config) links
+        # to the host gtk-4.0: the same files, written once, never skipped
+        app_id = "org.gnome.TextEditor"
+        for how in ("dir", "config"):
+            with self.subTest(how=how):
+                self.addCleanup(shutil.rmtree, self.sb.path("flatpak"), True)
+                self.addCleanup(shutil.rmtree, self.sb.path("home", ".var"), True)
+                self.flatpak(app_id)
+                cfg = self.sb.path("home", ".var", "app", app_id, "config")
+                if how == "dir":
+                    os.makedirs(cfg)
+                    os.symlink(self.sb.cfg("gtk-4.0"), os.path.join(cfg, "gtk-4.0"))
+                else:
+                    os.makedirs(os.path.dirname(cfg))
+                    os.symlink(self.sb.config, cfg)
+                before = self.sb.tree_hash()
+                dank = self.sb.readb(self.sb.cfg("gtk-4.0", "dank-colors.css"))
+                code, out, err = self.run_fp("apply", "--only", "gtk4")
+                self.assertEqual(code, 0, err)
+                self.assertNotIn("skipped", err)
+                self.assertEqual(self.sb.read(self.sb.cfg("gtk-4.0", "gtk.css")), fam.GTK_CSS)
+                self.assertEqual(self.sb.readb(self.sb.cfg("gtk-4.0", "dank-colors.css")), dank)
+                self.assertIn(r'r#"^org\.gnome\.TextEditor$"#', self.kdl())
+                code, out, err = self.run_fp("remove")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.sb.tree_hash(), before, self.sb.files())
+                shutil.rmtree(self.sb.path("home", ".var"))
+                shutil.rmtree(self.sb.path("flatpak"))
+
     def test_flatpak_only_is_installed(self):
         self.flatpak("io.missioncenter.MissionCenter")
         env = core.Env(dict(self.sb.env, PATH=self.sb.path("empty-path"),

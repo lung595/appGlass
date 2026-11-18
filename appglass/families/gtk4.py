@@ -305,12 +305,21 @@ def apply(ctx):
     plain = ctx.records(plain=True)
     # the host gtk-4.0 serves the host apps and the engine's flatpaks (read
     # only through their launchers); a hand-listed flatpak has its own dir
-    if apps or generic or plain:
+    on_host = bool(apps or generic or plain)
+    if on_host:
         paths += apply_dir(ctx, host)
     if flatpaks:
         dank = ctx.read_text(os.path.join(host, "dank-colors.css"))
         for _, app_id, _ in flatpaks:
             d = ctx.home_path(".var", "app", app_id, "config", "gtk-4.0")
+            if os.path.realpath(d) == os.path.realpath(host):
+                # a link to the host gtk-4.0 (the dir or the whole config):
+                # the same files, written once there (its dank-colors.css is
+                # DMS's own)
+                if not on_host:
+                    paths += apply_dir(ctx, host)
+                    on_host = True
+                continue
             if dank is not None:
                 paths.append(ctx.write_owned(os.path.join(d, "dank-colors.css"), dank))
             paths += apply_dir(ctx, d, warn=False)

@@ -177,7 +177,7 @@ Contrast: to re-measure. The composites used for the ratios in the first test ru
 - **Light mode** not tested. The static file hardcodes the current dark hex values, so a DMS light/dark switch needs the matugen version, then an app restart.
 - **No live reload**, see Reload.
 - **Turning DMS GTK theming off** removes only the import line. The hardcoded glass overrides stay in `gtk.css`.
-- **Flatpak apps** see `~/.var/app/<id>/config`, not the host `~/.config/gtk-4.0`, unless given a filesystem override.
+- **Flatpak apps** see `~/.var/app/<id>/config`, not the host `~/.config/gtk-4.0`, unless given a filesystem override. When that `gtk-4.0` (or the whole `config` folder) is a link to the host one, apply writes the files once, in the host folder, and leaves DMS's `dank-colors.css` there alone.
 - **Plain GTK4 apps without libadwaita** use the GTK default theme, which reads `gtk.css` but uses other colour names (`theme_bg_color` etc.). None installed, not tested.
 - Not tested: tooltips, right-click menus, dialogs other than Nautilus Preferences.
 - Low contrast that is not a glass regression: insensitive back/forward arrows (disabled controls) and an all-black image thumbnail on dark glass are just as low on the stock opaque background. The Nautilus thumbnail frame keeps the thumbnail visible.
