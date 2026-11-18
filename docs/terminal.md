@@ -16,7 +16,7 @@ Terminals are the easiest category. Each one draws its own translucent backgroun
 | Konsole | Documented | partial (unverified) | colour scheme `[General] Opacity=0.6` | `app-id=r#"^org\.kde\.konsole$"#` → `opacity 1.0` |
 | Ptyxis | Documented | partial (unverified) | profile `opacity` (GSettings) | `app-id=r#"^org\.gnome\.Ptyxis$"#` → `opacity 1.0` |
 
-Only Alacritty is installed on this machine.
+Only Alacritty was installed on the tested machine.
 
 ## Levels
 
@@ -42,7 +42,7 @@ In practice a terminal has a single glass level: content at 0.60. TUI bars come 
 | `~/.config/alacritty/alacritty.toml` | user | imports the DMS file. Opacity and palette overrides go here |
 | niri config (e.g. `~/.config/niri/dms-browser-glass.kdl`) | user | per-app `opacity 1.0` rule |
 
-DMS colours are reused as-is through `general.import`. Alacritty's main file overrides everything it imports. This matters on this machine: the current `~/.config/alacritty/alacritty.toml` hard-codes `opacity = 1.0` in `[window]`, and that line must be changed or removed. An `opacity` key in an imported file is ignored while the main file sets one.
+DMS colours are reused as-is through `general.import`. Alacritty's main file overrides everything it imports. This matters when `~/.config/alacritty/alacritty.toml` hard-codes `opacity = 1.0` in `[window]` (a common setup): that line must be changed or removed. An `opacity` key in an imported file is ignored while the main file sets one.
 
 ### alacritty.toml
 

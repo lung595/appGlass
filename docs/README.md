@@ -158,8 +158,7 @@ IPC: `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> 
 
 ## Not installed / not found
 
-- A launcher whose client is gone counts as not installed.
-- **"craftmail"**: not found on this machine.
+- A launcher whose client is gone (its `Exec` is not on `PATH`, or names a path that no longer exists) counts as not installed: appglass leaves it alone ([engine.md](engine.md)).
 
 ## Docs
 

@@ -51,7 +51,7 @@ The surface caps were read with a small read-only probe (`vkcaps`):
 - It prints the caps and exits.
 - It was run on the real session's display (read only, nothing presented) and inside the headless harness (nested niri in headless gamescope).
 
-| | NVIDIA GPU, proprietary driver (real session and harness) | llvmpipe (Mesa 26.2.6) |
+| | NVIDIA, proprietary driver (real session and harness) | llvmpipe (Mesa 26.2.6) |
 |---|---|---|
 | `supportedCompositeAlpha` | `0x3`: `OPAQUE`, `PRE_MULTIPLIED` | `0x3`: `OPAQUE`, `PRE_MULTIPLIED` |
 | `supportedUsageFlags` | `0x9f` (includes `INPUT_ATTACHMENT`, `STORAGE`) | `0x8009f` |
@@ -219,7 +219,7 @@ All shots, logs, traces, recordings (`frames.tsv`, `flash.tsv`) and the harness 
 The same harness, with the files installed by `appglass apply --only artcraft` into a sandbox HOME (real `cc`, real Vulkan headers) and the launcher started through the installed `appglass-artcraft`, 60 Hz output, no network:
 
 - `appglass status`: `artcraft   installed, applied (renders on the GPU)`, the app row `family artcraft, renders on the GPU`; `appglass doctor`: `render: artcraft on the GPU`, no drift.
-- Default start: the GPU route. `APPGLASS_DEBUG=1` logs `device: NVIDIA ... (vendor 0x10de ...)` and `compositeAlpha OPAQUE -> PRE_MULTIPLIED` for each swapchain.
+- Default start: the GPU route. `APPGLASS_DEBUG=1` logs `device: NVIDIA ... (vendor 0x10de ..., Vulkan 1.4)` and `compositeAlpha OPAQUE -> PRE_MULTIPLIED` for each swapchain.
 - `APPGLASS_ARTCRAFT=cpu`: the CPU route (Mesa EGL, `WGPU_BACKEND=gl`, `LP_NUM_THREADS=4`, `APPGLASS_MAXFPS=60`); the layer is not loaded.
 
 | | GPU route | CPU route |

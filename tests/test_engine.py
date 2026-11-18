@@ -172,8 +172,8 @@ class Classes(unittest.TestCase):
         self.assertEqual(self.route("g3")["family"], "gtk3")
 
     def test_missing_launcher_target_is_not_installed(self):
-        """A launcher left behind: one launcher names a client that is not on PATH, the other
-        an absolute path that is gone (and its TryExec too)."""
+        """A launcher left behind: one names a client that is not on PATH,
+        the other an absolute path that is gone (and its TryExec too)."""
         gone = os.path.join(self.sb.root, "opt", "gone-launcher")
         self.w.app("gone.desktop", "Gone", "gone-client", user=True)
         self.w.app("gone-launcher.desktop", "Gone", '"%s"' % gone, user=True, TryExec=gone)
