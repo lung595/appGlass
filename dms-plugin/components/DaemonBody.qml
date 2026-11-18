@@ -65,7 +65,9 @@ PluginComponent {
     // seeds and syncs nothing either; only reinstall() (the page's "Set up
     // again") brings the glass back. "removing" while the remove runs: a
     // reload then finds it cut short (interrupted: it syncs nothing, and
-    // only Uninstall or Set up again goes on)
+    // only Uninstall or Set up again goes on). "removed" means the link
+    // is gone: DMS loads this body again only from a new link (`appglass
+    // plugin install`), so that load sets up again, as the button does
     property bool uninstalled: false
     property bool interrupted: false
 
@@ -541,8 +543,17 @@ PluginComponent {
             gone = "linkStays";
             root.save("uninstallState", gone);
         }
-        if (gone === "removed" || gone === "linkStays") {
-            // uninstalled before this load: no seed, no sync
+        if (gone === "removed") {
+            // the uninstall took the link out, and a link loaded this body:
+            // installed again. Set up again from the stored settings
+            // (`appglass get` fills only a key never stored)
+            root.save("uninstallState", "");
+            root.publish(uninstallVar, "");
+            root.seed(true);
+            return;
+        }
+        if (gone === "linkStays") {
+            // uninstalled before this load, the link stayed: no seed, no sync
             root.uninstalled = true;
             root.publish(uninstallVar, gone);
             return;

@@ -508,6 +508,34 @@ Item {
             },
             {
                 "run": () => {
+                    // --- installed again after an uninstall that took its
+                    // own link out (removed): only a new link loads this body,
+                    // so the load is a set up again (the stored choices stay)
+                    root.fresh(false, undefined, {
+                        "uninstallState": "removed",
+                        "apps": {
+                            "gtk3": {
+                                "enabled": false
+                            }
+                        }
+                    });
+                    t.check("a load after removed is a new install", [root.d.uninstalled, root.pdata().uninstallState, root.vars().uninstallState || ""], [false, "", ""]);
+                    t.check("it seeds from appglass get", Proc.pendingIds(), [Logic.SEED_ID]);
+                    Proc.flush();
+                    t.check("the stored choice stays", root.pdata().apps, {
+                        "gtk3": {
+                            "enabled": false
+                        }
+                    });
+                    t.check("then syncs", Proc.pendingIds(), [Logic.SYNC_ID]);
+                    Proc.flush();
+                    Proc.flush();
+                    t.check("IPC answers again", IpcRegistry.call("appGlass", "toggle") !== "uninstalled", true);
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
                     // --- `remove` failed: it stopped, syncing goes on
                     root.fresh(true);
                     Proc.flush();
@@ -603,7 +631,8 @@ Item {
             },
             {
                 "run": () => {
-                    // Set up again after a full remove: settings.json is gone,
+                    // Set up again after a full remove (here the load after
+                    // a new install does it): settings.json is gone,
                     // so `appglass get` answers the defaults; the stored
                     // choices stay (an app switched off stays off, no confirm
                     // skipped) and only the keys never stored are seeded
@@ -616,7 +645,7 @@ Item {
                         },
                         "inactiveDurationMs": 250
                     });
-                    t.check("set up again", root.d.reinstall(), true);
+                    t.check("set up again", root.d.uninstalled, false);
                     Proc.flush();       // get
                     const pd = root.pdata();
                     t.check("the stored choices survive", [pd.apps, pd.inactiveDurationMs, pd.seeded], [{

@@ -36,6 +36,8 @@ bin/appglass apply --all            # write the glass files for every app it sup
 
 Then enable "App Glass" in DMS Settings > Plugins.
 
+Installed again after an Uninstall from the plugin page: the same steps. On its first load from the new link the plugin sets the glass up again with the settings it kept (an app you switched off stays off). If the page still says "Uninstalled" (an uninstall whose plugin link stayed), press **Set up again** on its Advanced page.
+
 The commands below write `appglass` for `~/.local/share/appglass/bin/appglass`. To type it that way, link it into your PATH: `ln -s ~/.local/share/appglass/bin/appglass ~/.local/bin/`.
 
 TODO(engine): `appglass setup` will do the four steps above in one command, and the first enable of the plugin will run it.
