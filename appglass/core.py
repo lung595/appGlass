@@ -737,6 +737,24 @@ class Ctx:
                 out.append(r)
         return out
 
+    def stale(self):
+        """The records of this family updated since their check passed (or
+        not checked yet with a launcher of ours on disk) whose launcher it
+        still owns: the launcher stays (the wrapper starts the plain app by
+        the engine's plain/ marker) and the check record with it, until the
+        new check is done."""
+        from . import adapters, engine
+        g = engine.Gate(self.app)
+        out = []
+        for r in engine.records(self.app):
+            if not r.get("installed") or not r.get("desktop_id") or r.get("nodisplay"):
+                continue
+            route = adapters.resolve(r, self.app.families, self.app.settings, gate=g)
+            if route.get("family") == self.owner and route.get("state") in engine.UNJUDGED \
+                    and self.owns(self.data_path("applications", r["desktop_id"])):
+                out.append(r)
+        return out
+
     def owns(self, path):
         """This owner wrote path at an earlier apply."""
         return self._record(os.path.abspath(path)) is not None
@@ -1198,12 +1216,13 @@ class App:
                 return True
             # a generic family: installed when the engine routes an app to it
             # (a plain one too: its launchers are still ours, S7; one you
-            # switched off too: its launcher goes back to the plain app)
+            # switched off too: its launcher goes back to the plain app; one
+            # updated since its check: its launcher and record wait for it)
             ctx = self.ctx(fam.NAME)
             return bool(getattr(fam, "GENERIC", False)
                         and (ctx.records(generic_only=True)
                              or ctx.records(generic_only=True, plain=True)
-                             or ctx.switched_off()))
+                             or ctx.switched_off() or ctx.stale()))
         except Exception as ex:  # detection must never break apply
             self.warn("%s: install check failed: %s" % (fam.NAME, ex))
             return False

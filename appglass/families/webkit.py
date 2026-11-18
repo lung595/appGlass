@@ -134,6 +134,17 @@ def apply(ctx):
             p = ctx.desktop_override(did, lambda t: t)
             if p:
                 paths.append(p)
+    # updated since its check (stale): the launcher stays ours, the wrapper
+    # starts the plain app by the engine's plain/ marker, niri leaves it opaque
+    for rec in ctx.stale():
+        try:
+            p = ctx.desktop_override(rec["desktop_id"],
+                                     lambda t, k=rec["key"]: launcher(t, w, k))
+        except Conflict as ex:
+            ctx.warn("%s: %s" % (rec["key"], ex))
+            continue
+        if p:
+            paths.append(p)
     ids = []
     for rec in ctx.records():
         try:

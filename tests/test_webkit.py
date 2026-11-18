@@ -284,6 +284,33 @@ class Route(unittest.TestCase):
         self.assertFalse(os.path.exists(wrapper))
         self.assertFalse(os.path.exists(self.w.user(L + "appglass-wk.so")))
 
+    def test_an_update_makes_it_stale_and_keeps_its_files(self):
+        """webkit the only family: an app checked, then rebuilt, waits for its
+        new check as "stale" (the wrapper starts it plain); its files and its
+        check record stay."""
+        app = core.App(self.sb.env, quiet=True)
+        fp = engine.record_for(app, KEY)["fp"]
+        engine.verified(app, KEY, fp, "pass", "ok")
+        self.run_ok("apply", "--only", "webkit")
+        self.assertEqual(self.route()["state"], "glass")
+        _w(self.exe, elf(WK41 + ["libm.so.6"]), 0o755)        # the update
+        out = self.run_ok("apply", "--only", "webkit")
+        self.assertNotIn("files removed", out)
+        r = self.route()
+        self.assertEqual(r["state"], "stale", r)
+        self.assertIn("updated since the last check", r.get("reason") or "")
+        self.assertIn("appglass-webkit", self.sb.read(self.launcher()))
+        self.assertTrue(os.path.exists(self.w.user(".local/state/appglass/plain", KEY)))
+        self.assertTrue(os.path.isfile(self.w.user(L + "appglass-wk.so")))
+        kdl = self.sb.cfg("niri", "appglass.kdl")
+        self.assertNotIn(re.escape(KEY), self.sb.read(kdl) if os.path.exists(kdl) else "")
+        # the new check passes: glass again at the next apply
+        app = core.App(self.sb.env, quiet=True)
+        engine.verified(app, KEY, engine.record_for(app, KEY)["fp"], "pass", "ok")
+        self.run_ok("apply", "--only", "webkit")
+        self.assertEqual(self.route()["state"], "glass")
+        self.assertFalse(os.path.exists(self.w.user(".local/state/appglass/plain", KEY)))
+
     def test_switched_off_gets_the_plain_launcher_back(self):
         self.enable(True)
         self.run_ok("apply")
