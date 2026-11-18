@@ -437,5 +437,83 @@ class Wrapper(unittest.TestCase):
         self.assertTrue(r.stdout.startswith("via-env|"), r.stdout)
 
 
+DRIVER = r"""
+#include <string.h>
+void *fk_widget(const char *, void *, int); void fk_map(void *); void fk_show(void *);
+void fk_hide(void *); void fk_idle(void); void fk_report(const char *, void *, void *);
+void webkit_web_view_load_html(void *, const char *, const char *);
+int main(int argc, char **argv) {
+    const char *mode = argc > 1 ? argv[1] : "late";
+    void *win = fk_widget("window", 0, 1), *box = fk_widget("box", win, 0);
+    void *side = fk_widget("sidebar", box, 0), *view = fk_widget("view", box, 0);
+    fk_widget("label", side, 0);
+    if (!strcmp(mode, "late")) fk_hide(side);
+    webkit_web_view_load_html(view, "<p>page</p>", 0);
+    fk_map(win); fk_idle(); fk_report("mapped", win, view);
+    if (!strcmp(mode, "late")) {
+        void *dlg = fk_widget("dialog", 0, 1); fk_widget("button", dlg, 0);
+        fk_map(dlg); fk_idle(); fk_report("dialog", win, view);
+        fk_show(side); fk_idle(); fk_report("shown", win, view);
+    }
+    fk_hide(side); fk_idle(); fk_report("hidden", win, view);
+    fk_show(side); fk_idle(); fk_report("again", win, view);
+    return 0;
+}
+"""
+
+
+@unittest.skipUnless(shutil.which("gcc"), "no gcc")
+class ShimDecision(unittest.TestCase):
+    """appglass-wk.so on a toy GTK (tests/fixtures/fakegtk.c): the window is
+    glass only while the view fills it, whenever a native widget beside the
+    view is mapped or unmapped (a sidebar shown after the window mapped is a
+    hole on the bare blur), not only at the window's first map."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="appglass-wk-fake-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        d = self.dir
+        cc = lambda *a: subprocess.run(["gcc", "-O1", "-Wall"] + list(a), check=True,
+                                       capture_output=True, timeout=120)
+        cc("-shared", "-fPIC", "-o", os.path.join(d, "appglass-wk.so"),
+           os.path.join(REPO, "shims", "webkit-shim", "appglass-wk.c"), "-ldl")
+        cc("-shared", "-fPIC", "-o", os.path.join(d, "libfakegtk.so"),
+           os.path.join(REPO, "tests", "fixtures", "fakegtk.c"))
+        with open(os.path.join(d, "driver.c"), "w") as f:
+            f.write(DRIVER)
+        cc("-o", os.path.join(d, "driver"), os.path.join(d, "driver.c"), "-L" + d, "-lfakegtk",
+           "-Wl,-rpath," + d)
+        with open(os.path.join(d, "glass.css"), "w") as f:
+            f.write("html { background: rgba(0,0,0,.6) }\n")
+
+    def run_driver(self, mode):
+        env = {"PATH": os.environ.get("PATH", os.defpath),
+               "LD_PRELOAD": os.path.join(self.dir, "appglass-wk.so"),
+               "APPGLASS_CSS": os.path.join(self.dir, "glass.css")}
+        r = subprocess.run([os.path.join(self.dir, "driver"), mode], env=env, capture_output=True,
+                           text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return dict(l.split(" ", 1) for l in r.stdout.splitlines())
+
+    GLASS = "paintable=1 bg_alpha=0 sheets=1 scripts=1"
+    OPAQUE = "paintable=0 bg_alpha=1 sheets=0 scripts=0"
+
+    def test_a_sidebar_shown_after_the_map_makes_it_opaque(self):
+        r = self.run_driver("late")
+        self.assertEqual(r["mapped"], self.GLASS)
+        self.assertEqual(r["dialog"], self.GLASS)      # another window's widgets: no change
+        self.assertEqual(r["shown"], self.OPAQUE)
+        self.assertEqual(r["hidden"], self.GLASS)      # the glass back, the page styled once
+        self.assertEqual(r["again"], self.OPAQUE)
+
+    def test_show_all_then_hide_gets_the_glass(self):
+        """A side widget mapped with the window and hidden just after: opaque
+        at the map, glass once it is gone."""
+        r = self.run_driver("showall")
+        self.assertEqual(r["mapped"], self.OPAQUE)
+        self.assertEqual(r["hidden"], self.GLASS)
+        self.assertEqual(r["again"], self.OPAQUE)
+
+
 if __name__ == "__main__":
     unittest.main()

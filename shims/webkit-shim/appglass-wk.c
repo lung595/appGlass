@@ -7,10 +7,13 @@
 // What it does, per WebKitWebView, on the first webkit_web_view_load_uri/html/request/bytes:
 //   1. webkit_web_view_set_background_color(view, rgba(0,0,0,0))  (and every later call is forced to alpha 0)
 //   2. toplevel: RGBA visual (if not yet realized) + app-paintable  (what tao does for transparent:true),
-//      only when the view fills it: when the toplevel maps, no other widget is mapped beside the view
-//      or any of its ancestors (a header bar given with gtk_window_set_titlebar is fine: it paints
-//      itself). Native chrome around a WebView (a mail client's folder list) would be holes on the
-//      bare blur: such a view gets its background back and the window stays opaque.
+//      only while the view fills it: no other widget is mapped beside the view or any of its
+//      ancestors (a header bar given with gtk_window_set_titlebar is fine: it paints itself).
+//      Looked at when the toplevel maps and again whenever a widget in it maps or unmaps (an
+//      emission hook, once the main loop is idle): native chrome around a WebView (a mail
+//      client's folder list, a sidebar shown later) would be holes on the bare blur, so the view
+//      gets its background back, the stylesheet and scripts come out and the window is opaque;
+//      when the chrome is gone again, the glass comes back.
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
 //   4. with a stylesheet: a small script that sets html.agl-inactive while the page has no focus
 //      (the stylesheet fades the content background on it)
@@ -148,24 +151,38 @@ static int fills(void *view, void *top) {
     return 1;
 }
 
-// the toplevel is mapped: glass it if the view fills it, else the view gets its background back
-static void decide(void *view, void *top) {
-    if (obj_get(view, "appglass-decided")) return;
-    obj_set(view, "appglass-decided", (void *)1, NULL);
+static void inject(void *view);
+
+// glass on (the view clear, the page styled, the window app-paintable) or off (the view's own
+// background, the stylesheet and scripts out, the window as the app draws it). The state is kept
+// on the view (appglass-state: 1 glass, 2 opaque; none yet: the view clear and the page styled
+// since its first load, the window not yet app-paintable).
+static void set_glass(void *view, void *top, int on) {
+    long st = (long)obj_get(view, "appglass-state");
+    if (st == (on ? 1 : 2)) return;
     void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
     void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
-    if (fills(view, top)) {
-        if (set_paintable) set_paintable(top, 1);
-        if (queue_draw) queue_draw(top);
-        LOG("toplevel %p: app-paintable (the view fills it)", top);
-        return;
+    obj_set(view, "appglass-state", (void *)(long)(on ? 1 : 2), NULL);
+    if (on && st == 2) {   // opaque before: the page glass again
+        obj_set(view, "appglass-off", NULL, NULL);
+        GdkRGBA clear = { 0, 0, 0, 0 };
+        real_set_bg(view, &clear);
+        inject(view);
+    } else if (!on) {
+        obj_set(view, "appglass-off", (void *)1, NULL);
+        const GdkRGBA *k = obj_get(view, "appglass-bg"); GdkRGBA white = { 1, 1, 1, 1 };
+        real_set_bg(view, k ? k : &white);
+        uninject(view);
     }
-    obj_set(view, "appglass-off", (void *)1, NULL);
-    const GdkRGBA *k = obj_get(view, "appglass-bg"); GdkRGBA white = { 1, 1, 1, 1 };
-    real_set_bg(view, k ? k : &white);
-    uninject(view);
-    LOG("toplevel %p: native widgets beside the view, left opaque", top);
+    if (set_paintable) set_paintable(top, on);
+    if (queue_draw) queue_draw(top);
+    if (on) LOG("toplevel %p: app-paintable (the view fills it)", top);
+    else LOG("toplevel %p: native widgets beside the view, left opaque", top);
 }
+
+// glass while the view fills the window: at each map of the window, and again whenever a widget
+// in it is mapped or unmapped (a sidebar shown after the map, a pane hidden after show_all)
+static void decide(void *view, void *top) { set_glass(view, top, fills(view, top)); }
 static void on_top_map(void *view, void *top) { decide(view, top); }   // swapped: (view, toplevel)
 // the toplevel is mapped already, maybe mapping now (a view seen at its own map): once it is done
 static int decide_idle(void *view) {
@@ -175,7 +192,65 @@ static int decide_idle(void *view) {
     return 0;
 }
 
-// the window of the view: RGBA visual (before it is realized), then decide() at its map; 0 without one yet
+// the toplevel keeps a weak ref to its view (appglass-view), so a map in it finds the view
+static void weak_free(void *wr) {
+    void (*clear)(void *) = sym("g_weak_ref_clear");
+    if (clear) clear(wr);
+    free(wr);
+}
+static void *view_of(void *top) {   // a ref to the view, or NULL
+    void *(*get)(void *) = sym("g_weak_ref_get");
+    void *wr = obj_get(top, "appglass-view");
+    return wr && get ? get(wr) : NULL;
+}
+static int redecide_idle(void *top) {
+    gboolean (*mapped)(void *) = sym("gtk_widget_get_mapped");
+    void (*unref)(void *) = sym("g_object_unref");
+    obj_set(top, "appglass-pending", NULL, NULL);
+    void *view = view_of(top);
+    if (!view) return 0;
+    if (obj_get(view, "appglass-state") && mapped && mapped(top)) decide(view, top);
+    if (unref) unref(view);
+    return 0;
+}
+// emission hook on every widget's map and unmap: a widget in a tracked window re-decides it once
+// the main loop is idle again (one idle per window, however many widgets map)
+static gboolean on_widget_map(void *ihint, unsigned n, const void *params, void *data) {
+    (void)ihint; (void)n; (void)data;
+    void *(*val_get_object)(const void *) = sym("g_value_get_object");
+    void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
+    void *(*ref)(void *) = sym("g_object_ref"); void (*unref)(void *) = sym("g_object_unref");
+    unsigned (*idle_full)(int, void *, void *, void (*)(void *)) = sym("g_idle_add_full");
+    if (!val_get_object || !get_toplevel || !ref || !unref || !idle_full) return 1;
+    void *w = val_get_object(params);
+    void *top = w ? get_toplevel(w) : NULL;
+    if (!top || !obj_get(top, "appglass-view") || obj_get(top, "appglass-pending")) return 1;
+    obj_set(top, "appglass-pending", (void *)1, NULL);
+    idle_full(0, (void *)redecide_idle, ref(top), unref);   // G_PRIORITY_DEFAULT
+    return 1;
+}
+static void track(void *view, void *top) {
+    static int hooked;
+    void (*init)(void *, void *) = sym("g_weak_ref_init");
+    void (*unref)(void *) = sym("g_object_unref");
+    void *had = view_of(top);
+    if (had) { if (unref) unref(had); }
+    else if (init) {
+        void *wr = calloc(1, sizeof(void *));   // GWeakRef: one pointer
+        if (wr) { init(wr, view); obj_set(top, "appglass-view", wr, weak_free); }
+    }
+    if (hooked) return;
+    unsigned long (*widget_type)(void) = sym("gtk_widget_get_type");
+    unsigned (*lookup)(const char *, unsigned long) = sym("g_signal_lookup");
+    unsigned long (*add_hook)(unsigned, unsigned, void *, void *, void *) = sym("g_signal_add_emission_hook");
+    if (!widget_type || !lookup || !add_hook) return;
+    hooked = 1;
+    add_hook(lookup("map", widget_type()), 0, (void *)on_widget_map, NULL, NULL);
+    add_hook(lookup("unmap", widget_type()), 0, (void *)on_widget_map, NULL, NULL);
+}
+
+// the window of the view: RGBA visual (before it is realized), then decide() at each of its maps
+// and whenever a widget in it maps or unmaps; 0 without one yet
 static int glass_toplevel(void *view) {
     void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
     gboolean (*is_toplevel)(void *) = sym("gtk_widget_is_toplevel");
@@ -192,13 +267,15 @@ static int glass_toplevel(void *view) {
         void *v = rgba_visual(get_screen(top)); if (v) set_visual(top, v);
         LOG("toplevel %p: rgba visual %p", top, v);
     } else LOG("toplevel %p already realized: visual unchanged", top);
+    track(view, top);
     void *(*ref)(void *) = sym("g_object_ref"); void (*unref)(void *) = sym("g_object_unref");
     unsigned (*idle_full)(int, void *, void *, void (*)(void *)) = sym("g_idle_add_full");
+    if (connect_object)   // G_CONNECT_AFTER | G_CONNECT_SWAPPED: after the children are mapped
+        connect_object(top, "map", (void *)on_top_map, view, 1 | 2);
     if (get_mapped && get_mapped(top)) {
         if (idle_full && ref && unref) idle_full(0, (void *)decide_idle, ref(view), unref);   // G_PRIORITY_DEFAULT
         else decide(view, top);
-    } else if (connect_object)   // G_CONNECT_AFTER | G_CONNECT_SWAPPED: after the children are mapped
-        connect_object(top, "map", (void *)on_top_map, view, 1 | 2);
+    }
     return 1;
 }
 
