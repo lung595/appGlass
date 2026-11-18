@@ -135,7 +135,8 @@ class VerifyMask(unittest.TestCase):
             seen.append(list(keys))
             return ["/run/kiri"]
         with mock.patch.object(verify, "run_paths", rp), \
-                mock.patch.object(verify, "system_paths", lambda run="/run": []):
+                mock.patch.object(verify, "system_paths", lambda run="/run": []), \
+                mock.patch.object(verify, "session_paths", lambda rt=None, prefix=None: []):
             m = webkit.verify_mask(rec())
         self.assertEqual(m, {"hide": ["/run/kiri"], "nonet": True})
         self.assertEqual(seen, [["kiri", "kiri", "kiri-window"]])
@@ -145,7 +146,8 @@ class VerifyMask(unittest.TestCase):
         from appglass.families import lianli
         with mock.patch.object(verify, "run_paths",
                                lambda r, keys=(), run="/run": ["/run/" + k for k in keys]), \
-                mock.patch.object(verify, "system_paths", lambda run="/run": []):
+                mock.patch.object(verify, "system_paths", lambda run="/run": []), \
+                mock.patch.object(verify, "session_paths", lambda rt=None, prefix=None: []):
             self.assertEqual(lianli.verify_mask({"key": "x"}),
                              {"hide": ["/run/lianli"], "nonet": True})
 
@@ -168,9 +170,33 @@ class VerifyMask(unittest.TestCase):
             shutil.rmtree(d)
         from unittest import mock
         with mock.patch.object(verify, "run_paths", lambda r, keys=(), run="/run": []), \
-                mock.patch.object(verify, "system_paths", lambda run="/run": ["/run/s"]):
+                mock.patch.object(verify, "system_paths", lambda run="/run": ["/run/s"]), \
+                mock.patch.object(verify, "session_paths", lambda rt=None, prefix=None: []):
             self.assertEqual(lianli.verify_mask({"key": "x"})["hide"], ["/run/s"])
             self.assertEqual(webkit.verify_mask(rec())["hide"], ["/run/s"])
+
+    def test_the_session_bus_and_lian_li_locks_out_of_reach(self):
+        """The check runs its own session bus: the real one's socket and Lian
+        Li's session locks in $XDG_RUNTIME_DIR are hidden too."""
+        from appglass.families import lianli
+        d = tempfile.mkdtemp()
+        try:
+            for n in ("bus", "lianli-session-3.lock", "lianli-session-3_capture.lock", "other"):
+                open(os.path.join(d, n), "w").close()
+            self.assertEqual(verify.session_paths(rt=d), [d + "/bus"])
+            self.assertEqual(verify.session_paths(rt=d, prefix="lianli"),
+                             [d + "/bus", d + "/lianli-session-3.lock",
+                              d + "/lianli-session-3_capture.lock"])
+            self.assertEqual(verify.session_paths(rt=""), [])
+        finally:
+            shutil.rmtree(d)
+        from unittest import mock
+        with mock.patch.object(verify, "run_paths", lambda r, keys=(), run="/run": []), \
+                mock.patch.object(verify, "system_paths", lambda run="/run": []), \
+                mock.patch.object(verify, "session_paths",
+                                  lambda rt=None, prefix=None: ["/rt/bus"] + (["/rt/" + prefix] if prefix else [])):
+            self.assertEqual(lianli.verify_mask({"key": "x"})["hide"], ["/rt/bus", "/rt/lianli"])
+            self.assertEqual(webkit.verify_mask(rec())["hide"], ["/rt/bus"])
 
     def test_the_real_kiri_binary(self):
         b = "/usr/lib/kiri/kiri-window"

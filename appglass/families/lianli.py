@@ -38,10 +38,11 @@ def verify_mask(rec):
     the fans and lights of the real machine), from the system manager (the
     GUI runs systemctl start lianli-control-recovery.service, a root unit
     its polkit rule allows: the system bus and systemd's private socket
-    hidden) and off the network."""
+    hidden), from the real session bus and its session locks
+    ($XDG_RUNTIME_DIR/bus, lianli-session-*.lock) and off the network."""
     from .. import verify
-    return {"hide": verify.run_paths(rec, keys=("lianli",)) + verify.system_paths(),
-            "nonet": True}
+    return {"hide": verify.run_paths(rec, keys=("lianli",)) + verify.system_paths()
+            + verify.session_paths(prefix="lianli"), "nonet": True}
 
 
 def css(ctx):

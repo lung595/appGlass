@@ -498,6 +498,24 @@ def system_paths(run="/run"):
     return [os.path.join(run, p) for p in SYSTEM_SOCKETS if os.path.lexists(os.path.join(run, p))]
 
 
+def session_paths(rt=None, prefix=None):
+    """The real session's bus socket ($XDG_RUNTIME_DIR/bus: the check runs
+    its own bus) and, with prefix, the files in $XDG_RUNTIME_DIR whose name
+    starts with it (Lian Li's session locks), for a verify_mask hide."""
+    rt = os.environ.get("XDG_RUNTIME_DIR") if rt is None else rt
+    if not rt or not os.path.isdir(rt):
+        return []
+    out = [os.path.join(rt, "bus")] if os.path.lexists(os.path.join(rt, "bus")) else []
+    if prefix:
+        try:
+            names = sorted(os.listdir(rt))
+        except OSError:
+            names = []
+        out += [os.path.join(rt, n) for n in names
+                if n.startswith(prefix) and not os.path.isdir(os.path.join(rt, n))]
+    return out
+
+
 def verify_mask(app, rec):
     """The app's family's verify_mask(rec): {"hide": [paths], "nonet": bool},
     or nothing more than the base mask."""

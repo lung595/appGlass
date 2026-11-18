@@ -86,10 +86,12 @@ def verify_mask(rec):
     names, /run/<its name>): a throwaway HOME does not make a throwaway
     daemon (Kiri drives the real container engine by /run/kiri/docker.sock),
     and from the system manager (the system bus and systemd's private
-    socket: a Tauri app may start units, as Lian Li's GUI does)."""
+    socket: a Tauri app may start units, as Lian Li's GUI does) and the real
+    session bus socket (the check runs its own bus)."""
     from .. import verify
     keys = [rec["key"]] + [n for n in rec.get("names") or () if "/" not in n]
-    return {"hide": verify.run_paths(rec, keys=keys) + verify.system_paths(), "nonet": True}
+    return {"hide": verify.run_paths(rec, keys=keys) + verify.system_paths()
+            + verify.session_paths(), "nonet": True}
 
 
 # the first-run state of the apps it knows, so the hidden check shoots the
