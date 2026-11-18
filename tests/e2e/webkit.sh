@@ -6,8 +6,11 @@
 # Kiri (a Tauri/wry app: GTK3 + WebKitGTK 4.1, no family of its own) runs
 # with HOME and XDG_* in the harness TMP, no session/system bus (NOBUS=1),
 # its daemon socket dir hidden (bwrap --tmpfs /run/kiri: it starts with no
-# engine) and no network (unshare -n when available). The user's Kiri data
-# (~/.kiri, ~/.local/share/kiri) is only listed, before and after.
+# engine), the other engine sockets it names hidden too where they exist
+# (/run/podman, $XDG_RUNTIME_DIR/podman and docker.sock, ~/.docker/run) with
+# DOCKER_HOST unset, the system bus and systemd's private socket /dev/null,
+# and no network (unshare -n when available). The user's Kiri data (~/.kiri,
+# ~/.local/share/kiri) is only listed, before and after.
 #
 # 1. scratch sandbox: apply/remove round trip (whole tree back to the same
 #    sha256), the rule file for the nested niri
@@ -119,9 +122,13 @@ ST=$(ag_appglass "$SB" status --json | jq -c '.apps[] | select(.key == "kiri")
 read -r -a EXEC <<< "$(sed -n 's/^Exec=//p' "$L" | head -1 | sed -E 's/(^| )%[a-zA-Z]//g')"
 NONET=()
 unshare -U --map-current-user -n true 2>/dev/null && NONET=("$(command -v unshare)" -U --map-current-user -n)
+RT=${XDG_RUNTIME_DIR:-/nonexistent}
+mapfile -t HIDE < <(ag_hide_args /run/kiri /run/podman "$RT/podman" "$RT/docker.sock" \
+    "$HOME/.docker/run" "${AG_SYSTEM_SOCKETS[@]}")
+printf '%s\n' "${HIDE[@]}" | grep -qx /run/kiri || ag_die "no /run/kiri to hide"
 kiri_up() {
-    NOBUS=1 ag_harness run "$NAME" -- bwrap --dev-bind / / --tmpfs /run/kiri --die-with-parent \
-        "${NONET[@]}" "${EXEC[@]}" >&2
+    NOBUS=1 ag_harness run "$NAME" -- env -u DOCKER_HOST bwrap --dev-bind / / "${HIDE[@]}" \
+        --die-with-parent "${NONET[@]}" "${EXEC[@]}" >&2
     ag_wait_window "$NAME" "$APPID" 30 || { tail -20 "$SB/app.log" >&2 || true; ag_die "no Kiri window"; }
 }
 kiri_down() {
