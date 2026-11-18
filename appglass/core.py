@@ -2239,6 +2239,11 @@ def app_routes(app, records=None, renders=None, note_removed=False):
         if fam and route["effective"] == "glass" and not app.installed(app.families[fam]):
             route.update(effective="fallback", reason="family %s: not installed" % fam,
                          state="opaque")
+        skip = getattr(app.families.get(fam), "skip_reason", None) if fam else None
+        why = skip(app.env, r) if skip and route["effective"] == "glass" else None
+        if why:
+            route.update(effective="fallback", reason="family %s: %s" % (fam, why),
+                         state="opaque")
         if fam in removed and fam not in app.state.owners and route["effective"] == "glass":
             route.update(effective="fallback", reason="family %s removed (appglass apply "
                          "--only %s sets it up again)" % (fam, fam))

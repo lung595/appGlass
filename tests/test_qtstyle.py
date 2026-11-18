@@ -206,6 +206,44 @@ class QtStyleFlatpak(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(sb.tree_hash(), self.before)
 
+    def runtime(self, rt):
+        d = self.w.sb.path("flatpak", "app", "org.kde.kate", "current", "active")
+        with open(os.path.join(d, "metadata"), "w") as f:
+            f.write("[Application]\nname=org.kde.kate\nruntime=%s\n" % rt)
+
+    def test_a_runtime_on_another_qt_minor_gets_no_style(self):
+        # w2 r2: the host-built style loads only into a KDE runtime of the
+        # host Qt minor (6.11 here): with another one the launcher and the
+        # glass katerc are not written, and apply and status say why
+        sb = self.w.sb
+        path = self.w.user(".local/share/applications/org.kde.kate.desktop")
+        rc = os.path.join(sb.home, ".var/app/org.kde.kate/config/appglass/katerc")
+        code, out, err = self.w.run("apply", "--only", "qtstyle,kate")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.isfile(rc))
+        self.assertIn("QT_STYLE_OVERRIDE=appglass", sb.read(path))
+        for rt in ("org.kde.Platform/x86_64/6.8", "org.freedesktop.Platform/x86_64/25.08"):
+            with self.subTest(rt=rt):
+                self.runtime(rt)
+                code, out, err = self.w.run("apply", "--only", "qtstyle,kate")
+                self.assertEqual(code, 0, err)
+                self.assertIn("org.kde.kate: ", out + err)
+                self.assertFalse(os.path.exists(path) and "appglass" in sb.read(path),
+                                 out + err)
+                self.assertFalse(os.path.exists(rc), out + err)
+                code, out, err = self.w.run("status")
+                self.assertEqual(code, 0, err)
+                line = [x for x in out.splitlines() if x.startswith("  org.kde.kate ")]
+                self.assertEqual(len(line), 1, out)
+                self.assertEqual(line[0].split()[3], "fallback", line[0])
+                self.assertIn("Qt 6.8" if "6.8" in rt else "not a KDE runtime", line[0])
+        self.runtime("org.kde.Platform/x86_64/6.11")
+        code, out, err = self.w.run("apply", "--only", "qtstyle,kate")
+        self.assertIn("QT_STYLE_OVERRIDE=appglass", sb.read(path))
+        code, out, err = self.w.run("remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sb.tree_hash(), self.before)
+
     def test_flatpak_start_fades(self):
         # the unfocused fade reaches the flatpak start as it does VLC's
         # (0.80 x 0.90 over 180 ms), and turns off with the fade

@@ -38,6 +38,7 @@ inherit them.
 """
 
 import os
+import re
 
 from .. import inactive, shims
 from ..core import Conflict
@@ -76,6 +77,36 @@ def accepts(rec):
         if "libQt5" in ev:
             return "Qt 5 app: the style plugin is built for Qt 6 (ABI)"
         return "no libQt6Widgets in its binary: the Qt 6 style does not load"
+    return None
+
+
+def _minor(v):
+    m = re.match(r"^(\d+)\.(\d+)(?:\.|$)", v or "")
+    return "%s.%s" % m.groups() if m else None
+
+
+def host_qt(env, keep=False):
+    """The host Qt 6 minor version the style is built with ("6.11"), or None."""
+    return _minor(shims.Toolchain(env, keep=keep).pkg_info("--modversion", MODULES[0]))
+
+
+def flatpak_skip(env, app, keep=False):
+    """Why the host-built style cannot load in the flatpak app (its KDE
+    runtime's Qt minor version is not the host's: the plugin ABI), or None."""
+    info = shims.flatpak_info(env, app) or {}
+    rt = info.get("runtime") or ""
+    parts = rt.split("/")
+    host = host_qt(env, keep)
+    if len(parts) != 3 or parts[0] != "org.kde.Platform" or not _minor(parts[2]):
+        return "runtime %s is not a KDE runtime with a Qt version: the Qt style is not " \
+               "passed in" % (rt or "unknown")
+    if host is None:
+        return "the host Qt 6 version is not known (pkg-config %s): the Qt style is not " \
+               "passed in" % MODULES[0]
+    if _minor(parts[2]) != host:
+        return "its runtime has Qt %s, the style is built with the host Qt %s (the plugin " \
+               "does not load across Qt minor versions): plain until they match" \
+               % (_minor(parts[2]), host)
     return None
 
 
@@ -183,6 +214,17 @@ def apply(ctx):
             ids.append(r"^%s$" % desktop_id[:-len(".desktop")])
     for desktop_id, app in FLATPAKS:
         if desktop_id in plain or not shims.installed_flatpak(env, app):
+            continue
+        # the probe (state.json lost) plans every path a run may have written
+        why = None if getattr(ctx, "probe", False) else flatpak_skip(
+            env, app, keep=not getattr(ctx.app, "dry_run", False))
+        if why:
+            # a launcher written before goes back to the system text
+            if ctx.owns(ctx.data_path("applications", desktop_id)):
+                p = ctx.desktop_override(desktop_id, lambda t: t)
+                if p:
+                    paths.append(p)
+            ctx.warn("%s: %s" % (app, why))
             continue
         p = ctx.desktop_override(desktop_id, lambda t, a=app: flatpak_launcher(env, t, ctx.levels, a, fade))
         if p:

@@ -18,6 +18,14 @@ class Kate(TermCase, unittest.TestCase):
 
     def seed(self):
         self.sb.write("katerc", RC)
+        # the glass katerc needs the style to load: a KDE runtime of the
+        # host Qt minor (the fake pkg-config answers 6.11)
+        from fixtures.toolchain import Toolchain
+        self.tc = Toolchain(self.sb, [self.w.bin])
+        self.addCleanup(self.tc.cleanup)
+        with open(os.path.join(self.sb.path("flatpak", "app", "org.kde.kate", "current",
+                                            "active"), "metadata"), "w") as f:
+            f.write("[Application]\nname=org.kde.kate\nruntime=org.kde.Platform/x86_64/6.11\n")
 
     def theme(self, base=None):
         p = os.path.join(base or self.sb.data, THEME)

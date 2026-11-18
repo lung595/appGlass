@@ -73,14 +73,14 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 ## Qt Widgets (VLC, Kate, Konsole)
 
 - **Writes:** a Qt 6 style plugin built from source with the host Qt, `~/.local/lib/appglass/qt6/styles/libappglass.so`, and a launcher override `~/.local/share/applications/vlc.desktop` that starts VLC with `QT_STYLE_OVERRIDE=appglass`, the same for every other host Qt 6 Widgets app the engine finds. Nothing is preloaded: Qt loads the style itself, and takes its variables out of the environment of the processes the app starts.
-- **Kate and Konsole (flatpak):** their launcher override gives that `flatpak run` read-only access to the style and the DMS colours. The host-built style loads in the KDE runtime when its Qt minor version matches.
+- **Kate and Konsole (flatpak):** their launcher override gives that `flatpak run` read-only access to the style and the DMS colours. The host-built style loads in the KDE runtime only when its Qt minor version matches the host Qt: apply reads the runtime branch from the flatpak's metadata (`org.kde.Platform/x86_64/6.11` is Qt 6.11) and, when it is not the host's Qt minor, writes no launcher override and no Kate glass `katerc` for that app, warns, and `appglass status` gives the reason (the app keeps the fallback look until they match).
 - **Fade:** an unfocused window eases its background to the unfocused level, in the flatpaks and in the apps the engine finds too (not recorded for the apps the engine finds: the same style, unit-tested in `tests/test_fade.py`).
 - **Fade, recorded:** VLC 3.0.24 (under XWayland) at 0.80, 180 ms ease-out, three runs: unfocused, the background went 0.80 to 0.72 in about 110 ms, one step per frame (7 steps; the end of the ease-out is under one 8-bit step); focused again, back to 0.80 in 120 to 180 ms (2 or 3 steps).
 - **Measured:** VLC 3.0.24 (host Qt 6) with the appglass style, in a nested niri session at 0.60: controls 153, menu bar and tool bar 166, text 255; the video area stays 255 (black) and the menus are opaque. The same style on a Qt 6 Widgets stand-in (menu bar, tool bar, dock, tabs, status bar): content 153, bars 166, text 255, dialogs 255. Screenshot: VLC in the [issue draft](issue-dms.md#screenshots). [qt.md](qt.md) holds the rows from before the style.
 - **Fade, not recorded for Kate and Konsole:** they use the same style as VLC, in the KDE runtime; not recorded in a session for this version; the launcher passing the fade to the style is unit-tested (`tests/test_fade.py`).
 - **Needs:** `g++` and the Qt 6 headers. A Qt update rebuilds the plugin.
 - **Undo:** `appglass remove --only qtstyle`.
-- **Limit:** Qt 5 apps cannot load a Qt 6 plugin, and other flatpak apps on the KDE runtime are not routed (the Qt minor version must match): they keep the fallback look.
+- **Limit:** Qt 5 apps cannot load a Qt 6 plugin, other flatpak apps on the KDE runtime are not routed, and Kate and Konsole get no style while their runtime's Qt minor version is not the host's (status says so): they keep the fallback look.
 
 ## Kate, mpv, GIMP, Zed
 

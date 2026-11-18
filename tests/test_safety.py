@@ -1653,7 +1653,7 @@ class UninstalledForReal(unittest.TestCase):
                 % (cmd, app_id)), flatpak=True)
             d = sb.path("flatpak", "app", app_id, "current", "active")
             os.makedirs(os.path.join(d, "files"))
-            sb.write("metadata", "[Application]\nname=%s\nruntime=org.kde.Platform/x86_64/6.8\n"
+            sb.write("metadata", "[Application]\nname=%s\nruntime=org.kde.Platform/x86_64/6.11\n"
                      "command=%s\n" % (app_id, cmd), base=d)
 
     def tearDown(self):

@@ -131,11 +131,20 @@ def glass_rc():
     return head + "[%s]\n%s" % (SECTION, "".join("%s[$i]=%s\n" % kv for kv in KEYS))
 
 
+def skip_reason(env, rec):
+    """Why a glass Kate flatpak is plain (qtstyle.flatpak_skip), or None."""
+    from . import qtstyle
+    return qtstyle.flatpak_skip(env, FLATPAK) if rec.get("flatpak") else None
+
+
 def apply(ctx):
+    from . import qtstyle
     paths = []
     for t in _term.targets(ctx.env, CMDS, FLATPAK):
         paths.append(ctx.write_owned(
             t.data_path("org.kde.syntax-highlighting", "themes", "appglass.theme"), theme(ctx)))
-        if t.kind == "flatpak":
+        if t.kind == "flatpak" and (getattr(ctx, "probe", False)
+                                    or qtstyle.flatpak_skip(ctx.env, FLATPAK) is None):
+            # only the glass start reads it: none while the style cannot load
             paths.append(ctx.write_owned(os.path.join(xdg_dir(ctx.env), "katerc"), glass_rc()))
     return paths
