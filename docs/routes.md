@@ -140,7 +140,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 - **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/lianli/`, the page CSS, the wrapper `~/.local/bin/appglass-lianli` and a launcher override. The shim is preloaded for that one launch: it clears the WebView background, gives the window an alpha visual and adds the CSS.
 - **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)); in a nested niri with its daemon hidden (`tests/e2e/lianli.sh`), content 153 and bars 166.
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
-- **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
+- **Default:** on, live once its hidden check passes, but today the check does not pass: the check hides the daemon (as it must), so Lian Li lays its "Check your installation / Waiting for daemon" dialog and a scrim over the page, and the shot fails (background about 194 for 153, `tests/e2e/lianli.sh`). Lian Li stays opaque until you switch it on yourself in Settings > Apps (`apps.lianli.enabled` in `settings.json`); then it is glass at once.
 - **Undo:** `appglass remove --only lianli`.
 
 ## Any WebKitGTK app (generic WebKit shim)
