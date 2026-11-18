@@ -33,7 +33,7 @@
 #    glass launcher; fail: still no glass launcher). With its daemon hidden
 #    the app lays its "Check your installation" dialog and a scrim over the
 #    page within the 2 s the check waits, so the verdict seen is a fail
-#    (background about 194 for 153): Lian Li goes glass when you switch it
+#    (background about 202 for 153 on 1.3.0): Lian Li goes glass when you switch it
 #    on. The journals below cover the check too.
 # 2b. harness sandbox: apps.lianli.enabled, appglass apply: the launcher
 #    override starts lianli-gui through appglass-lianli
