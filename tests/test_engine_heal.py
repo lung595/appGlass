@@ -1166,7 +1166,9 @@ class RpmQuiet(unittest.TestCase):
             r = subprocess.run(["sh", os.path.join(REPO, "bin", "appglass-sync")], env=env,
                                capture_output=True, text=True, timeout=30)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertGreaterEqual(time.monotonic() - t, 1.5)
+            # the wait counts whole seconds (stat %Y, date +%s): a quiet of 2
+            # is between 1 and 2 s after a write late in its second
+            self.assertGreaterEqual(time.monotonic() - t, 0.9)
         finally:
             sb.cleanup()
 
