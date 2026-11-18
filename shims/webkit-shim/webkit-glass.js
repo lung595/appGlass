@@ -121,6 +121,12 @@
     }
   }
 
+  function gone(el) {
+    if (!el.getClientRects().length) return true;
+    var cs = getComputedStyle(el);
+    return cs.visibility === "hidden" || cs.display === "none";
+  }
+
   function walk(el) {
     if (!mark(el)) return;
     for (var k = el.firstElementChild; k; k = k.nextElementSibling) walk(k);
@@ -146,6 +152,9 @@
     if (obs) queue = queue.concat(obs.takeRecords());
     var s = themeSig();
     if (s !== sig) { sig = s; all = true; }
+    // a cover no longer shown (a class on an ancestor hid it, a parent went display:none):
+    // what it hid comes back with a full run
+    if (!all && Array.prototype.some.call(document.querySelectorAll("[data-agl-cover]"), gone)) all = true;
     if (all) {
       all = false; queue = [];
       Array.prototype.forEach.call(document.querySelectorAll("[data-agl]"), unmark);
