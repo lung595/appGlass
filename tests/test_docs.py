@@ -1023,7 +1023,7 @@ class UnreleasedLink(unittest.TestCase):
         for v, when in heads:
             if when.strip() == "Unreleased":
                 self.assertNotIn("releases/tag/v%s" % v, c)
-                self.assertIn("[%s]: https://github.com/lung595/appGlass/commits/main" % v, c)
+                self.assertIn("[%s]: https://github.com/lung595/appGlass/commits/master" % v, c)
             else:
                 self.assertIn("[%s]: https://github.com/lung595/appGlass/releases/tag/v%s" % (v, v), c)
 

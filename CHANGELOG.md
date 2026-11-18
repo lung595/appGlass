@@ -55,4 +55,4 @@ The first release.
 - **Docs.** A user guide, the engine, the routes, the plugin pages, and an app table
   generated from `docs/apps.json`.
 
-[0.1.0]: https://github.com/lung595/appGlass/commits/main
+[0.1.0]: https://github.com/lung595/appGlass/commits/master
