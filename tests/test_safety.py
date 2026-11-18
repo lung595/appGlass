@@ -1695,6 +1695,121 @@ class InterruptedApply(Base):
         self.assertIn(self.env.tilde(b), out + err)
 
 
+class MidWrite(Base):
+    """A kill inside one write, not between two (the new bytes half on the
+    disk, an empty file made, a backup cut short): State.settle reads the
+    pending record against the disk, and a file that holds neither its old
+    bytes nor its new ones is cut, not the user's edit. remove then gives
+    the original back whole (what the cut left saved aside) and deletes a
+    file appglass created; the next apply writes it again from the
+    original."""
+
+    ASSUME = "alacritty,dux"
+
+    def cut(self, mode, k, base, phase):
+        shutil.rmtree(self.sb.root)
+        shutil.copytree(base, self.sb.root, symlinks=True)
+        n = [0]
+        real_inplace, real_durable = core._inplace_write, core._write_durable
+
+        def user(path):
+            return not path.startswith(self.state_dir + os.sep)
+
+        def hit(path):
+            n[0] += 1
+            return n[0] == k
+
+        def inplace(path, data):
+            if user(path) and hit(path):
+                if mode == "empty":
+                    if not os.path.exists(path):
+                        open(path, "wb").close()
+                else:
+                    part = data if mode == "notrunc" else data[:len(data) // 2]
+                    with open(path, "r+b" if os.path.exists(path) else "wb") as f:
+                        f.write(part)
+                raise Stop()
+            return real_inplace(path, data)
+
+        def durable(path, data):
+            if mode == "orig" and path.endswith(".orig") and hit(path):
+                with open(path, "wb") as f:
+                    f.write(data[:len(data) // 3])
+                raise Stop()
+            return real_durable(path, data)
+        hit_ = False
+        with unittest.mock.patch.object(core, "_inplace_write", inplace), \
+                unittest.mock.patch.object(core, "_write_durable", durable):
+            try:
+                if phase == "apply":
+                    self.sb.run("apply", "--only", self.ASSUME, assume=self.ASSUME)
+                else:
+                    self.sb.run("remove", assume=self.ASSUME)
+            except Stop:
+                hit_ = True
+        return hit_
+
+    def asides(self):
+        out = [f for f in self.sb.files() if ".appglass-changed" in f]
+        for f in out:
+            os.remove(self.sb.path(f))
+        return out
+
+    def every_cut(self, phase, then):
+        before = self.sb.tree_hash()
+        if phase == "remove":
+            code, out, err = self.sb.run("apply", "--only", self.ASSUME, assume=self.ASSUME)
+            self.assertEqual(code, 0, out + err)
+        base = self.sb.root.rstrip(os.sep) + ".base"
+        shutil.copytree(self.sb.root, base, symlinks=True)
+        self.addCleanup(shutil.rmtree, base, True)
+        hits = 0
+        for mode in (("half", "notrunc", "empty", "orig") if phase == "apply"
+                     else ("half", "notrunc")):
+            k = 1
+            while self.cut(mode, k, base, phase):
+                hits += 1
+                with self.subTest(mode=mode, k=k):
+                    for argv in then:
+                        code, out, err = self.sb.run(*argv, assume=self.ASSUME)
+                        self.assertEqual(code, 0, "%s: %s" % (argv, out + err))
+                    self.asides()
+                    self.assertEqual(self.sb.tree_hash(), before)
+                    self.assertFalse(os.path.exists(self.state_dir))
+                k += 1
+        self.assertGreaterEqual(hits, 4)
+
+    def test_an_apply_cut_inside_a_write_is_undone_by_remove(self):
+        self.every_cut("apply", [("remove",)])
+
+    def test_an_apply_cut_inside_a_write_is_finished_by_the_next(self):
+        self.every_cut("apply", [("apply", "--only", self.ASSUME), ("remove",)])
+
+    def test_a_remove_cut_inside_a_write_is_finished_by_the_next(self):
+        self.every_cut("remove", [("remove",)])
+
+    def test_doctor_names_a_cut_file_and_remove_sets_it_aside(self):
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        text = self.sb.readb(main)
+        base = self.sb.root.rstrip(os.sep) + ".base"
+        shutil.copytree(self.sb.root, base, symlinks=True)
+        self.addCleanup(shutil.rmtree, base, True)
+        k = 1
+        while self.cut("half", k, base, "apply"):
+            if self.sb.readb(main) != text:
+                break
+            k += 1
+        cut = self.sb.readb(main)
+        self.assertNotEqual(cut, text)
+        code, out, err = self.sb.run("doctor", assume=self.ASSUME)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("%s was cut" % self.env.tilde(main), out + err)
+        code, out, err = self.sb.run("remove", assume=self.ASSUME)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.readb(main), text)
+        self.assertEqual(self.sb.readb(main + ".appglass-changed"), cut)
+
+
 class UninstalledSinceApply(Base):
     """An app uninstalled after apply, then the state lost: its marked
     files still count (the refusal, doctor and adopt --rescue find them),

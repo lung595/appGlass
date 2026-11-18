@@ -460,6 +460,7 @@ class State:
         d.setdefault("owners", {})
         d.setdefault("state_parents", [])
         self.data = d
+        self.partial = []     # backups a kill cut short (settle): deleted at the next save
         self.settle()
         self.dry = False      # a dry run put records in memory: never saved
         self.save_guard = None  # raises before a save over a lost state
@@ -471,8 +472,11 @@ class State:
         writes it) whose write a kill cut: the disk says how far it got. The
         new bytes: the write is done. The old ones: the record as it was
         before (none for a file appglass made or newly backed up: its
-        original is on the disk). Anything else (a write cut half way, a
-        change since): the record stands, remove works from its backup."""
+        original is on the disk). Anything else is a write cut half way (or
+        a backup cut short): the file is marked cut, never the user's edit,
+        so remove gives its original back whole (what the cut left saved
+        aside) or deletes it when appglass made it, and apply writes it
+        again from its original."""
         for o in self.owners.values():
             files = o.get("files") if isinstance(o, dict) else None
             if not isinstance(files, dict):
@@ -500,8 +504,11 @@ class State:
                     if (bb is None or sha(bb) != r.get("orig_sha256")) \
                             and now == r.get("orig_sha256"):
                         # cut before its original was copied whole: the
-                        # original is still the file itself
+                        # original is still the file itself, and the copy
+                        # cut short goes at the next save
                         del files[p]
+                        if bb is not None and _read(p).startswith(bb):
+                            self.partial.append((b, sha(bb)))
                         continue
                 if now == pend.get("new"):
                     continue
@@ -515,6 +522,25 @@ class State:
                         del files[p]
                     else:
                         r["sha256"] = now
+                elif now:
+                    # (cut in remove's write: the bytes it wrote over may
+                    # hold the user's edits)
+                    r["cut"] = "remove" if pend.get("revert") else True
+
+    def _drop_partial(self):
+        """The backups settle found cut short (their file still holds the
+        original whole): deleted, so no original is left that no record
+        names (it would block the next apply and keep the state folder)."""
+        named = {r.get("backup") for o in self.owners.values()
+                 for r in (o.get("files") or {}).values() if isinstance(r, dict)}
+        for b, h in self.partial:
+            bp = os.path.join(self.env.state_dir, b)
+            # (still the copy cut short, and named by no record again)
+            if b not in named and os.path.isfile(bp) and not os.path.islink(bp) \
+                    and sha(_read(bp)) == h:
+                self.env.guard(bp)
+                os.remove(bp)
+        self.partial = []
 
     # what remove needs to give a file back: an event save never changes it
     OWED = ("kind", "how", "backup", "orig_sha256", "adopted")
@@ -551,6 +577,7 @@ class State:
                                 % (self.path, UNREADABLE_HINT))
         if self.save_guard is not None:
             self.save_guard()
+        self._drop_partial()
         # S6: an event run never forgets a record the last save held, nor
         # changes what it owes (a dropped backup: no original for remove)
         now = self.records()
@@ -1043,8 +1070,8 @@ class Ctx:
         (its part taken out) instead of putting its part back."""
         path = os.path.abspath(path)
         rec = self._record(path)
-        if rec is None or rec.get("how") not in ("edit", "json"):
-            return False
+        if rec is None or rec.get("how") not in ("edit", "json") or rec.get("cut"):
+            return False     # (cut: a write a kill stopped, State.settle)
         if rec.get("app_rewrote") or self.deleted_since_apply(path):
             return True
         cur = _read_planned(path)
@@ -1220,9 +1247,10 @@ class Ctx:
         base = cur
         if rec is not None and path not in self.ops:
             if (cur is not None and sha(cur) == rec["sha256"]
-                    and not rec.get("app_rewrote")):
-                # unchanged since our last write: rebuild from the original
-                # (after a user change, the current text is the base for good)
+                    and not rec.get("app_rewrote")) or rec.get("cut"):
+                # unchanged since our last write (or cut half way by a
+                # kill): rebuild from the original (after a user change,
+                # the current text is the base for good)
                 if rec["kind"] == "modified":
                     base = self.app.backup_bytes(rec)
                 else:
@@ -1253,6 +1281,9 @@ class Ctx:
         if self.deleted_since_apply(path):
             return self._keep_deleted(path, "remove + apply writes it again")
         cur = _read_planned(path) if path not in self.ops else self.ops[path].data
+        if rec is not None and rec.get("cut") and path not in self.ops:
+            # cut half way by a kill: merged again from the original
+            cur = self.app.backup_bytes(rec) if rec["kind"] == "modified" else None
         if cur is None or not cur.strip():
             obj = {}
         else:
@@ -1682,7 +1713,7 @@ class App:
                                how=op.kind)
                     backed = not had
             elif (rec.get("how") in ("json", "edit") and cur is not None
-                  and sha(cur) != rec.get("sha256")):
+                  and sha(cur) != rec.get("sha256") and not rec.get("cut")):
                 # the app or the user rewrote the file since the last apply:
                 # the backup no longer holds their changes, so remove must
                 # strip only ours (json keys / the owner's undo; sticky)
@@ -1720,6 +1751,7 @@ class App:
                     raise
                 rec.pop("pending", None)
                 changed.append(p)
+            rec.pop("cut", None)     # (its new bytes whole on the disk now)
             if op.mode is not None and _mode(p) != op.mode:
                 os.chmod(p, op.mode)
                 if p not in changed:
@@ -1854,6 +1886,27 @@ class App:
             if rec.get("orig_mode") is not None and _mode(p) != rec["orig_mode"]:
                 os.chmod(p, rec["orig_mode"])
             return
+        if cur is not None and rec.get("cut"):
+            # a write a kill cut half way (State.settle): no edit of the
+            # user's, so no undo runs on it
+            if rec["kind"] == "created" and rec["cut"] is True:
+                os.remove(p)     # appglass's bytes alone, half written
+                return
+            keep = _aside_name(env, p)
+            if rec["kind"] == "created":
+                _write_durable(keep, cur)
+                os.remove(p)
+                self.warn("%s was cut half way by a stopped run; deleted, what the cut "
+                          "left saved as %s" % (p, keep))
+                return
+            orig = self.backup_bytes(rec)
+            _write_durable(keep, cur)
+            self._put(owner_name, p, rec, orig)
+            if rec.get("orig_mode") is not None and _mode(p) != rec["orig_mode"]:
+                os.chmod(p, rec["orig_mode"])
+            self.warn("%s was cut half way by a stopped run; original restored, what the "
+                      "cut left saved as %s" % (p, keep))
+            return
         if cur is None and rec.get("retired"):
             # a hand file appglass took over and deleted: given back
             orig = self.backup_bytes(rec)
@@ -1884,7 +1937,7 @@ class App:
                     if not obj:
                         os.remove(p)
                     elif obj != json.loads(cur.decode("utf-8")):
-                        _inplace_write(p, (json.dumps(obj, indent=2) + "\n").encode())
+                        self._put(owner_name, p, rec, (json.dumps(obj, indent=2) + "\n").encode())
                     return    # (none of ours left in it: their bytes kept)
                 except (ValueError, AttributeError):
                     pass
@@ -1901,7 +1954,7 @@ class App:
                 if not rest.strip() or sha(rest.strip()) == rec.get("pristine_sha256"):
                     os.remove(p)
                     return
-                _inplace_write(p, rest)
+                self._put(owner_name, p, rec, rest)
                 self.warn("%s changed since appglass created it; appglass parts "
                           "removed, your changes kept" % p)
                 return
@@ -1909,7 +1962,7 @@ class App:
             return
         orig = self.backup_bytes(rec)
         if not diverged:
-            _inplace_write(p, orig)
+            self._put(owner_name, p, rec, orig)
             if rec.get("orig_mode") is not None and _mode(p) != rec["orig_mode"]:
                 os.chmod(p, rec["orig_mode"])
             return
@@ -1923,9 +1976,9 @@ class App:
                 # nothing of the app's left: the original bytes, else the
                 # merge (none of ours left in it: their bytes kept)
                 if same:
-                    _inplace_write(p, orig)
+                    self._put(owner_name, p, rec, orig)
                 elif obj != json.loads(cur.decode("utf-8")):
-                    _inplace_write(p, (json.dumps(obj, indent=2) + "\n").encode())
+                    self._put(owner_name, p, rec, (json.dumps(obj, indent=2) + "\n").encode())
                 return
             except (ValueError, AttributeError):
                 pass
@@ -1933,15 +1986,32 @@ class App:
         undo = None if rec.get("how") == "owned" else self._undo_for(owner_name, p)
         if undo is not None:
             try:
-                _inplace_write(p, undo(cur.decode("utf-8")).encode("utf-8"))
+                self._put(owner_name, p, rec, undo(cur.decode("utf-8")).encode("utf-8"))
                 self.warn("%s changed since apply; appglass parts removed, your changes kept" % p)
                 return
             except Exception as ex:
                 self.warn("%s: undo failed (%s); restoring the original" % (p, ex))
         keep = _aside_name(env, p)   # an earlier saved-aside version stays
         _write_durable(keep, cur)   # on the disk before the original goes over p
-        _inplace_write(p, orig)
+        self._put(owner_name, p, rec, orig)
         self.warn("%s changed since apply; original restored, your version saved as %s" % (p, keep))
+
+    def _put(self, owner_name, p, rec, data):
+        """An in-place write of remove (the original back, what an undo or
+        an unmerge leaves): recorded as pending first, like commit's, so a
+        kill inside it leaves a file State.settle marks cut."""
+        st = self.state
+        if (st.owners.get(owner_name) or {}).get("files", {}).get(p) is rec and not st.dry:
+            cur = _read(p)
+            prev = json.loads(json.dumps(rec))
+            prev.pop("pending", None)
+            rec["pending"] = {"old": sha(cur) if cur is not None else None,
+                              "new": sha(data), "prev": prev, "revert": True}
+            st.save()
+        try:
+            _inplace_write(p, data)
+        finally:
+            rec.pop("pending", None)
 
     def _pristine(self, owner_name, path, op):
         """sha256 of what the undo leaves of op.data, outer whitespace
@@ -4532,6 +4602,11 @@ def doctor_drift(app):
             continue
         drift = []
         for p, rec in sorted(st.owners[name].get("files", {}).items()):
+            if rec.get("cut") and os.path.isfile(p):
+                # (State.settle: neither its old bytes nor its new ones)
+                drift.append((p, "was cut half way by a stopped run (appglass remove gives "
+                                 "the original back, apply writes it again)"))
+                continue
             if rec.get("how") != "owned" or rec.get("retired") or rec.get("unplanned"):
                 # (unplanned: an event run found its target gone, a vault on
                 # a drive not mounted; kept for remove, not re-rendered)

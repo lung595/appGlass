@@ -539,6 +539,8 @@ DELETE_SITES = {
     ("core", "App._drop_backup"),  # a backup no record names (after a user's revert)
     ("core", "App._unpend"),       # the backup its own failed write made, of bytes
                                    # the file still holds (no original is lost)
+    ("core", "State._drop_partial"),  # a backup a kill cut short, of bytes the
+                                   # file still holds whole (no original is lost)
     ("core", "App._ring_entry"),   # ring entries past RING_KEEP, half-written ones
     ("core", "_unlock"),           # its own lock and the dirs the lock made
     ("core", "_atomic_write"),     # a write: its own temp file moved over the target
