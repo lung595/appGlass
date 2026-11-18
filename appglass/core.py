@@ -1896,9 +1896,10 @@ class App:
             return
         if cur is not None and rec.get("cut"):
             # a write a kill cut half way (State.settle): no edit of the
-            # user's, so no undo runs on it
-            if rec["kind"] == "created" and rec["cut"] is True:
-                os.remove(p)     # appglass's bytes alone, half written
+            # user's, so no undo runs on it; the bytes are saved aside all
+            # the same (a hand edit made after the kill is in them)
+            if rec["kind"] == "created" and not cur:
+                os.remove(p)     # an empty file: nothing in it to keep
                 return
             keep = _aside_name(env, p)
             if rec["kind"] == "created":

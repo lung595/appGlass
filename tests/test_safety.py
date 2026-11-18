@@ -1750,9 +1750,15 @@ class MidWrite(Base):
         return hit_
 
     def asides(self):
+        # (a folder appglass made stays while it holds a saved copy: it goes
+        # with the copy here)
         out = [f for f in self.sb.files() if ".appglass-changed" in f]
         for f in out:
             os.remove(self.sb.path(f))
+            d = os.path.dirname(self.sb.path(f))
+            while d != self.sb.root.rstrip(os.sep) and not os.listdir(d):
+                os.rmdir(d)
+                d = os.path.dirname(d)
         return out
 
     def every_cut(self, phase, then):
@@ -1808,6 +1814,33 @@ class MidWrite(Base):
         self.assertEqual(code, 0, out + err)
         self.assertEqual(self.sb.readb(main), text)
         self.assertEqual(self.sb.readb(main + ".appglass-changed"), cut)
+
+    def test_a_hand_edit_of_a_cut_created_file_is_saved_aside(self):
+        """A file appglass created, cut half way by a kill, then edited by
+        hand before the next run: remove deletes it, but the bytes it held
+        (the user's edit among them) are saved aside first."""
+        base = self.sb.root.rstrip(os.sep) + ".base"
+        shutil.copytree(self.sb.root, base, symlinks=True)
+        self.addCleanup(shutil.rmtree, base, True)
+        k, target = 1, None
+        while target is None and self.cut("half", k, base, "apply"):
+            with open(self.state_json) as f:
+                st = json.load(f)
+            for o in st["owners"].values():
+                for p, r in (o.get("files") or {}).items():
+                    if r.get("pending") and r.get("kind") == "created" \
+                            and os.path.isfile(p) and os.path.getsize(p):
+                        target = p
+            k += 1
+        self.assertIsNotNone(target, "no cut of a created file")
+        edited = self.sb.readb(target) + b"\n# my own line\n"
+        with open(target, "wb") as f:
+            f.write(edited)
+        code, out, err = self.sb.run("remove", assume=self.ASSUME)
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(target))
+        self.assertEqual(self.sb.readb(target + ".appglass-changed"), edited)
+        self.assertIn(target + ".appglass-changed", out + err)
 
     def test_a_dir_mkdir_could_not_make_is_not_recorded(self):
         # (a folder appglass makes for a file: dux's ~/.config/dfiles)
