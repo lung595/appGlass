@@ -541,6 +541,9 @@ class State:
         is the original of (the rescue named it) holds those bytes again."""
         p = (self.data.get("originals") or {}).get(name)
         if not isinstance(p, str):
+            u = (self.data.get("untrusted") or {}).get(name)
+            p = u.get("path") if isinstance(u, dict) else None
+        if not isinstance(p, str):
             return False
         b = _read(os.path.join(self.env.state_dir, "backup", name))
         return b is not None and os.path.isfile(p) and _read(p) == b
@@ -1243,10 +1246,14 @@ class App:
             # the original of an earlier state, its record gone: never lost
             hint = RESCUE_HINT
             if not self.state_missing:
-                # adopt --rescue left it (the file was not recorded)
-                hint = ("cp %s %s puts it back first (then apply backs it up again); "
-                        "appglass restore --list shows the ring" % (env.tilde(bpath),
-                                                                   env.tilde(p)))
+                # a rescue or restore left it (the file was not recorded):
+                # a cp hint only for a copy the ring vouches for
+                why = _distrust(env, st, bname, p, old)
+                if why is not None:
+                    raise LostState("%s; nothing written (appglass restore --list shows the ring)"
+                                    % untrusted_text(env, bpath, p, why))
+                hint = ("%s first (then apply backs it up again); appglass restore --list "
+                        "shows the ring" % cp_hint(env, bpath, p))
             raise LostState("%s holds an original of %s that state.json does not name; "
                             "nothing written. %s" % (env.tilde(bpath), env.tilde(p), hint))
         if not os.path.isdir(self.backup_dir()):
@@ -1255,6 +1262,9 @@ class App:
         if old != cur:
             self.snapshot(bpath)    # a restore of this run's entry takes it out again
             _write_durable(bpath, cur)
+        u = st.data.get("untrusted")
+        if old is None and isinstance(u, dict) and u.pop(bname, None) is not None and not u:
+            del st.data["untrusted"]    # a new copy where an untrusted one was set aside
         return {"backup": os.path.join("backup", bname), "orig_sha256": sha(cur)}
 
     # ---- the backup ring
@@ -1829,12 +1839,9 @@ def _unlock(env, lockf, created, app, failed=False):
             app.full_remove or app.ring_entry is not None or not ring_entries(env)):
         kept = st.destroy(created)
         if kept:
-            known = st.data.get("originals") or {}
-            what = ", ".join("%s (the original of %s: cp %s %s puts it back)" % (
-                n, env.tilde(known[n]), env.tilde(os.path.join(env.state_dir, "backup", n)),
-                env.tilde(known[n])) if isinstance(known.get(n), str) else n for n in kept)
-            app.warn("%s kept with its ring: backup/ holds originals no record names "
-                     "(%s; appglass restore --list shows the saved states)"
+            what = ". ".join(_kept_text(env, st, n) for n in kept)
+            app.warn("%s kept with its ring: backup/ holds copies no record names. %s. "
+                     "appglass restore --list shows the saved states"
                      % (env.tilde(env.state_dir), what))
 
 
@@ -3078,6 +3085,63 @@ def _bname(p):
     return hashlib.sha1(p.encode()).hexdigest()[:16] + ".orig"
 
 
+SET_ASIDE = ".damaged"      # a copy in backup/ the user set aside (untrusted_text)
+UNTRUST = {"damaged": "it does not match the ring's record of the original",
+           "unchecked": "the ring has no record to check it against"}
+
+
+def cp_hint(env, bp, p):
+    """The hint that puts the original backup/... (bp) of p back by hand."""
+    return ("cp %s %s puts it back (it replaces the current file with the copy from "
+            "before appglass changed it: changes made to the file since are lost)"
+            % (env.tilde(bp), env.tilde(p)))
+
+
+def untrusted_text(env, bp, p, why):
+    """What appglass says of a copy bp of p it cannot trust: never a cp,
+    the way out is to set it aside (the state dir keeps it, doctor names
+    it) and back the current file up again."""
+    t = env.tilde
+    return ("%s holds a copy of %s that appglass cannot trust (%s): %s left as it is. "
+            "Look at it; mv %s %s%s sets it aside (kept, and the state folder with it, "
+            "until you delete it), then apply backs up the current file again"
+            % (t(bp), t(p), why, t(p), t(bp), t(bp), SET_ASIDE))
+
+
+def _kept_text(env, st, n):
+    """What backup/n, kept with the state dir, is and the way out of it."""
+    bp = os.path.join(env.state_dir, "backup", n)
+    if n.endswith(SET_ASIDE):
+        return ("%s, a copy set aside as untrusted: delete it once you have looked at it"
+                % env.tilde(bp))
+    p = (st.data.get("originals") or {}).get(n)
+    u = (st.data.get("untrusted") or {}).get(n)
+    if not isinstance(p, str) and isinstance(u, dict) and isinstance(u.get("path"), str):
+        p = u["path"]
+    if not isinstance(p, str):
+        return n
+    why = _distrust(env, st, n, p, _read(bp) or b"")
+    if why is not None:
+        return untrusted_text(env, bp, p, why)
+    return "%s, the original of %s: %s" % (env.tilde(bp), env.tilde(p), cp_hint(env, bp, p))
+
+
+def _distrust(env, st, n, p, data):
+    """Why backup/n (its bytes: data) is not to be named as p's original in
+    a cp hint, or None when it may be: a rescue marked it untrusted (state
+    "untrusted"), or the ring's record of the original does not match it,
+    or the ring has none and no rescue or restore checked it ("originals")."""
+    u = (st.data.get("untrusted") or {}).get(n)
+    if isinstance(u, dict):
+        return UNTRUST.get(u.get("why"), UNTRUST["unchecked"])
+    rec, _good = _ring_original(env, p, n)
+    if rec is not None:
+        return None if sha(data) == rec["orig_sha256"] else UNTRUST["damaged"]
+    if (st.data.get("originals") or {}).get(n) == p:
+        return None
+    return UNTRUST["unchecked"]
+
+
 def _holds_keys(keys, data):
     """data (a JSON object) holds a value a merge sets (keys: merge_json's)."""
     try:
@@ -3612,7 +3676,7 @@ def cmd_rescue(app, dry_run=False):
     app.lost_state = app.state_missing = app.state_unreadable = False
     app._orphans, app.backups_at_start = None, []
     used = set()
-    damaged = set()     # an original that does not match the ring's record
+    untrusted = {}      # {name: {"path", "why"}}: an original the ring does not vouch for
     records = {}
 
     def orig_mode(p, orig):
@@ -3631,12 +3695,21 @@ def cmd_rescue(app, dry_run=False):
             ring_rec, good = _ring_original(env, p, b, skip=entry)
             bp = os.path.join(bdir, b)
             if ring_rec is not None and sha(orig) != ring_rec["orig_sha256"]:
-                if good is None:
+                if good is None and kind == "edit":
+                    # its original is the file without appglass's lines (the
+                    # undo below), as with no backup at all
                     app.warn("adopt --rescue: %s, the original of %s, does not match the one "
-                             "recorded for it (sha256) and the ring holds no copy: %s left as "
-                             "is (not recorded), the backup kept" % (t(bp), t(p), t(p)))
-                    damaged.add(b)
+                             "recorded for it (sha256) and the ring holds no copy: the "
+                             "original is made again from the file without appglass's lines "
+                             "(the damaged copy stays in the ring entry %s until a full "
+                             "remove)" % (t(bp), t(p), entry))
+                    orig, ring_rec = None, None
+                elif good is None:
+                    app.warn("adopt --rescue: %s"
+                             % untrusted_text(env, bp, p, UNTRUST["damaged"]))
+                    untrusted[b] = {"path": p, "why": "damaged"}
                     continue
+            if ring_rec is not None and orig is not None and sha(orig) != ring_rec["orig_sha256"]:
                 app.warn("adopt --rescue: %s, the original of %s, does not match the one "
                          "recorded for it (sha256): the ring's copy put in its place"
                          % (t(bp), t(p)))
@@ -3645,11 +3718,9 @@ def cmd_rescue(app, dry_run=False):
                 orig = good
             if ring_rec is None and orig != data and kind != "edit":
                 # nothing to check it against: never put back unchecked
-                app.warn("adopt --rescue: %s, the original of %s, cannot be checked (the "
-                         "ring has no record of it): %s left as is (not recorded), the "
-                         "backup kept (cp %s %s puts it back, if it is the original)"
-                         % (t(bp), t(p), t(p), t(bp), t(p)))
-                damaged.add(b)
+                app.warn("adopt --rescue: %s"
+                         % untrusted_text(env, bp, p, UNTRUST["unchecked"]))
+                untrusted[b] = {"path": p, "why": "unchecked"}
                 continue
         o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
         if kind == "retired":
@@ -3760,17 +3831,21 @@ def cmd_rescue(app, dry_run=False):
     for n in left:
         bp = os.path.join(bdir, n)
         p = names.get(n)
-        if n in damaged:
+        if n in untrusted:
             continue        # said above
-        if p is not None:
+        if n.endswith(SET_ASIDE):
+            app.warn("adopt --rescue: %s is a copy set aside as untrusted: kept there, and "
+                     "the state folder with it, until you delete it" % t(bp))
+        elif p is not None:
             ring_rec, good = _ring_original(env, p, n, skip=entry)
-            if ring_rec is not None and sha(_read(bp) or b"") != ring_rec["orig_sha256"]:
-                if good is None:
-                    app.warn("adopt --rescue: %s, the original of %s, does not match the one "
-                             "recorded for it (sha256) and the ring holds no copy: kept there "
-                             "(not a copy to put back), and the state folder with it"
-                             % (t(bp), t(p)))
-                    continue
+            if ring_rec is None or (good is None and sha(_read(bp) or b"")
+                                    != ring_rec["orig_sha256"]):
+                why = "unchecked" if ring_rec is None else "damaged"
+                untrusted[n] = {"path": p, "why": why}
+                app.warn("adopt --rescue: %s"
+                         % untrusted_text(env, bp, p, UNTRUST[why]))
+                continue
+            if sha(_read(bp) or b"") != ring_rec["orig_sha256"]:
                 env.guard(bp)
                 _write_durable(bp, good)
                 app.warn("adopt --rescue: %s, the original of %s, does not match the one "
@@ -3779,14 +3854,16 @@ def cmd_rescue(app, dry_run=False):
             kept[n] = p
             app.warn("adopt --rescue: %s holds the original of %s, which is not recorded: "
                      "kept there, and the state folder with it (a full remove too), until "
-                     "that file holds it again (cp %s %s puts it back)"
-                     % (t(bp), t(p), t(bp), t(p)))
+                     "that file holds it again (%s)" % (t(bp), t(p), cp_hint(env, bp, p)))
         else:
             app.warn("adopt --rescue: %s holds an original no file appglass knows names: "
                      "kept there, and the state folder with it (appglass restore --list "
                      "shows the ring)" % t(bp))
     if kept:
         st.data["originals"] = kept
+    if untrusted:
+        # never named in a cp hint; doctor names them until set aside
+        st.data["untrusted"] = untrusted
     marked = {p: sha(_read(p)) for p in linked if p not in kept.values() and os.path.isfile(p)}
     if marked:
         # appglass's lines in a file it cannot record: doctor names it until
@@ -3915,12 +3992,20 @@ def cmd_restore(app, ident=None, list_only=False):
     elif os.path.lexists(st):
         os.remove(st)
     t = env.tilde
+    untrusted = {}
     for n, q in sorted(kept.items()):
         bp = os.path.join(bdir, n)
+        why = _distrust(env, app.state, n, q, _read(bp) or b"") if q else None
+        if why is not None:
+            # the state before the restore, or the ring, does not vouch for it
+            untrusted[n] = {"path": q, "why": "damaged" if why == UNTRUST["damaged"]
+                            else "unchecked"}
+            app.warn("restore: %s" % untrusted_text(env, bp, q, why))
+            continue
         app.warn("restore: %s holds the original of %s, which this entry did not put back: "
                  "kept there, and the state folder with it, until that file holds it again%s"
                  % (t(bp), t(q) if q else "a file the ring does not name",
-                    " (cp %s %s puts it back)" % (t(bp), t(q)) if q else
+                    " (%s)" % cp_hint(env, bp, q) if q else
                     " (appglass restore --list shows the ring)"))
     app.state = State(env)
     app.state.event_guard = app.no_event
@@ -3936,9 +4021,13 @@ def cmd_restore(app, ident=None, list_only=False):
             app.state.data["state_parents"] = list(parents or [])
             app.state.save()
     if kept and os.path.lexists(st):
-        named = {k: v for k, v in kept.items() if v}
+        named = {k: v for k, v in kept.items() if v and k not in untrusted}
         if named:
             app.state.data["originals"] = dict(app.state.data.get("originals") or {}, **named)
+        if untrusted:
+            app.state.data["untrusted"] = dict(app.state.data.get("untrusted") or {},
+                                               **untrusted)
+        if named or untrusted:
             app.state.save()
     app.keep_state_dir = True
     app.info("restore: %s put back (%d file%s%s%s); the state before it is %s"
@@ -4101,12 +4190,14 @@ def doctor_drift(app):
             out.append(("%s: %s %s" % (name, tilde(p), why), None))
     # what a rescue left for the user: an original it could not record, a
     # marked file behind a link (only a hand action takes them out)
-    for n, p in sorted((st.data.get("originals") or {}).items()):
+    origs = dict((st.data.get("untrusted") or {}), **(st.data.get("originals") or {}))
+    for n in sorted(st.unnamed_backups()):
         bp = os.path.join(app.backup_dir(), n)
-        if isinstance(p, str) and os.path.isfile(bp) and not st.back_in_place(n):
-            out.append(("%s holds the original of %s, which is not recorded: remove "
-                        "cannot put it back (cp %s %s puts it back by hand)"
-                        % (tilde(bp), tilde(p), tilde(bp), tilde(p)), None))
+        if n in origs or n.endswith(SET_ASIDE):
+            if not st.back_in_place(n):
+                out.append((_kept_text(env, st, n) + (
+                    "" if n.endswith(SET_ASIDE) else
+                    " (not recorded: remove cannot put it back)"), None))
     for p, h in sorted((st.data.get("linked") or {}).items()):
         if os.path.isfile(p) and sha(_read(p)) == h:
             out.append(("%s still holds appglass's lines but is reached through a symlink "

@@ -621,3 +621,126 @@ class AllLinkedStateLost(RescueBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UntrustedBackup(RescueBase):
+    """w2 r3 blocker: a backup the rescue could not trust (damaged, or with
+    no ring record to check it against) is never named in a cp hint. The
+    user follows every hint appglass prints; the file ends with the bytes
+    it had before appglass touched it."""
+
+    def follow(self, out):
+        """No hint copies an untrusted backup over a file; a printed mv
+        (setting the copy aside) is followed."""
+        sb = self.sb
+        self.assertNotRegex(out, r"\bcp \S+\.orig ", out)
+        import re
+        for src, dst in re.findall(r"\bmv (\S+\.orig) (\S+\.orig\.damaged)\b", out):
+            src, dst = (x.replace("~", sb.home, 1) for x in (src, dst))
+            if os.path.exists(src):
+                os.rename(src, dst)
+        return out
+
+    def run_(self, *argv, fams):
+        code, out, err = self.sb.run(*argv, assume=fams)
+        return code, self.follow(out + err)
+
+    def damaged_launcher(self):
+        sb = self.sb
+        p = os.path.join(sb.data, "applications", "vlc.desktop")
+        sb.write("applications/vlc.desktop", VLC_MINE.decode(), base=sb.data)
+        self.ok("adopt", p, fams="qtstyle")
+        bp = os.path.join(self.state_dir, "backup", core._bname(p))
+        with open(bp, "wb") as f:
+            f.write(VLC_MINE[:20])
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        return p, bp, "qtstyle"
+
+    def test_every_hint_followed_keeps_the_launcher(self):
+        sb = self.sb
+        p, bp, fams = self.damaged_launcher()
+        t = core.Env(sb.env).tilde
+        out = self.follow(self.ok("adopt", "--rescue", fams=fams))
+        self.assertIn("mv %s %s.damaged" % (t(bp), t(bp)), out)
+        self.assertEqual(sb.readb(p), VLC_MINE)
+        out += self.follow(self.ok("remove", fams=fams))
+        out += self.run_("apply", "--only", fams, fams=fams)[1]
+        out += self.follow(self.ok("adopt", p, fams=fams))
+        out += self.follow(self.ok("apply", "--only", fams, fams=fams))
+        out += self.follow(self.ok("remove", fams=fams))
+        self.assertEqual(sb.readb(p), VLC_MINE, out)
+        # the copy set aside keeps the state dir until the user deletes it
+        self.assertTrue(os.path.isfile(bp + ".damaged"), out)
+        code, out = self.run_("doctor", fams=fams)
+        self.assertEqual(code, 1, out)
+        self.assertIn(t(bp + ".damaged"), out)
+        os.remove(bp + ".damaged")
+        self.ok("doctor", fams=fams)
+        self.ok("remove", fams=fams)
+        self.assertFalse(os.path.exists(self.state_dir))
+        self.assertEqual(sb.readb(p), VLC_MINE)
+
+    def test_doctor_and_adopt_name_the_untrusted_copy(self):
+        sb = self.sb
+        p, bp, fams = self.damaged_launcher()
+        t = core.Env(sb.env).tilde
+        self.ok("adopt", "--rescue", fams=fams)
+        self.ok("remove", fams=fams)
+        for argv in (("doctor",), ("adopt", p)):
+            code, out, err = sb.run(*argv, assume=fams)
+            self.assertEqual(code, 1, out + err)
+            self.assertIn("%s holds a copy of %s that appglass cannot trust" % (t(bp), t(p)),
+                          out + err)
+            self.assertNotIn("cp ", out + err)
+        self.assertEqual(sb.readb(p), VLC_MINE)
+        self.assertEqual(sb.readb(bp), VLC_MINE[:20])
+
+    def test_pruned_ring_edits_are_undone_from_the_file(self):
+        # w2 r3 minor: the ring no longer holds the run that made the
+        # backups and they are empty: an edit is rebuilt from the file
+        sb = self.sb
+        sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+        sb.seed("alacritty/dank-theme.toml", "alacritty/dank-theme.toml")
+        with open(os.path.join(sb.path("bin"), "alacritty"), "w") as f:
+            f.write("#!/bin/sh\n")
+        os.chmod(os.path.join(sb.path("bin"), "alacritty"), 0o755)
+        a, k = sb.cfg("alacritty", "alacritty.toml"), sb.cfg("niri", "config.kdl")
+        mine = {a: sb.readb(a), k: sb.readb(k)}
+        fams = "alacritty"
+        self.ok("apply", "--only", fams, fams=fams)
+        for i in range(core.RING_KEEP + 2):
+            sb.set_level(0.50 + i * 0.03)
+            self.ok("apply", "--only", fams, fams=fams)
+        bdir = os.path.join(self.state_dir, "backup")
+        for n in os.listdir(bdir):
+            with open(os.path.join(bdir, n), "wb"):
+                pass
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        out = self.follow(self.ok("adopt", "--rescue", fams=fams))
+        out += self.follow(self.ok("remove", fams=fams))
+        for i in range(3):
+            code, o = self.run_("apply", "--only", fams, fams=fams)
+            out += o
+        out += self.follow(self.ok("remove", fams=fams))
+        for q, b in mine.items():
+            self.assertEqual(sb.readb(q), b, out)
+
+    def test_a_stray_backup_with_no_ring_record_gets_no_cp(self):
+        # a backup no record names, with state.json there and nothing in
+        # the ring to check it against: no cp hint names it
+        sb = self.sb
+        p = os.path.join(sb.data, "applications", "vlc.desktop")
+        sb.write("applications/vlc.desktop", VLC_MINE.decode(), base=sb.data)
+        fams = "qtstyle"
+        bp = os.path.join(self.state_dir, "backup", core._bname(p))
+        os.makedirs(os.path.dirname(bp))
+        with open(os.path.join(self.state_dir, "state.json"), "w") as f:
+            f.write('{"version": %d, "owners": {}, "state_parents": []}\n'
+                    % core.STATE_VERSION)
+        with open(bp, "wb") as f:
+            f.write(b"[Desktop Entry]\n")
+        code, out, err = sb.run("adopt", p, assume=fams)
+        self.assertEqual(code, 1, out + err)
+        self.assertNotIn("cp ", out + err)
+        self.assertIn("cannot trust", out + err)
+        self.assertEqual(sb.readb(p), VLC_MINE)
