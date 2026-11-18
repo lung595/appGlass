@@ -2672,18 +2672,21 @@ def _reads_gtk4_css(r):
 
 
 def _niri_ids(routes):
-    """(fallback ids, games ids) for the niri blocks. A host GTK4 app held
-    opaque stays out of the games block: its background is the glass CSS,
-    with the blur off it would be see-through over nothing."""
+    """(fallback ids, games ids, glass ids) for the niri blocks. A host GTK4
+    app held opaque goes in the glass block, not the games block: its
+    background is the glass CSS (with the blur off it would be see-through
+    over nothing, under the global opacity it would fade twice)."""
     from . import niri
-    fb, games = [], []
+    fb, games, glass = [], [], []
     for r, route in routes:
         if route["effective"] == "fallback":
             fb.extend(x for x in r["app_ids"] if x not in fb)
-        elif route["effective"] == "opaque" and not _reads_gtk4_css(r):
+        elif route["effective"] == "opaque" and _reads_gtk4_css(r):
+            glass.extend(x for x in r["app_ids"] if x not in glass)
+        elif route["effective"] == "opaque":
             games.extend(x for x in r["app_ids"]
                          if x not in games and not niri.is_game_id(x))
-    return fb, games
+    return fb, games, glass
 
 
 def cmd_apply_all(app, dry_run=False, adopt=False):
@@ -2699,7 +2702,7 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
                  "(appglass remove takes the files out)")
         return
     routes = app_routes(app)
-    app.fallback_ids, app.game_ids = _niri_ids(routes)
+    app.fallback_ids, app.game_ids, app.glass_ids = _niri_ids(routes)
     counts = {}
     for r, route in routes:
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1

@@ -17,7 +17,7 @@ import unittest
 from fixtures.sandbox import Sandbox, fixture  # noqa: F401  (sets sys.path)
 from fixtures.apps import World, elf, desktop, _w
 from fixtures.shimworld import ShimWorld
-from appglass import adapters, core, detect, engine, verify
+from appglass import adapters, core, detect, engine, niri, verify
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GTK3 = ["libgtk-3.so.0", "libc.so.6"]
@@ -392,9 +392,34 @@ class Spawners(unittest.TestCase):
         rs = [(recs[k], adapters.resolve(recs[k], app.families, app.settings))
               for k in ("org.example.Gtk4Game", "sdlgtk")]
         self.assertEqual([r["state"] for _, r in rs], ["excluded", "excluded"])
-        fb, games = core._niri_ids(rs)
+        fb, games, glass = core._niri_ids(rs)
         self.assertNotIn(recs["org.example.Gtk4Game"]["app_ids"][0], games)
+        self.assertIn(recs["org.example.Gtk4Game"]["app_ids"][0], glass)
         self.assertIn(recs["sdlgtk"]["app_ids"][0], games)
+        self.assertNotIn(recs["sdlgtk"]["app_ids"][0], glass)
+
+    def test_a_gtk4_game_is_in_the_glass_block_in_every_mode(self):
+        # w2 r3: out of every block, value and off mode left it under the
+        # global opacity on top of the glass CSS (double alpha, text at 0.60)
+        self.sb.seed_dms()
+        self.sb.seed_niri()
+        self.w.exe("sdlgtk4", elf(["libSDL2-2.0.so.0", "libgtk-4.so.1", "libc.so.6"]))
+        self.w.app("org.example.Gtk4Game.desktop", "G4", "sdlgtk4", Categories="Game;")
+        aid = self.recs()["org.example.Gtk4Game"]["app_ids"][0]
+        for mode in ("value", "off", "opaque"):
+            with self.subTest(mode=mode):
+                self.assertEqual(self.sb.run("set", "fallback.mode", mode)[0], 0)
+                code, out, err = self.sb.run("apply", "--all")
+                self.assertEqual(code, 0, err)
+                kdl = self.sb.read(self.sb.cfg("niri", "appglass.kdl"))
+                blk = kdl.split("// glass: apps that paint their own glass")[1].split("}")[0]
+                self.assertIn("match app-id=%s" % niri._kdl_string(aid), blk)
+                self.assertIn("opacity 1.0", blk)
+                self.assertEqual(kdl.count(aid), 1, kdl)
+                # a later run (the theme hook) keeps it
+                code, out, err = self.sb.run("apply", "--from-hook")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.sb.read(self.sb.cfg("niri", "appglass.kdl")), kdl)
 
 
 class Elevators(unittest.TestCase):

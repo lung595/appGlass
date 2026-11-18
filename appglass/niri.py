@@ -265,6 +265,9 @@ def rule_inputs(app):
         fallback_ids = rec.get("fallback_ids", [])
     if game_ids is None:
         game_ids = rec.get("game_ids", [])
+    glass_ids = getattr(app, "glass_ids", None)
+    if glass_ids is None:
+        glass_ids = rec.get("glass_ids", [])
     dim, dim_ids = instant_inactive(app)
     blend = []
     for name in BLEND_FAMILIES:
@@ -277,15 +280,18 @@ def rule_inputs(app):
         "blend_ids": blend,
         "fallback_ids": list(fallback_ids),
         "games": list(game_ids),
+        "_glass": list(glass_ids),
         "_wanted": os.path.isfile(_settings.path(app.env))
-        or bool(fallback_ids) or bool(game_ids) or bool(_adopted(app)),
+        or bool(fallback_ids) or bool(game_ids) or bool(glass_ids) or bool(_adopted(app)),
     }
 
 
 def sync(app, dry_run=False, extra_ids=()):
-    ids = app_ids(app, extra_ids)
     kw = rule_inputs(app)
     wanted = kw.pop("_wanted")
+    # host GTK4 apps held opaque (a GTK4 game): they read the glass CSS all
+    # the same, so they get the glass block (blur on, opacity 1.0)
+    ids = app_ids(app, list(extra_ids) + kw.pop("_glass"))
     if not ids and not wanted:
         if "niri" in app.state.owners and not dry_run and not app.event:
             app.remove_owner("niri")
@@ -322,7 +328,7 @@ def sync(app, dry_run=False, extra_ids=()):
         changed = app.commit(ctx, dry_run=dry_run)
         if not dry_run and "niri" in app.state.owners:
             o = app.state.owners["niri"]
-            for k in ("fallback_ids", "game_ids"):
+            for k in ("fallback_ids", "game_ids", "glass_ids"):
                 v = getattr(app, k, None)
                 if v is not None:
                     if v:

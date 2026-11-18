@@ -192,7 +192,7 @@ With the default fallback ("Opaque", Settings > Fallback), these windows get `op
 
   `appglass status` lists Steam with no route, and Settings > Apps gives it no switch: the reason reads "Steam client (CEF): no injection, it stays opaque". Only the niri fallback reaches it.
 - **Chrome and Chromium browsers.** Web content has no window alpha: measured alpha 255 everywhere. See [electron.md](electron.md).
-- **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process. A host GTK4 game is the exception: every host GTK4 app reads the global `gtk.css`, so it gets the glass background like the other GTK4 apps; its app-id stays out of the games block, which would turn the blur off behind that translucent background.
+- **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process. A host GTK4 game is the exception: every host GTK4 app reads the global `gtk.css`, so it gets the glass background like the other GTK4 apps. `apply --all` puts its app-id in the niri glass block (opacity 1.0, blur on), not the games block (blur off would leave that translucent background over nothing), whatever `fallback.mode` is: under the DMS opacity it would fade twice.
 - **Root GUIs** (Timeshift through pkexec): opaque, with the reason "runs as root". No file, launcher or environment variable is written for them; `apply --all` puts their app-id in the niri games block (opacity 1.0, blur off), so they stay opaque whatever `fallback.mode` is.
 - **Electron apps without a CSS hook**, Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime (Kate and Konsole excepted): no route in this version.
 
