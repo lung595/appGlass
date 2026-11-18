@@ -15,8 +15,10 @@ QtObject {
     property bool compact: false
     // Entries that come and go with the status (one per app)
     property var extraEntries: []
+    // Ids of rows not offered now (a search must not count them)
+    property var hiddenIds: []
 
-    readonly property var entries: Index.ENTRIES.concat(view.extraEntries)
+    readonly property var entries: Index.ENTRIES.filter(e => view.hiddenIds.indexOf(e.id) < 0).concat(view.extraEntries)
     readonly property bool filtering: view.query.trim() !== ""
     readonly property var found: view.filtering ? Search.search(view.entries, view.query) : []
     readonly property bool hasResults: view.found.length > 0

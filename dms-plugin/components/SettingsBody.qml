@@ -141,6 +141,7 @@ PluginSettings {
             id: view
             compact: page.width < root.narrowWidth
             extraEntries: Index.appEntries(root.rows)
+            hiddenIds: root.ownLevels ? [] : ["followDmsButton"]
         }
 
         // Ctrl+F reaches the field from anywhere in the window; "/" only

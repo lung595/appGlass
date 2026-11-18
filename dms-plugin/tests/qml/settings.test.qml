@@ -361,6 +361,14 @@ Item {
                     t.check("re-apply asks the daemon", root.daemon.calls, [["reapply", 0]]);
                     t.check("the page runs nothing", [Proc.calls, Quickshell.detached], [[], []]);
                     t.check("the level follows the DMS rule: no reset offered", root.shown("followDmsButton"), false);
+                    root.type("reset");
+                }
+            },
+            {
+                "run": () => {
+                    const p = root.page;
+                    t.check("a search for the row not offered finds nothing", [root.shown("noResults"), root.find(p, "railCount-glass").visible], [true, false]);
+                    root.type("");
                     // a level set from the CLI before the plugin took the
                     // settings: said so, and one click puts it back on the rule
                     root.fresh(true, undefined, {
