@@ -1013,6 +1013,35 @@ class HiddenCheckNeeds(unittest.TestCase):
                    if "`jq`" in l)
         self.assertIn("Vencord", row)
 
+    # each Forced-route wrapper that runs jq, and the app the row names for it
+    JQ_WRAPPERS = {("electron-hook", "appglass-feishin"): "Feishin",
+                   ("electron-hook", "appglass-vscodium"): "VSCodium",
+                   ("webkit-shim", "appglass-lianli"): "Lian Li",
+                   ("webkit-shim", "appglass-webkit"): "WebKitGTK",
+                   ("ck-shim", "appglass-localsend"): "LocalSend",
+                   ("ck-shim", "appglass-artcraft"): "ArtCraft",
+                   ("qtquick-shim", "gen-css.sh"): "Jellyfin"}
+
+    def test_the_requirements_name_jq_for_the_wrappers_that_run_it(self):
+        found = set()
+        for d in os.listdir(os.path.join(REPO, "shims")):
+            for f in os.listdir(os.path.join(REPO, "shims", d)):
+                p = os.path.join(REPO, "shims", d, f)
+                if os.path.isfile(p) and re.search(r"\bjq -", read("shims", d, f)):
+                    found.add((d, f))
+        self.assertEqual(found, set(self.JQ_WRAPPERS))
+        row = next(l for l in section(read("README.md"), "Requirements").splitlines()
+                   if "`jq`" in l)
+        bullet = next(l for l in doc("guide.md").splitlines() if "`jq`" in l)
+        for name in self.JQ_WRAPPERS.values():
+            self.assertIn(name, row, name)
+            self.assertIn(name, bullet, name)
+
+    def test_the_requirements_name_notify_send(self):
+        self.assertIn('env.which("notify-send")', read("appglass", "engine.py"))
+        self.assertIn("`notify-send`", section(read("README.md"), "Requirements"))
+        self.assertIn("`notify-send`", doc("guide.md"))
+
 
 class NetworkPrivacy(unittest.TestCase):
     """appglass downloads nothing itself, but the Vencord installer the sync
