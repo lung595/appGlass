@@ -152,7 +152,7 @@ appglass hook install [--dry-run]
 appglass hook remove
 appglass plugin install|remove [--dry-run]
 appglass doctor [--fix]                 # check appglass's own files (units, niri rule, owned files, plugin link)
-appglass verify [key] [--queue]         # run the hidden check now (one app, or the queue)
+appglass verify <key> | --queue         # run the hidden check now (one app, or the queue)
 appglass fail <key> [reason]            # record a failed launch by hand
 ```
 

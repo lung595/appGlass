@@ -1127,5 +1127,19 @@ class ReadmeRound3(unittest.TestCase):
         self.assertIn("[DMS](https://github.com/duxlabs-dev/dux-shell)", r)
         self.assertIn("Dux Modular Shell", r)
 
+    def test_the_widget_button_is_add_widget(self):
+        # DMS 2.1 Settings > Bar widgets labels its button "Add widget"
+        self.assertIn("**Settings → Bar widgets → Add widget**", read("README.md"))
+
+    def test_verify_takes_one_key_or_the_queue(self):
+        self.assertIn('give one app key, or --queue', read("appglass", "core.py"))
+        for r in (read("README.md"), doc("guide.md"), doc("README.md")):
+            self.assertIn("appglass verify <key> | --queue", r)
+            self.assertNotIn("verify [key] [--queue]", r)
+
+    def test_adopt_says_only_the_known_files(self):
+        line = next(l for l in read("README.md").splitlines() if l.startswith("appglass adopt"))
+        self.assertIn("known hand-made glass files", line)
+
 if __name__ == "__main__":
     unittest.main()

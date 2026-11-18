@@ -79,7 +79,7 @@ In **Settings → Plugins**, turn **App Glass** on. If it does not show up, clic
 
 The widget is optional. The glass works without it.
 
-**Settings → Bar widgets → Add**, then pick **App Glass**. The bar pill shows how many apps are on glass. A click opens the settings. A right click pauses or resumes the glass.
+**Settings → Bar widgets → Add widget**, then pick **App Glass**. The bar pill shows how many apps are on glass. A click opens the settings. A right click pauses or resumes the glass.
 
 ### 4. First steps
 
@@ -229,7 +229,7 @@ appglass detect [--json]                # which toolkit draws each installed app
 appglass learn [--json] [--dry-run]     # record the toolkit of each open window
 appglass apply --all [--adopt] [--dry-run]
 appglass apply [--only f1,f2] [--dry-run]
-appglass adopt [paths] [--dry-run]      # hand your own glass files to appglass, backed up first
+appglass adopt [paths] [--dry-run]      # hand the known hand-made glass files to appglass, backed up first
 appglass remove [--only f1,f2]          # undo everything, or some families
 appglass restore [id] [--list]          # the backup ring: the last 5 changes
 appglass get [key]
@@ -238,7 +238,7 @@ appglass hook install [--dry-run]
 appglass hook remove
 appglass plugin install|remove [--dry-run]
 appglass doctor [--fix]                 # check appglass's own files
-appglass verify [key] [--queue]         # run the hidden check now
+appglass verify <key> | --queue         # run the hidden check now
 appglass fail <key> [reason]            # record a failed launch by hand
 ```
 
