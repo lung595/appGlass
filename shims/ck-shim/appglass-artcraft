@@ -49,10 +49,6 @@ if [ "$route" != cpu ] && [ -f "$LIB/vk/libappglass-vk.so" ] && [ -f "$LIB/vk/ap
         "$(printf '%s' "$devs" | tr '\n' ';')" "$gpu" >&2
 fi
 [ "$gpu" = yes ] || [ -f "$MESA" ] || plain "$@"
-lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
-[ -n "$lv" ] || lv='{"content":0.6,"bar":0.65}'
-c=$(printf '%s' "$lv" | jq -r '.content')
-b=$(printf '%s' "$lv" | jq -r '.bar')
 # colour keys are data (~/.cache/appglass/keys/<app>/<version>/dark.json): none, no glass
 keys=$("@APPGLASS@" keys "$AGKEY" dark 2>/dev/null) && [ -n "$keys" ] || plain "$@"
 # two launches with no window on this app version: the engine pauses the glass
