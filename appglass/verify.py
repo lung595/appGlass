@@ -686,6 +686,11 @@ def install_term_handler():
 def run_harness(app, rec, level):
     """{"result": pass|fail|unverifiable, "reason", "shot"}."""
     env = app.env
+    # a family the hidden session cannot run faithfully says why up front
+    skip = getattr(app.families.get(route_of(app, rec).get("family") or ""), "verify_skip", None)
+    why = skip(env, rec) if skip else None
+    if why:
+        return {"result": "unverifiable", "reason": why}
     stub = env.environ.get("APPGLASS_VERIFY_HARNESS")
     # builtin: the real hidden session, the sandbox HOME standing in for the
     # real one (an end-to-end proof); else a stub, or nothing in a sandbox

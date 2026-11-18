@@ -43,6 +43,16 @@ ROLES = ("on_surface_variant", "primary", "surface_container_highest",
 RETIRED = (".local/bin/appglass-vencord", ".local/share/appglass/appglass-discord.css.tmpl")
 
 
+def verify_skip(env, rec):
+    """The hidden check cannot run this Discord: the client itself (its
+    app-* host dirs), the Vencord patch inside them and the login live in
+    ~/.config/discord, which is not copied to the throwaway HOME (the
+    bootstrap would download a fresh plain client, the zenity updater
+    first). So Discord is never judged: unverifiable, it keeps what it has."""
+    return ("Discord, its Vencord patch and the login live in ~/.config/discord, "
+            "which the hidden check does not copy: Discord is not checked")
+
+
 def discord_dir(env):
     return env.config_path("discord")
 

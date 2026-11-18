@@ -573,6 +573,30 @@ class Routing(unittest.TestCase):
         with open(os.path.join(home, ".config", "gtkapp", "list.json")) as f:
             self.assertEqual(json.load(f), {"path": home + "/Notes"})
 
+    def test_a_family_that_cannot_be_checked_is_unverifiable_up_front(self):
+        """A family's verify_skip(env, rec) -> why (Discord: the client, its
+        Vencord patch and the login stay in ~/.config/discord): no hidden
+        session starts, the result is unverifiable (never a fail)."""
+        from appglass.families import vencord
+        self.assertIn("~/.config/discord", vencord.verify_skip(None, {"key": "discord"}))
+        g = bin_elf(self.w, "gtkapp", GTK3)
+        self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
+        self.run_ok("apply", "--only", "gtk3")
+        mark = self.sb.path("harness-ran")
+        stub = self.sb.write("stub-harness", "#!/bin/sh\ntouch %s\n"
+                             "echo '{\"result\": \"fail\", \"reason\": \"x\"}'\n" % mark)
+        os.chmod(stub, 0o755)
+        self.sb.env["APPGLASS_VERIFY_HARNESS"] = stub
+        app = core.App(self.sb.env, quiet=True)
+        fam = app.families["gtk3"]
+        fam.verify_skip = lambda env, rec: "the app cannot run hidden"
+        try:
+            r = verify.run_harness(app, engine.record_for(app, "gtkapp"), 0.8)
+        finally:
+            del fam.verify_skip
+        self.assertEqual(r, {"result": "unverifiable", "reason": "the app cannot run hidden"})
+        self.assertFalse(os.path.exists(mark))
+
     def test_xdg_data_home_outside_home_is_staged_under_the_throwaway_home(self):
         """XDG_DATA_HOME outside HOME: the theme goes to the default data dir
         under the throwaway HOME, where the hidden session looks for it."""
