@@ -451,7 +451,7 @@ class DocsRound2(unittest.TestCase):
         self.assertTrue(rows)
         for row in rows:
             for p in re.findall(r"`([^`]+\.png)`", row):
-                self.assertRegex(p, r"^(shots|realshims)/", row)
+                self.assertRegex(p, r"^(shots|realshims|allapps/qt/shots)/", row)
         self.assertRegex(shots, r"shots/a4b[^\n]*real session")
         self.assertNotRegex(shots, r"`<probe>/shots/\.\.\.` are window screenshots from nested")
 

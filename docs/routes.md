@@ -47,7 +47,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 
 - **Writes:** an owned file at the content level with the DMS palette made readable on glass, included by the main config (edited, backed up): kitty `appglass.conf` (`background_opacity`), foot `appglass.ini` (`alpha`), Ghostty `appglass` (`background-opacity`), WezTerm `appglass.lua` (`window_background_opacity`, the tab bar at the bar level), Konsole an `AppGlass` colour scheme and profile (`Opacity`). The flatpak builds of foot, WezTerm and Konsole get the same in their `~/.var/app/<id>` folder. Konsole's tabs and menus take the Qt style (below).
 - **Measured:** foot (flatpak) background 153, text 255; Konsole (flatpak) background 153, text 255, popups 255. kitty, Ghostty and WezTerm are not measured here: the writers are unit-tested only. Source: [apps.md](apps.md).
-- **Fade:** none. These terminals have no lever appglass drives (Konsole's tabs and menus fade with the Qt style, its terminal area does not); only "Dim apps that cannot fade" reaches them.
+- **Fade:** none. These terminals have no lever appglass drives; only "Dim apps that cannot fade" reaches kitty, foot, Ghostty and WezTerm. Konsole's tabs and menus fade with the Qt style and its terminal area does not, and the dim leaves Konsole out (the Qt style fades it already, so a niri dim would dim the tabs twice): its terminal area gets neither a fade nor the dim.
 - **Undo:** `appglass remove --only kitty` (or `foot`, `ghostty`, `wezterm`, `konsole`) takes the include out.
 
 ## GTK4 / libadwaita
@@ -76,7 +76,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Kate and Konsole (flatpak):** their launcher override gives that `flatpak run` read-only access to the style and the DMS colours. The host-built style loads in the KDE runtime when its Qt minor version matches.
 - **Fade:** an unfocused window eases its background to the unfocused level, in the flatpaks and in the apps the engine finds too (not recorded for the apps the engine finds: the same style, unit-tested in `tests/test_fade.py`).
 - **Fade, recorded:** VLC 3.0.24 (under XWayland) at 0.80, 180 ms ease-out, three runs: unfocused, the background went 0.80 to 0.72 in about 110 ms, one step per frame (7 steps; the end of the ease-out is under one 8-bit step); focused again, back to 0.80 in 120 to 180 ms (2 or 3 steps).
-- **Measured:** content 153, bars 166, text 255. Source: [qt.md](qt.md).
+- **Measured:** VLC 3.0.24 (host Qt 6) with the appglass style, in a nested niri session at 0.60: controls 153, menu bar and tool bar 166, text 255; the video area stays 255 (black) and the menus are opaque. The same style on a Qt 6 Widgets stand-in (menu bar, tool bar, dock, tabs, status bar): content 153, bars 166, text 255, dialogs 255. Screenshot: VLC in the [issue draft](issue-dms.md#screenshots). [qt.md](qt.md) holds the rows from before the style.
 - **Fade, not recorded for Kate and Konsole:** they use the same style as VLC, in the KDE runtime; not recorded in a session for this version; the launcher passing the fade to the style is unit-tested (`tests/test_fade.py`).
 - **Needs:** `g++` and the Qt 6 headers. A Qt update rebuilds the plugin.
 - **Undo:** `appglass remove --only qtstyle`.

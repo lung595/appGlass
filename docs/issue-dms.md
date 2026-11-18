@@ -110,14 +110,14 @@ POC: <!-- link to the appGlass repo -->
 
 ## Screenshots
 
-The screenshots are kept in the private probe folder (`<probe>` below), never in this repo. Every path below is written in full from `<probe>`. `shots/...` are window screenshots from nested niri sessions, except `shots/a4b/*` (screen captures from the real session) and `shots/b1/*`, which come from the real session like `realshims/*`; `.black`/`.white` variants prove the alpha, `.wp.png` is the composite over the blurred wallpaper and looks like the real desktop. Look at each one before attaching.
+The screenshots are kept in the private probe folder (`<probe>` below), never in this repo. Every path below is written in full from `<probe>`. `shots/...` (and `allapps/qt/shots/...`, the Qt style run) are window screenshots from nested niri sessions, except `shots/a4b/*` (screen captures from the real session) and `shots/b1/*`, which come from the real session like `realshims/*`; `.black`/`.white` variants prove the alpha, `.wp.png` is the composite over the blurred wallpaper and looks like the real desktop. Look at each one before attaching.
 
 | Pair | Before | After |
 |---|---|---|
 | Alacritty | `shots/terminal/C-screen-niri060.png` (`shots/terminal/C.wp.png`) | `shots/terminal/E-op060-palettefix.png` (`shots/terminal/E.pm.wp.png`); or `shots/terminal/D-screen-niri100rule.png` / `shots/terminal/D.wp.png` |
 | Nautilus GTK4 | `shots/gtk4/verify-1/plain-noenv.wp.png` | `shots/gtk4/naut-final.wp.png` + `shots/gtk4/naut-final-popover.wp.png` |
 | GTK3 (Solaar) | `shots/gtk3/00-baseline-csd.png` | `shots/gtk3/08-theme-v5-focused.wp.png`, unfocused `shots/gtk3/08-theme-v5-backdrop.wp.png` |
-| VLC Qt | `shots/qt/vlc-baseline.wp.png` | `shots/qt/verify-0/glass.wp.png` |
+| VLC Qt | `shots/qt/vlc-baseline.wp.png` | `allapps/qt/shots/vlc-appglass.wp.png` (the appglass Qt style; `.black`/`.white` beside it) |
 | Herdr | `shots/gpu/herdr-baseline.png` | `shots/gpu/herdr-glass3.wp.png` |
 | Lian Li (WebKit) | `shots/webkit/lianli-niri-opacity060.wp.png` (or `shots/webkit/lianli-default.wp.png`) | `realshims/lianli-glass.png` (real session) |
 | LocalSend (Flutter) | `shots/flutter/ls-baseline.wp.png` | `realshims/localsend-glass.png` (real session) |
