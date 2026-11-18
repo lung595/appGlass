@@ -56,7 +56,7 @@ var ENTRIES = [
         "id": "levelInfo",
         "category": "glass",
         "label": "Glass level",
-        "help": "Follows the DMS window opacity (the Glass window rule); text and icons stay opaque",
+        "help": "Follows the DMS window opacity (your global window rule); text and icons stay opaque",
         "keywords": ["opacity", "transparency", "dms", "window", "rule", "blur", "level"]
     },
     {

@@ -14,7 +14,7 @@ The glass level follows your DMS window opacity.
 </div>
 
 > [!NOTE]
-> **Early version.** appGlass works today for the apps in the [route table](#which-apps-get-glass). Some routes wait for a hidden check before they go live. Apps with no route stay opaque and sharp.
+> **Early version.** appGlass works today for the apps marked **Works** in the [route table](#which-apps-get-glass). Some routes wait for a hidden check before they go live. Apps with no route stay opaque and sharp.
 
 ## Getting started
 
@@ -31,6 +31,9 @@ The glass level follows your DMS window opacity.
 | `g++`, Qt 6 headers, `moc` and `pkg-config` | Qt 6 | VLC (its Qt style plugin is built from source) and the Qt shims |
 | Host Qt | 6.11 or newer | Jellyfin Desktop only |
 | A DMS window rule with an opacity | No match, blur on | The glass level itself (optional, see below) |
+| `gamescope`, `niri`, `dbus-run-session` and `ffmpeg` | Any | The hidden check of the Forced and Mod routes. Without them the check cannot run, and those routes stay plain |
+| `bwrap` (bubblewrap), with user namespaces | Any | The hidden check of a flatpak app on a Forced or Mod route |
+| `jq` | Any | Putting Vencord back after a Discord update |
 
 **The glass level** is the opacity of your global DMS window rule. Make one in **Settings → Applications → Window rules**: a rule with no match (it applies to every window), an opacity, and blur on. appGlass takes the first such rule, whatever you call it. With no such rule it uses the DMS `foregroundLayerTransparency` setting, then 0.60.
 
@@ -101,12 +104,12 @@ The widget is optional. The glass works without it.
 | [![A music app opens over the other windows, already with glass](docs/media/new-app.gif)](docs/media/new-app.gif) |
 | *The window opens with glass. No command needed.* |
 
-The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the second GIF was added afterwards. The music window is a small libadwaita demo app: like every libadwaita app, it gets its glass from the GTK4 CSS, so it needs no routing. Plain GTK4 apps without libadwaita stay opaque (not tested). Apps of other toolkits are routed by the sync unit within seconds.
+The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the second GIF was added afterwards. The music window is a small libadwaita demo app: it gets its glass from the GTK4 CSS that libadwaita apps read, so it needs no routing. Plain GTK4 apps without libadwaita stay opaque (not tested). Apps of other toolkits are routed by the sync unit within seconds.
 
 - **Only the background turns glass.** niri keeps the window at `opacity 1.0`. Each app paints its own background with alpha. Text, icons and logos stay fully opaque.
 - **Three levels, from one number.** Content follows the DMS level. Bars (header bars, sidebars, tab bars) stay at `max(content, 0.65)`. Menus, popovers and dialogs stay opaque.
 - **Colours follow DMS.** A wallpaper or scheme change re-renders the app colours through the matugen hook.
-- **Unfocused windows fade a little more.** Only the background fades. The text stays opaque.
+- **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin and Lian Li. Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
 - **New and updated apps are found on their own.** A new app is routed within seconds.
 - **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts everything back byte for byte.
 - **Never touched:** games, root GUIs, the windows DMS draws itself, and Firefox-family browsers (those belong to [browserGlass](https://github.com/lung595/browserGlass)).
@@ -129,9 +132,12 @@ The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, meas
 | --- | --- | --- | --- |
 | Terminal opacity key | Native | Alacritty, foot, Konsole | Works |
 | Terminal opacity key | Native | kitty, Ghostty, WezTerm | Untested |
-| GTK4 CSS | Native | Nautilus, GNOME Software, Zenity, the file chooser, Flatseal, GNOME Text Editor, Mission Center, Resources, other libadwaita apps | Works; plain GTK4 apps without libadwaita stay opaque (not tested) |
-| GTK3 theme | Native | Solaar, nvidia-settings, other host GTK3 apps | Partial: dialog bodies stay opaque |
-| Qt style plugin | Native | VLC, Kate, Konsole (flatpak), other host Qt 6 Widgets apps | Works |
+| GTK4 CSS | Native | Nautilus, GNOME Text Editor, Mission Center, Resources | Works |
+| GTK4 CSS | Native | GNOME Software, Zenity, the file chooser, Flatseal, other libadwaita apps | Untested: the same CSS, not launched; plain GTK4 apps without libadwaita stay opaque (not tested) |
+| GTK3 theme | Native | Solaar, nvidia-settings | Partial: dialog bodies stay opaque |
+| GTK3 theme | Native | Other host GTK3 apps | Untested |
+| Qt style plugin | Native | VLC, Kate, Konsole (flatpak) | Works |
+| Qt style plugin | Native | Other host Qt 6 Widgets apps | Untested |
 | App config | Native | Kate (editor theme), mpv, GIMP 3 | Works |
 | App config | Native | Zed | Partial: Zed lays its own dark floor under the glass |
 | App theme | Native | Obsidian, Herdr, Dux Files, Dux Calendar | Partial: depends on the vault theme (Obsidian), some panes keep their fills (Herdr), bars clearer than content (Dux) |
@@ -141,7 +147,7 @@ The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, meas
 | Generic WebKitGTK route | Forced | Other WebKitGTK and Tauri apps | Being added |
 | Qt Quick shim | Forced | Jellyfin Desktop | Works, after its check |
 | Colour-key shim | Forced | LocalSend, ArtCraft Launcher | Works, after its check |
-| None | Opaque | Steam, Chrome, games, Java, Tk, X11 apps, Electron apps with no hook, Qt flatpaks on the KDE runtime (Kate and Konsole excepted) | Opaque by design |
+| None | Opaque | Steam, Chrome, games, Java, Tk, X11 apps of other toolkits, Electron apps with no hook, Qt flatpaks on the KDE runtime (Kate and Konsole excepted) | Opaque by design |
 
 Steam still shows an old route with a Fallback badge and a switch in **Settings → Apps**. That switch does nothing: Steam stays opaque either way.
 
@@ -170,7 +176,11 @@ dms ipc call appGlass app gtk3 on
 appglass remove && appglass plugin remove
 ```
 
-Every file is put back byte for byte. The hook and the user units go too. Your other DMS plugins are not touched. Then delete the clone if you like.
+Every file is put back byte for byte. The hook and the user units go too. Your other DMS plugins are not touched. Then delete the clone if you like, and the link you made in Install:
+
+```sh
+rm ~/.local/bin/appglass
+```
 
 ## Settings
 
@@ -181,7 +191,7 @@ Open **Settings → Plugins → App Glass**. A search field sits on top (**Ctrl+
 | **Glass** | **Glass for desktop apps** (the main switch), **Glass level** (read-only, from DMS), **Apps on glass**, **Re-apply** |
 | **Apps** | The **App list**: one row per app, with its status, route, badge, reason and switch |
 | **Fade** | **Fade unfocused windows** (on), **Fade amount** (0 to 20 %, default 10 %), **Fade duration** (0 to 400 ms, default 180 ms), **Fade easing**, **Dim apps that cannot fade** (off) |
-| **Fallback** | **Apps without glass**: Opaque (default), Translucent (text too), or DMS opacity. **Fallback opacity** (default 0.70) |
+| **Fallback** | **Apps without glass**: Opaque (default), Translucent (text too), or DMS opacity. **Fallback opacity** (50 to 100 %, default 70 %) |
 | **Advanced** | **Learn open windows**, **Adopt hand-made files**, **Copy report**, **Uninstall appGlass** |
 | **About** | **Version**, **Never touched**, **Command line** |
 
@@ -283,7 +293,7 @@ Click **Copy report** in **Settings → Advanced** and paste it in a [new issue]
 ## Privacy
 
 - **It stays in your home folder.** appGlass keeps its files under your home folder and never needs root. While an Electron app starts, its hook uses a private folder (mode 0700) in `$XDG_RUNTIME_DIR`, and the hidden check runs in a temporary folder there.
-- **No network.** Nothing is downloaded or sent. The Electron hook opens the app's inspector on 127.0.0.1 only, on a random port, and tries to close it right after the injection. If it cannot, the port stays open on 127.0.0.1 only, while the app runs.
+- **appGlass itself uses no network.** It sends nothing anywhere. Two things it runs can: after a Discord update, the sync unit re-runs your Vencord installer, and the Vencord installer downloads Vencord again; and the hidden check runs the app for real, with the network on (LocalSend announces itself on your LAN). The Electron hook opens the app's inspector on 127.0.0.1 only, on a random port, and tries to close it right after the injection. If it cannot, the port stays open on 127.0.0.1 only, while the app runs.
 - **Backups first.** Every file it edits is backed up before the first change. If you edit a file after appGlass, `appglass remove` keeps your edit in place in a file it only edited into, and deletes a file it created whole, edits included. For a file you adopted, one whose appGlass part cannot be taken out cleanly, or one `appglass doctor --fix` writes back, the original comes back and your version is saved aside as `<file>.appglass-changed`.
 - **It leaves some windows alone.** Games, root GUIs, DMS windows and Firefox-family browsers are never touched. Password managers never get an injected route.
 - **The report stays with you.** **Copy report** goes to your clipboard only. It is never sent anywhere.

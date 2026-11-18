@@ -1,7 +1,7 @@
 # appGlass user guide
 
 appGlass gives desktop apps a glass background on niri + DMS while text, icons and logos stay fully opaque.
-You set the glass level the usual DMS way, with the opacity of the "Glass blur" window rule. appGlass follows that level.
+You set the glass level the usual DMS way, with the opacity of your global DMS window rule (Settings → Applications → Window rules: the first rule with no match and blur on, whatever its name). appGlass follows that level.
 
 What you get, at a DMS level of 0.60:
 
@@ -21,7 +21,8 @@ How it works for each kind of app: [routes.md](routes.md). How it decides: [engi
 Requirements:
 
 - niri and DMS;
-- Python 3;
+- Python 3.11 or newer;
+- for the hidden check of the Forced and Mod routes: `gamescope`, `niri`, `dbus-run-session` and `ffmpeg`, plus `bwrap` for a flatpak app (without them those routes stay plain); `jq` to put Vencord back after a Discord update (the full list: the README Requirements);
 - `gcc` for the C shims, and `g++` with the Qt 6 headers for VLC (its style plugin is built from source and is on by default) and the Qt shims; Jellyfin needs host Qt 6.11 or newer (see [routes.md](routes.md)).
 
 ```sh
@@ -49,7 +50,7 @@ TODO(engine): `appglass setup` will do the four steps above in one command, and 
 
 ## Everyday
 
-- **The level.** Change the opacity of the DMS "Glass blur" window rule. The sync unit sees the change and re-applies: content follows the rule, bars stay at `max(content, 0.65)`, popups stay opaque.
+- **The level.** Change the opacity of the global DMS window rule. The sync unit sees the change and re-applies: content follows the rule, bars stay at `max(content, 0.65)`, popups stay opaque.
 - **The theme.** A DMS wallpaper or scheme change re-renders the colours through the matugen hook. GTK apps pick the new colours up on their next start.
 - **A new app.** No command is needed: the sync unit watches the application folders, the rpm database and the flatpak `.changed` files, and a daily timer catches apps that update themselves. A new or updated app is routed within seconds. Re-apply in Settings > Glass, or `appglass apply --all`, does it at once.
 - **An app update.** A theme route stays. An injected route goes back to "Stale" and runs plain until its check passes again for the new version. An app that fails its check, or opens no window twice, runs plain until its next update, with one notification.
@@ -131,7 +132,7 @@ From a terminal:
 appglass remove && appglass plugin remove
 ```
 
-`appglass remove` restores every file and removes the matugen hook and the user units too, so `appglass hook remove` is not needed afterwards (it only prints "hook: not installed"). Then delete the clone if you like. Your other DMS plugins are not touched.
+`appglass remove` restores every file and removes the matugen hook and the user units too, so `appglass hook remove` is not needed afterwards (it only prints "hook: not installed"). Then delete the clone if you like, and the PATH link if you made one: `rm ~/.local/bin/appglass`. Your other DMS plugins are not touched.
 
 ## Command line
 
@@ -147,7 +148,8 @@ appglass remove [--only f1,f2]
 appglass restore [id] [--list]
 appglass get [key]                      # settings.json, or one dotted key
 appglass set <key> <value> [--apply]
-appglass hook install|remove [--dry-run]
+appglass hook install [--dry-run]
+appglass hook remove
 appglass plugin install|remove [--dry-run]
 appglass doctor [--fix]                 # check appglass's own files (units, niri rule, owned files, plugin link)
 appglass verify [key] [--queue]         # run the hidden check now (one app, or the queue)

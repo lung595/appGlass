@@ -669,9 +669,8 @@ class ChangelogCommands(unittest.TestCase):
         self.assertEqual(set(re.findall(r"`([a-z-]+)`", bullet)), subcommands() - self.INTERNAL)
 
     def test_the_version_link_points_at_its_tag(self):
-        c = read("CHANGELOG.md")
-        for v in re.findall(r"(?m)^## \[([^\]]+)\]", c):
-            self.assertIn("[%s]: https://github.com/lung595/appGlass/releases/tag/v%s" % (v, v), c)
+        # a released version links its tag; an unreleased one has none yet
+        UnreleasedLink.test_an_unreleased_version_links_no_tag(self)
 
 
 class Requirements(unittest.TestCase):
@@ -882,6 +881,173 @@ class FadeRecorded(unittest.TestCase):
         self.assertRegex(f, r"opacity 0\.999")
         self.assertRegex(f, r"TODO\(engine\)[^\n]*opaque")
 
+
+
+def cell_names(cell):
+    """The app names of a README route-table cell: 'Kate (editor theme),
+    GIMP 3, Discord with Vencord' -> Kate, GIMP, Discord."""
+    out = []
+    for part in re.sub(r"\s*\([^)]*\)", "", cell).split(","):
+        part = re.sub(r" with .*$", "", part.strip())
+        out.append(re.sub(r"\s+\d[\w.]*$", "", part))
+    return [n for n in out if n]
+
+
+class MeasuredClaims(unittest.TestCase):
+    """Every app on a Works or Partial row of the README route table was
+    measured (docs/apps.json: tested here or earlier, with its route)."""
+
+    def test_every_works_or_partial_app_was_measured(self):
+        with open(os.path.join(DOCS, "apps.json")) as f:
+            apps = json.load(f)["apps"]
+        measured = {n for a in apps
+                    if a["family"] != "-" and a["tested"] in ("here", "earlier")
+                    and a["result"] in ("glass", "partial")
+                    for n in apps_json_names(a)}
+        rows = route_rows(read("README.md"))
+        claimed = [(n, st) for cell, st in rows
+                   if st.strip().startswith(("Works", "Partial"))
+                   for n in cell_names(cell)]
+        self.assertGreater(len(claimed), 20)
+        for name, st in claimed:
+            self.assertIn(name, measured, (name, st))
+
+    def test_the_unlaunched_gtk4_apps_are_untested(self):
+        rows = route_rows(read("README.md"))
+        for name in ("GNOME Software", "Zenity", "the file chooser", "Flatseal"):
+            st = [st for cell, st in rows if name in cell_names(cell)]
+            self.assertEqual(len(st), 1, name)
+            self.assertTrue(st[0].strip().startswith("Untested"), (name, st))
+        self.assertIn("Documented (installed, not launched)", doc("gtk4.md"))
+
+    def test_the_cell_names(self):
+        self.assertEqual(cell_names(" Kate (editor theme), mpv, GIMP 3 "), ["Kate", "mpv", "GIMP"])
+        self.assertEqual(cell_names(" Discord with Vencord "), ["Discord"])
+        self.assertEqual(cell_names(" VLC, Kate, Konsole (flatpak) "), ["VLC", "Kate", "Konsole"])
+
+
+class HiddenCheckNeeds(unittest.TestCase):
+    """The Requirements name what the hidden check and the sync unit run:
+    without them a Forced or Mod route stays plain."""
+
+    def test_the_requirements_name_the_hidden_check_tools(self):
+        req = section(read("README.md"), "Requirements")
+        v = read("appglass", "verify.py")
+        tools = re.search(r'for tool in \(([^)]*)\):\n\s+if not env\.which\(tool\)', v).group(1)
+        tools = re.findall(r'"([\w-]+)"', tools)
+        self.assertEqual(set(tools), {"gamescope", "niri", "dbus-run-session", "ffmpeg"})
+        self.assertIn('env.which("bwrap")', v)
+        for tool in tools[1:] + ["gamescope", "bwrap"]:
+            self.assertIn("`%s`" % tool, req, tool)
+        row = next(l for l in req.splitlines() if "`bwrap`" in l)
+        self.assertIn("flatpak", row)
+        self.assertRegex(req, r"hidden check")
+
+    def test_the_requirements_name_jq_for_the_discord_update(self):
+        self.assertIn("jq -e '.owners.vencord'", read("bin", "appglass-sync"))
+        row = next(l for l in section(read("README.md"), "Requirements").splitlines()
+                   if "`jq`" in l)
+        self.assertIn("Vencord", row)
+
+
+class NetworkPrivacy(unittest.TestCase):
+    """appglass downloads nothing itself, but the Vencord installer the sync
+    unit re-runs does, and the hidden check runs the app with the network."""
+
+    def test_privacy_owns_up_to_the_vencord_download_and_the_check(self):
+        self.assertIn("VencordInstallerCli-linux\" -install", read("bin", "appglass-sync"))
+        self.assertIn("no `--unshare-net`", doc("engine.md"))
+        p = section(read("README.md"), "Privacy")
+        self.assertNotIn("Nothing is downloaded", p)
+        self.assertNotIn("**No network.**", p)
+        self.assertRegex(p, r"Vencord installer[^\n]*downloads")
+        self.assertRegex(p, r"hidden check[^\n]*network")
+
+
+class FallbackOpacity(unittest.TestCase):
+    def test_the_docs_give_the_fallback_opacity_as_the_page_shows_it(self):
+        qml = read("dms-plugin", "components", "settings", "FallbackPage.qml")
+        self.assertRegex(qml, r"minimum: 50\s+maximum: 100\s+unit: \"%\"")
+        self.assertIn('"fallbackValuePct": 70,', read("dms-plugin", "components", "logic.js"))
+        row = next(l for l in section(read("README.md"), "Settings").splitlines()
+                   if l.startswith("| **Fallback**"))
+        self.assertNotIn("0.70", row)
+        self.assertIn("**Fallback opacity** (50 to 100 %, default 70 %)", row)
+        line = next(l for l in doc("plugin.md").splitlines()
+                    if l.startswith("- **Fallback opacity**"))
+        self.assertIn("50 to 100 %, 70 % by default", line)
+
+
+class X11Apps(unittest.TestCase):
+    """X11 is not a route: a Qt or GTK app under XWayland gets its toolkit's
+    route (VLC was measured under XWayland)."""
+
+    def test_only_x11_apps_of_other_toolkits_stay_opaque(self):
+        self.assertIn("VLC 3.0.24 (under XWayland)", doc("routes.md"))
+        opaque = [cell for cell, st in route_rows(read("README.md")) if "Opaque by design" in st]
+        self.assertEqual(len(opaque), 1)
+        self.assertNotRegex(opaque[0], r"X11 apps(?! of other toolkits)")
+        self.assertIn("X11 apps of other toolkits", opaque[0])
+        for name in ("routes.md", "engine.md"):
+            self.assertNotIn("X11 apps that are not GTK", doc(name), name)
+            self.assertIn("X11 apps of other toolkits", doc(name), name)
+
+
+class FadeBullet(unittest.TestCase):
+    def test_the_features_fade_bullet_names_the_routes_that_fade(self):
+        f = section(read("README.md"), "Features")
+        line = next(l for l in f.splitlines() if l.startswith("- **Unfocused windows fade"))
+        for name in FadeRoutes.NAMES.values():
+            self.assertIn(name, line, name)
+        self.assertIn("#roadmap", line)
+
+
+class RuleName(unittest.TestCase):
+    """DMS has no "Glass blur" rule: the user names the global rule."""
+
+    def test_no_user_doc_or_help_text_names_the_rule(self):
+        for p in (("docs", "guide.md"), ("docs", "plugin.md"),
+                  ("dms-plugin", "components", "settings", "SettingsIndex.js")):
+            t = read(*p)
+            self.assertNotIn("Glass blur", t, p)
+            self.assertNotIn("Glass window rule", t, p)
+        self.assertIn("global DMS window rule", doc("guide.md"))
+        self.assertIn("global DMS window rule", doc("plugin.md"))
+
+
+class UnreleasedLink(unittest.TestCase):
+    def test_an_unreleased_version_links_no_tag(self):
+        c = read("CHANGELOG.md")
+        heads = re.findall(r"(?m)^## \[([^\]]+)\] - (.+)$", c)
+        self.assertTrue(heads)
+        for v, when in heads:
+            if when.strip() == "Unreleased":
+                self.assertNotIn("releases/tag/v%s" % v, c)
+                self.assertIn("[%s]: https://github.com/lung595/appGlass/commits/main" % v, c)
+            else:
+                self.assertIn("[%s]: https://github.com/lung595/appGlass/releases/tag/v%s" % (v, v), c)
+
+
+class PathLink(unittest.TestCase):
+    """The ~/.local/bin/appglass link Install makes goes on uninstall."""
+
+    def test_uninstall_says_to_remove_the_path_link(self):
+        r = read("README.md")
+        self.assertIn("ln -s ~/.local/share/appglass/bin/appglass ~/.local/bin/", r)
+        u = r[r.index("**Uninstall.**"):]
+        u = u[:u.index("\n## ")]
+        self.assertIn("rm ~/.local/bin/appglass", u)
+        g = doc("guide.md")
+        self.assertIn("rm ~/.local/bin/appglass", g[g.index("\n## Uninstall"):])
+
+
+class SyncNotices(unittest.TestCase):
+    def test_the_sync_notifications_are_in_english(self):
+        lines = [l for l in read("bin", "appglass-sync").splitlines() if "notify-send" in l]
+        self.assertEqual(len(lines), 2)
+        for l in lines:
+            self.assertTrue(l.isascii(), l)
+        self.assertIn("Restart Discord", lines[0])
 
 def uninstall_block():
     """The commands of the fenced block under '## Uninstall' in guide.md."""

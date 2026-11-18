@@ -77,11 +77,11 @@ if needs_vencord; then
     if "$SHARE/VencordInstallerCli-linux" -install -location "$app" >/dev/null 2>&1; then
         log "Vencord injected into $app"
         if real && pgrep -x Discord >/dev/null 2>&1; then
-            notify-send -a appGlass "Discord mis à jour" "Vencord réinjecté. Redémarre Discord pour retrouver le verre." 2>/dev/null
+            notify-send -a appGlass "Discord updated" "Vencord is back in. Restart Discord to get the glass back." 2>/dev/null
         fi
     else
         log "Vencord install failed for $app"
-        real && notify-send -u critical -a appGlass "appGlass" "Échec de la réinjection de Vencord dans $app" 2>/dev/null
+        real && notify-send -u critical -a appGlass "appGlass" "Could not put Vencord back into $app" 2>/dev/null
         [ "$MODE" = discord ] && exit 0
     fi
 elif [ "$MODE" = discord ]; then

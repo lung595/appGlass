@@ -1,6 +1,6 @@
 # GTK4 / libadwaita
 
-libadwaita 1.10 (GTK 4.24) apps get real glass from `~/.config/gtk-4.0/gtk.css` alone: alpha on the background colour roles, text and icons stay opaque, popovers and dialogs stay solid. Nautilus is tested. The other libadwaita apps use the same file and are documented only. Flatpak GTK4 apps need a filesystem override. Any GTK4 app without a niri `opacity 1.0` rule gets double translucency (see caveats).
+libadwaita 1.10 (GTK 4.24) apps get real glass from `~/.config/gtk-4.0/gtk.css` alone: alpha on the background colour roles, text and icons stay opaque, popovers and dialogs stay solid. Nautilus is tested here; GNOME Text Editor, Mission Center and Resources were measured later (see [apps.md](apps.md)). The other libadwaita apps use the same file and are documented only. Flatpak GTK4 apps need a filesystem override. Any GTK4 app without a niri `opacity 1.0` rule gets double translucency (see caveats).
 
 ## Apps
 

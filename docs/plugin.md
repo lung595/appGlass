@@ -26,7 +26,7 @@ The search goes over every setting on every page and over the app list.
 ## Glass
 
 - **Glass for desktop apps**: the main switch. Off pauses the glass in every app; turning it on puts it back. Same as the Pause button and a right click on the bar pill.
-- **Glass level**: read-only. It follows the DMS window opacity (the "Glass blur" window rule): content at that level, bars at `max(content, 0.65)`, popups opaque. Text and icons stay opaque. To change it, change the DMS rule.
+- **Glass level**: read-only. It follows the DMS window opacity (the opacity of the global DMS window rule): content at that level, bars at `max(content, 0.65)`, popups opaque. Text and icons stay opaque. To change it, change the DMS rule.
 - **Apps on glass**: how many apps have glass, fall back or stay opaque.
 - **Re-apply**: writes every glass file again from the current settings. New and updated apps are picked up on their own (see [engine.md](engine.md#when-it-runs)); Re-apply is for when you want it now.
 
@@ -70,7 +70,7 @@ What the apps appglass cannot glass look like.
   - **Opaque** (default): `opacity 1.0`, sharp text, no fade.
   - **Translucent (text too)**: the whole window at the Fallback opacity. Text fades with it.
   - **DMS opacity**: appglass leaves these windows alone, at the DMS rule's opacity. Text fades with it.
-- **Fallback opacity**: the opacity of the translucent fallback (0.70 by default).
+- **Fallback opacity**: the opacity of the translucent fallback (50 to 100 %, 70 % by default).
 
 ## Advanced
 
