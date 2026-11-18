@@ -44,6 +44,9 @@ from ..core import Conflict
 
 NAME = "webkit"
 ADAPTER = "webkit-shim"
+# glass reaches the app only through its launcher override: a hand-made
+# launcher in its place keeps it opaque (core.app_routes)
+LAUNCHER = True
 # the engine routes every host GTK3 WebKitGTK app here (ctx.records())
 GENERIC = True
 # a preload: each app is checked in the hidden session first (engine gate)

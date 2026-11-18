@@ -966,9 +966,8 @@ class Ctx:
             raise Conflict("%s is a symlink; left untouched" % self.env.tilde(dest))
         rec = self._record(dest)
         if rec is None and os.path.lexists(dest) and self.app.state.owner_of(dest) is None:
-            raise Conflict("%s is a hand-made launcher (appglass adopt %s hands it to "
-                           "appglass, backed up)" % (self.env.tilde(dest),
-                                                     self.env.tilde(dest)))
+            raise Conflict("%s is a hand-made launcher (%s)"
+                           % (self.env.tilde(dest), hand_remedy(self.app, dest)))
         raw = _read(src)
         text = fn(raw.decode("utf-8", "replace"))
         return self.write_owned(dest, text, meta={"source": src, "source_sha256": sha(raw)})
@@ -2201,6 +2200,13 @@ def app_routes(app, records=None, renders=None):
         if fam and route["effective"] == "glass" and not app.installed(app.families[fam]):
             route.update(effective="fallback", reason="family %s: not installed" % fam,
                          state="opaque")
+        hand = (hand_launcher(app, r) if fam and route["effective"] == "glass"
+                and getattr(app.families[fam], "LAUNCHER", False) else None)
+        if hand:
+            t = app.env.tilde(hand)
+            route.update(effective="fallback", state="opaque", hand=t,
+                         reason="%s is a hand-made launcher: the app runs plain (%s)"
+                                % (t, hand_remedy(app, hand)))
         rd = None
         if fam and route["effective"] == "glass":
             rd = renders[fam] if renders is not None and fam in renders else family_render(app, fam)
@@ -2208,6 +2214,35 @@ def app_routes(app, records=None, renders=None):
             route.update(render=rd[0], reason="%s, %s" % (route["reason"], render_says(rd)))
         out.append((r, route))
     return out
+
+
+def hand_remedy(app, path):
+    """How to hand the hand-made file path over: adopt for a file appglass
+    knows (HAND_FILES: backed up, restored on remove), else move it away."""
+    from . import adapters
+    t = app.env.tilde(path)
+    if any(os.path.join(app.env.home, rel) == path for rel, _, _ in adapters.HAND_FILES):
+        return "appglass adopt %s hands it to appglass, backed up" % t
+    return "move %s away and apply: appglass writes its own from the system launcher" % t
+
+
+def hand_launcher(app, rec):
+    """The launcher of yours in the place of the one a launcher family
+    writes for rec ($XDG_DATA_HOME/applications/<desktop_id>: not owned by
+    appglass, not parked, or a symlink), which apply leaves as it is (see
+    Context.desktop_override), else None."""
+    did = rec.get("desktop_id")
+    if not did:
+        return None
+    p = os.path.abspath(os.path.join(app.env.data_home, "applications", did))
+    if os.path.islink(p):
+        return p
+    if not os.path.lexists(p) or app.state.owner_of(p) is not None:
+        return None
+    parked = app.state.data.get("parked") or {}
+    if p in parked and _parked_unchanged(p, parked[p]):
+        return None
+    return p
 
 
 def hand_files(app):
@@ -2278,10 +2313,14 @@ def status_doc(app):
     for r, route in app_routes(app, renders=renders):
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1
         own = (app.settings.get("apps", {}).get(r["key"]) or {}).get("route")
+        conflicts = list(clash.get(adapters.family_for(r, app.families), []))
+        hand = route.pop("hand", None)
+        if hand and hand not in conflicts:
+            conflicts.append(hand)
         apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
                           "app_ids": r["app_ids"], "source": r.get("source", "desktop"),
                           "routes": adapters.routes(r, app.families), "route": own or None,
-                          "conflicts": clash.get(adapters.family_for(r, app.families), [])},
+                          "conflicts": conflicts},
                          **route))
     return {
         "version": 1,

@@ -390,6 +390,31 @@ class Route(unittest.TestCase):
         self.assertEqual(self.route()["state"], "glass")
         self.assertIn("appglass-webkit", self.sb.read(self.launcher()))
 
+    def test_a_hand_made_launcher_keeps_it_opaque(self):
+        """Glass reaches the app only through appglass's launcher: one of
+        yours in its place (apply leaves it) runs the app plain, so the
+        route says opaque and why, and the app is a conflict until adopted."""
+        mine = desktop("Web Thing", self.exe + " ui --mine", StartupWMClass=KEY)
+        _w(self.launcher(), mine.encode() if isinstance(mine, str) else mine)
+        self.enable(True)
+        out = self.run_ok("apply")
+        self.assertIn("hand-made", out)
+        r = self.route()
+        self.assertEqual((r["effective"], r["state"]), ("fallback", "opaque"), r)
+        self.assertIn("hand-made launcher", r["reason"])
+        self.assertIn("move ~/.local/share/applications/%s away" % DID, r["reason"])
+        self.assertIn("~/.local/share/applications/" + DID, r["conflicts"])
+        self.assertNotIn("appglass-webkit", self.sb.read(self.launcher()))
+        code, text, err = self.sb.run("status")
+        self.assertEqual(code, 0, err)
+        line = [l for l in text.splitlines() if l.strip().startswith(KEY)]
+        self.assertTrue(line and "fallback" in line[0] and "hand-made" in line[0], text)
+        # moved away: glass at the next apply
+        os.rename(self.launcher(), self.launcher() + ".mine")
+        self.run_ok("apply")
+        self.assertEqual(self.route()["state"], "glass")
+        self.assertIn("appglass-webkit", self.sb.read(self.launcher()))
+
     def test_gtk4_webkit_stays_opaque(self):
         _w(self.exe, elf(WK6), 0o755)
         self.run_ok("apply")

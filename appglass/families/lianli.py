@@ -19,6 +19,9 @@ from .. import shims
 
 NAME = "lianli"
 ADAPTER = "webkit-shim"
+# glass reaches the app only through its launcher override: a hand-made
+# launcher in its place keeps it opaque (core.app_routes)
+LAUNCHER = True
 OPT_IN = True
 KEYS = ("com.sgtaziz.lianlilinux",)
 APP_IDS = [r"^com\.sgtaziz\.lianlilinux$"]
