@@ -761,6 +761,15 @@ class FeatureGifs(unittest.TestCase):
         self.assertRegex(r, r"plain GTK4 apps without libadwaita stay opaque \(not tested\)")
 
 
+class CommandLine(unittest.TestCase):
+    def test_dry_run_is_shown_on_hook_install_only(self):
+        c = section(read("README.md"), "Command line")
+        self.assertNotIn("hook install|remove [--dry-run]", c)
+        self.assertRegex(c, r"(?m)^appglass hook install \[--dry-run\]")
+        self.assertRegex(c, r"(?m)^appglass hook remove(?! \[--dry-run\])")
+        self.assertIn("--dry-run goes with install", read("appglass", "core.py"))
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""

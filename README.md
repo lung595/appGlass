@@ -224,7 +224,8 @@ appglass remove [--only f1,f2]          # undo everything, or some families
 appglass restore [id] [--list]          # the backup ring: the last 5 changes
 appglass get [key]
 appglass set <key> <value> [--apply]
-appglass hook install|remove [--dry-run]
+appglass hook install [--dry-run]
+appglass hook remove
 appglass plugin install|remove [--dry-run]
 appglass doctor [--fix]                 # check appglass's own files
 appglass verify [key] [--queue]         # run the hidden check now
