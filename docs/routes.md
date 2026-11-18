@@ -40,12 +40,14 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Text:** the palette entries that are too faint on glass (DMS black, magenta, bright black, dim colours) are moved toward white on a dark scheme, toward black on a light one, until text reaches 2.25:1 over any backdrop.
 - **Measured:** before, under the DMS rule alone, every pixel of the window, text included, is alpha 153. After, the background is 153 and the text 255. Source: [terminal.md](terminal.md).
 - **Reload:** live.
+- **Fade, not recorded:** `appglass vibrancy` eases `window.opacity` over Alacritty's IPC socket when the niri focus changes; not recorded in a session for this version; the easing and the focus tracking are unit-tested (`tests/test_vibrancy.py`).
 - **Undo:** `appglass remove --only alacritty` restores `alacritty.toml` byte for byte.
 
 ### kitty, foot, Ghostty, WezTerm, Konsole
 
 - **Writes:** an owned file at the content level with the DMS palette made readable on glass, included by the main config (edited, backed up): kitty `appglass.conf` (`background_opacity`), foot `appglass.ini` (`alpha`), Ghostty `appglass` (`background-opacity`), WezTerm `appglass.lua` (`window_background_opacity`, the tab bar at the bar level), Konsole an `AppGlass` colour scheme and profile (`Opacity`). The flatpak builds of foot, WezTerm and Konsole get the same in their `~/.var/app/<id>` folder. Konsole's tabs and menus take the Qt style (below).
 - **Measured:** foot (flatpak) background 153, text 255; Konsole (flatpak) background 153, text 255, popups 255. kitty, Ghostty and WezTerm are not measured here: the writers are unit-tested only. Source: [apps.md](apps.md).
+- **Fade:** none. These terminals have no lever appglass drives (Konsole's tabs and menus fade with the Qt style, its terminal area does not); only "Dim apps that cannot fade" reaches them.
 - **Undo:** `appglass remove --only kitty` (or `foot`, `ghostty`, `wezterm`, `konsole`) takes the include out.
 
 ## GTK4 / libadwaita
@@ -54,6 +56,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Apps:** `gtk.css` is read by every GTK4 app, so the niri rule lists every GTK4 app appglass knows: Nautilus, GNOME Software, Zenity, the GNOME file chooser portal (used by Chrome and Electron apps), Flatseal (native package), GNOME Web, the libadwaita demo. GNOME Web is partial: its chrome is glass, the web page stays opaque.
 - **Measured:** Nautilus content 153, sidebar 166, popovers and dialogs 255, text 255. Source: [gtk4.md](gtk4.md).
 - **Reload:** GTK4 reads the CSS at start: restart the app.
+- **Fade, not recorded:** `window.background:backdrop` at the unfocused level with a CSS transition; not recorded in a session for this version; the rendered CSS is unit-tested (`tests/test_gtk4.py`). It uses the same mechanism as GTK3, recorded below.
 - **Undo:** `appglass remove --only gtk4` takes the import out and deletes `gtk.css` when nothing of yours is left in it. Taking the import out by hand, or deleting `gtk.css`, is an opt-out that appglass keeps.
 - **Flatpaks:** flatpak GTK4 apps do not read the host `gtk-4.0` folder. GNOME Text Editor, Mission Center and Resources get the same files in their own `~/.var/app/<id>/config/gtk-4.0`. Any other GTK4 flatpak the engine finds gets a launcher override that gives that launch read-only access to the host `gtk-4.0` folder; no `flatpak override` is written. Measured: GNOME Text Editor 153, Mission Center 153, Resources 153, text and popups 255 ([apps.md](apps.md)).
 
@@ -63,6 +66,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Apps:** Solaar, nvidia-settings, and every other host GTK3 app the engine finds (an app that starts other apps, a root GUI or a password manager excepted, see [engine.md](engine.md#classes-what-is-never-touched)).
 - **Measured:** Solaar content 153 (0.600), header bar and bars 166 (0.651), menus 255, glyph cores 255. Source: [gtk3.md](gtk3.md).
 - **Reload:** restart the app (Solaar is a tray process: quit it first).
+- **Fade, recorded:** the GTK3 end-to-end check at 0.80 (`APPGLASS_E2E_LEVEL=0.80 tests/e2e/gtk3.sh`, nested niri, the role window behind a second one): focused 204, unfocused 184 (0.72), text opaque at its focused colour (2 runs, from scratch). The fade is the theme's 180 ms CSS transition on `window.background:backdrop`; the steps of the transition were not recorded. On a header bar window the title buttons go 148 to 120 and get no ring when unfocused (one probe).
 - **Undo:** `appglass remove --only gtk3`. A launcher override you already had is edited, backed up and restored byte for byte.
 - **Limit:** started from a shell, the app does not get `GTK_THEME` and keeps the fallback look.
 
@@ -73,6 +77,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Fade:** an unfocused window eases its background to the unfocused level, in the flatpaks and in the apps the engine finds too.
 - **Fade, recorded:** VLC 3.0.24 (under XWayland) at 0.80, 180 ms ease-out, three runs: unfocused, the background went 0.80 to 0.72 in about 110 ms, one step per frame (7 steps; the end of the ease-out is under one 8-bit step); focused again, back to 0.80 in 120 to 180 ms (2 or 3 steps).
 - **Measured:** content 153, bars 166, text 255. Source: [qt.md](qt.md).
+- **Fade, not recorded for Kate and Konsole:** they use the same style as VLC, in the KDE runtime; not recorded in a session for this version; the launcher passing the fade to the style is unit-tested (`tests/test_fade.py`).
 - **Needs:** `g++` and the Qt 6 headers. A Qt update rebuilds the plugin.
 - **Undo:** `appglass remove --only qtstyle`.
 - **Limit:** Qt 5 apps cannot load a Qt 6 plugin, and other flatpak apps on the KDE runtime are not routed (the Qt minor version must match): they keep the fallback look.
@@ -91,6 +96,7 @@ Native routes through each app's own config files, for the native and the flatpa
 
 - **Writes:** `<vault>/.obsidian/snippets/appglass.css` in every vault listed in Obsidian's `obsidian.json`, and turns the snippet on in that vault's `appearance.json` (your other snippets and keys are kept).
 - **Measured:** content 153, ribbon, sidebars and tab bar 166, menus and modals 255, text 255; the stock `--text-faint` (under 2:1) is replaced. Source: [electron.md](electron.md).
+- **Fade, not recorded:** `body:not(.is-focused)` lowers the snippet colours, with a transition; not recorded in a session for this version; the snippet is unit-tested (`tests/test_obsidian.py`).
 - **Reload:** later theme changes reload live. Quit Obsidian before the first `appglass apply`: the first enable needs an Obsidian restart, or the snippet toggled off and on.
 - **Undo:** `appglass remove --only obsidian`. A snippet you turn off in Obsidian stays off.
 
@@ -137,6 +143,7 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 
 - **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/lianli/`, the page CSS, the wrapper `~/.local/bin/appglass-lianli` and a launcher override. The shim is preloaded for that one launch: it clears the WebView background, gives the window an alpha visual and adds the CSS.
 - **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)).
+- **Fade, not recorded:** the shim sets `html.agl-inactive` on the page when the window loses focus, and the CSS lowers the background with a transition; not recorded in a session for this version; the rule and the shim's focus hook are unit-tested (`tests/test_fade.py`).
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
 - **Undo:** `appglass remove --only lianli`.

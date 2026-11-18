@@ -166,7 +166,7 @@ appglass keys <key> dark|light               # (wrappers) the colour keys of an 
 
 ## Unfocused windows
 
-With `inactive.enabled` (on by default) an unfocused window's background goes a little more transparent, with a short fade; text, icons and logos stay opaque. niri switches an opacity rule at once, so each app fades its own background:
+With `inactive.enabled` (on by default) an unfocused window's background goes a little more transparent, with a short fade; text, icons and logos stay opaque. niri switches an opacity rule at once, so each app fades its own background. Recorded in a session: GTK3, VLC, Feishin and Jellyfin (LocalSend: no fade); the other routes below are unit-tested only, [routes.md](routes.md) says so per app, with the reason.
 
 - **GTK4, GTK3**: `window.background:backdrop` at the lower alpha, with a CSS transition (GTK3 also fades the CSD headerbar from the bar level). While the fade is on, unfocused text keeps its focused look: GTK4 bar contents get `filter: none` on `:backdrop` (instead of the `opacity(0.8)` cue), GTK3 text, notebook tabs, spin buttons and headerbar button edges keep their focused colours (instead of Adwaita's grey, which switches at once). With the fade off, the old cues come back. The GTK4 rule uses libadwaita's `--window-bg-color`, so plain GTK4 apps (Default theme, no libadwaita) keep their own opaque background when unfocused instead of turning to glass.
 - **Obsidian**: `body:not(.is-focused)` lowers the snippet colours, with a transition.

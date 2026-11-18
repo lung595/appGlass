@@ -575,6 +575,18 @@ class FadeRecorded(unittest.TestCase):
         self.assertRegex(section(r, "LocalSend and ArtCraft"),
                          r"Fade, recorded:\*\*[^\n]*no fade")
 
+    def test_every_fading_route_says_whether_its_fade_is_recorded(self):
+        r = doc("routes.md")
+        for sec in ("GTK3", "Qt Widgets", "Feishin and VSCodium", "Jellyfin"):
+            self.assertRegex(section(r, sec), r"\*\*Fade, recorded:\*\*[^\n]*0\.80", sec)
+        for sec in ("Alacritty", "GTK4 / libadwaita", "Obsidian", "Lian Li", "Discord (Vencord)"):
+            self.assertRegex(section(r, sec), r"\*\*Fade, not recorded[^\n]*\*\*[^\n]*unit-tested"
+                             if sec != "Discord (Vencord)" else r"\*\*Fade, not recorded:\*\*", sec)
+        self.assertRegex(section(r, "Qt Widgets"), r"\*\*Fade, not recorded for Kate and Konsole:\*\*")
+        # the summaries name the same recorded set
+        for name in ("README.md", "plugin.md"):
+            self.assertIn("GTK3, VLC, Feishin and Jellyfin", doc(name), name)
+
     def test_discord_says_why_its_fade_is_not_recorded(self):
         d = section(doc("routes.md"), "Discord (Vencord)")
         self.assertRegex(d, r"\*\*Fade, not recorded:\*\*[^\n]*signed-in")
