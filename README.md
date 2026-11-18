@@ -88,28 +88,37 @@ The GIFs are crossfades between real screenshots, taken in a separate test sessi
 
 ### Which apps get glass
 
-Each kind of app has a route. The badge tells you how it gets its glass:
+Each kind of app has a route. The badge in **Settings → Apps** tells you how it gets its glass:
 
 - **Native**: the app's own colour or theme files. On at once.
 - **Forced**: a small shim or hook, started by a wrapper. On by default, but live only once a hidden check passes.
 - **Mod**: a client mod's theme. Same rule as Forced.
-- **Opaque**: no route yet. The window stays opaque and sharp.
+- **Fallback**: no route for this app, or its family is not installed. It gets the fallback look (opaque by default).
+- **Opaque**: kept opaque on purpose. The window stays opaque and sharp.
+- **Delegated**: owned by someone else: Firefox-family browsers belong to browserGlass.
+- **Excluded**: DMS draws these windows itself. appGlass never touches them.
+
+The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, measured in a test session), **Partial** (glass with known gaps, listed there) or **Untested** (only the config writer is tested).
 
 | Route | Badge | Apps | Status |
 | --- | --- | --- | --- |
-| Terminal opacity key | Native | Alacritty, kitty, foot, Ghostty, WezTerm, Konsole | Works |
+| Terminal opacity key | Native | Alacritty, foot, Konsole | Works |
+| Terminal opacity key | Native | kitty, Ghostty, WezTerm | Untested |
 | GTK4 CSS | Native | Nautilus, GNOME Software, Zenity, the file chooser, Flatseal, GNOME Text Editor, Mission Center, Resources, other GTK4 apps | Works |
-| GTK3 theme | Native | Solaar, nvidia-settings, other host GTK3 apps | Works |
+| GTK3 theme | Native | Solaar, nvidia-settings, other host GTK3 apps | Partial: dialog bodies stay opaque |
 | Qt style plugin | Native | VLC, Kate, Konsole (flatpak), other host Qt 6 Widgets apps | Works |
-| App config | Native | Kate (editor theme), mpv, GIMP 3, Zed | Works |
-| App theme | Native | Obsidian, Herdr, Dux Files, Dux Calendar | Works |
-| Vencord theme | Mod | Discord with Vencord | Works, after its check |
+| App config | Native | Kate (editor theme), mpv, GIMP 3 | Works |
+| App config | Native | Zed | Partial: Zed lays its own dark floor under the glass |
+| App theme | Native | Obsidian, Herdr, Dux Files, Dux Calendar | Partial: depends on the vault theme (Obsidian), some panes keep their fills (Herdr), bars clearer than content (Dux) |
+| Vencord theme | Mod | Discord with Vencord | Partial, after its check: needs the Vencord client mod |
 | Electron inspector hook | Forced | Feishin, VSCodium | Works, after its check |
 | WebKit shim | Forced | Lian Li Linux | Works, after its check |
 | Generic WebKitGTK route | Forced | Other WebKitGTK and Tauri apps | Being added |
 | Qt Quick shim | Forced | Jellyfin Desktop | Works, after its check |
 | Colour-key shim | Forced | LocalSend, ArtCraft Launcher | Works, after its check |
-| None | Opaque | Steam, Chrome, games, Java, Tk, X11 apps, Electron apps with no hook, Qt flatpaks on the KDE runtime | Opaque by design |
+| None | Opaque | Steam, Chrome, games, Java, Tk, X11 apps, Electron apps with no hook, Qt flatpaks on the KDE runtime (Kate and Konsole excepted) | Opaque by design |
+
+Steam still shows an old route with a Fallback badge and a switch in **Settings → Apps**. That switch does nothing: Steam stays opaque either way.
 
 What each route writes, and the measured result per app: [docs/routes.md](docs/routes.md) and [docs/apps.md](docs/apps.md).
 

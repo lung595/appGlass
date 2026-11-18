@@ -596,6 +596,68 @@ class RootReadme(unittest.TestCase):
         self.assertIn("unless it is disabled in DMS", ts)
 
 
+def route_rows(readme):
+    """(apps cell, status cell) of each row of the README route table."""
+    t = section(readme, "Which apps get glass")
+    rows = [l for l in t.splitlines() if l.startswith("| ") and "---" not in l][1:]
+    # "(Kate and Konsole excepted)" names apps the row does not hold
+    return [(re.sub(r"\([^)]*excepted\)", "", r.split("|")[3]), r.split("|")[4])
+            for r in rows]
+
+
+def apps_json_names(entry):
+    """The short app names of one apps.json entry: 'Dux Files / Dux
+    Calendar' -> Dux Files, Dux Calendar; versions and notes dropped."""
+    name = re.sub(r"\s*\(.*?\)", "", entry["app"])
+    name = re.split(r" \+ | and ", name)[0]
+    out = []
+    for part in re.split(r", | / ", name):
+        out.append(re.sub(r"\s+\d[\w.]*$", "", part.strip()))
+    return out
+
+
+class RouteTable(unittest.TestCase):
+    """The README route table says what docs/apps.md measured."""
+
+    def test_each_row_has_the_status_apps_json_gives(self):
+        with open(os.path.join(DOCS, "apps.json")) as f:
+            apps = json.load(f)["apps"]
+        rows = route_rows(read("README.md"))
+        self.assertTrue(rows)
+        seen = 0
+        for a in apps:
+            if a["family"] == "-":
+                continue
+            want = ("Untested" if a["tested"] in ("no", "probe") else
+                    {"glass": "Works", "partial": "Partial"}[a["result"]])
+            for name in apps_json_names(a):
+                hits = [st for cell, st in rows
+                        if re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(name), cell)]
+                self.assertTrue(hits, name)
+                for st in hits:
+                    self.assertIn(want, st, (name, st))
+                seen += 1
+        self.assertGreater(seen, 25)
+
+    def test_the_names_of_an_entry(self):
+        self.assertEqual(apps_json_names({"app": "Dux Files / Dux Calendar"}),
+                         ["Dux Files", "Dux Calendar"])
+        self.assertEqual(apps_json_names({"app": "GIMP 3.2.8 (flatpak)"}), ["GIMP"])
+        self.assertEqual(apps_json_names({"app": "Discord + Vencord"}), ["Discord"])
+        self.assertEqual(apps_json_names({"app": "Nautilus 51.1 and libadwaita apps"}),
+                         ["Nautilus"])
+
+    def test_kate_and_konsole_are_excepted_and_every_badge_is_explained(self):
+        r = section(read("README.md"), "Which apps get glass")
+        self.assertIn("Qt flatpaks on the KDE runtime (Kate and Konsole excepted)", r)
+        js = read("dms-plugin", "components", "logic.js")
+        badges = re.findall(r'"\w+": "(\w+)"', js[js.index("var BADGES"):js.index("var STATUS_LABELS")])
+        self.assertIn("Delegated", badges)
+        for b in badges:
+            self.assertRegex(r, r"(?m)^- \*\*%s\*\*:" % b, b)
+        self.assertRegex(r, r"Steam[^\n]*switch[^\n]*does nothing")
+
+
 class FadeRecorded(unittest.TestCase):
     """Each fading route says what its recorded fade did, or why none was
     recorded (a frame-by-frame capture in a headless niri session)."""
