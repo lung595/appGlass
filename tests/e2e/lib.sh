@@ -1,6 +1,6 @@
 # appglass e2e helpers, sourced by tests/e2e/<family>.sh.
 #
-# Needs APPGLASS_HARNESS: path of the nested-niri harness script
+# Needs APPGLASS_HARNESS: path of the nested-niri harness script (tests/e2e/harness.sh)
 # (start/run/windows/msg/shot/stop). Nothing here touches the real session:
 # the apps run in the nested niri the harness starts, and every appglass call
 # runs with APPGLASS_SANDBOX, HOME and XDG_* pointing into the harness TMP.

@@ -335,6 +335,7 @@ These are plans, not promises. They have no dates.
 
 | File | Content |
 | --- | --- |
+| [docs/STATUS.md](docs/STATUS.md) | Project status: what works, what does not, open items, how to resume |
 | [docs/guide.md](docs/guide.md) | User guide: install, first run, pause, per-app switch, undo, uninstall |
 | [docs/plugin.md](docs/plugin.md) | The settings page, the bar pill and the IPC calls |
 | [docs/routes.md](docs/routes.md) | What each route does to each app, with the measured result |
