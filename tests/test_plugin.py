@@ -54,6 +54,52 @@ class Install(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("not installed", out)
 
+    def test_remove_takes_out_the_folders_install_made(self):
+        """No dms/plugins before install: remove leaves none behind. One
+        that was there, or that holds another plugin, stays."""
+        parent = os.path.dirname(self.dst)
+        self.assertFalse(os.path.lexists(os.path.join(self.sb.config, "dms")))
+        before = self.sb.tree_hash()
+        code, out, err = self.sb.run("plugin", "install")
+        self.assertEqual(code, 0, err)
+        code, out, err = self.sb.run("plugin", "remove")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.lexists(os.path.join(self.sb.config, "dms")))
+        self.assertEqual(self.sb.tree_hash(), before)
+        # made by install, then another plugin added: kept
+        code, out, err = self.sb.run("plugin", "install")
+        self.assertEqual(code, 0, err)
+        os.mkdir(os.path.join(parent, "Other"))
+        code, out, err = self.sb.run("plugin", "remove")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.isdir(os.path.join(parent, "Other")))
+        os.rmdir(os.path.join(parent, "Other"))
+        code, out, err = self.sb.run("plugin", "install")
+        code, out, err = self.sb.run("plugin", "remove")
+        self.assertFalse(os.path.lexists(os.path.join(self.sb.config, "dms")))
+        # there before install: kept, empty
+        os.makedirs(parent)
+        before = self.sb.tree_hash()
+        code, out, err = self.sb.run("plugin", "install")
+        code, out, err = self.sb.run("plugin", "remove")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sb.tree_hash(), before)
+
+    def test_remove_says_the_glass_files_stay_only_when_there_are_any(self):
+        code, out, err = self.sb.run("plugin", "install")
+        code, out, err = self.sb.run("plugin", "remove")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("glass files stay", out)
+        self.sb.seed_dms()
+        self.sb.seed_niri()
+        self.sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+        self.sb.seed("alacritty/dank-theme.toml", "alacritty/dank-theme.toml")
+        code, out, err = self.sb.run("apply", "--only", "alacritty", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        code, out, err = self.sb.run("plugin", "install")
+        code, out, err = self.sb.run("plugin", "remove")
+        self.assertIn("glass files stay", out)
+
     def test_refuses_what_is_not_ours(self):
         os.makedirs(self.dst)
         before = self.sb.tree_hash()
