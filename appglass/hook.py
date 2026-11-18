@@ -275,14 +275,24 @@ def install(app, dry_run=False, keep_optout=False):
         app.state.save()
     if tool:
         _ctl(app, "daemon-reload")
+        ok, failed = [], []
         for _, unit, calls in ENABLED:
+            good = True
             for c in calls:
                 args = c + (unit,)
                 r = _ctl(app, *args)
-                if r is not None and r.returncode != 0:
+                if r is None:
+                    good = False        # _ctl warned
+                elif r.returncode != 0:
+                    good = False
                     app.warn("hook: systemctl %s failed: %s"
                              % (" ".join(args), (r.stderr or r.stdout).strip()))
-        app.info("hook: %s enabled" % ", ".join(u for _, u, _ in ENABLED))
+            (ok if good else failed).append(unit)
+        if ok:
+            app.info("hook: %s enabled" % ", ".join(ok))
+        if failed:
+            app.info("hook: units written, not enabled: %s (systemctl failed; "
+                     "appglass hook install again once the user session runs)" % ", ".join(failed))
     else:
         app.info("hook: systemctl skipped (sandbox): %s not enabled"
                  % ", ".join(u for _, u, _ in ENABLED))

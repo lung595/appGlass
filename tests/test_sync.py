@@ -139,6 +139,24 @@ class SyncUnits(unittest.TestCase):
         os.chmod(p, 0o755)
         self.w.sb.env["APPGLASS_SYSTEMCTL"] = p
 
+    def test_install_says_which_units_did_not_enable(self):
+        # w2 r2: with no user bus every enable fails; "enabled" was printed anyway
+        p = os.path.join(self.tmp, "systemctl")
+        with open(p, "w") as f:
+            f.write('#!/bin/sh\necho "$*" >> "%s"\ncase "$*" in '
+                    '*"enable --now appglass-sync.path"*|*is-enabled*|*daemon-reload*) exit 0 ;; '
+                    '*enable*) echo "Failed to connect to bus" >&2; exit 1 ;; esac\nexit 0\n'
+                    % self.log)
+        os.chmod(p, 0o755)
+        self.w.sb.env["APPGLASS_SYSTEMCTL"] = p
+        out = self.run_ok("hook", "install")
+        line = [l for l in out.splitlines() if "enabled" in l and "failed" not in l]
+        self.assertIn("hook: appglass-sync.path enabled", out)
+        self.assertRegex(out, r"hook: units written, not enabled: appglass-discord\.path, "
+                              r"[^\n]*\(systemctl failed")
+        self.assertFalse([l for l in line if "appglass-discord.path" in l and "not enabled" not in l],
+                         line)
+
     def test_adopt_records_what_was_enabled(self):
         for n in HAND_UNITS:
             self.w.hand(".config/systemd/user/" + n, repo_unit(n))
