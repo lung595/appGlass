@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -556,10 +557,28 @@ class Probe(unittest.TestCase):
                         os.path.join(cls.layer_dir, "libappglass-vk.so"), SRC, "-lpthread"],
                        check=True, capture_output=True, timeout=120)
         shutil.copy(os.path.join(D, "appglass-vk.json"), cls.layer_dir)
+        # a probe crashed on purpose must not reach the system's crash handler:
+        # ulimit -c 0 stores no core, but systemd-coredump still logs a record;
+        # a process that is not dumpable is skipped by the kernel altogether
+        # (execve makes the probe dumpable again, so it is preloaded)
+        src = os.path.join(cls.dir, "nodump.c")
+        with open(src, "w") as f:
+            f.write("#include <sys/prctl.h>\n"
+                    "__attribute__((constructor)) static void nodump(void)"
+                    " { prctl(PR_SET_DUMPABLE, 0, 0, 0, 0); }\n")
+        cls.nodump = os.path.join(cls.dir, "nodump.so")
+        subprocess.run([GCC, "-O2", "-Wall", "-shared", "-fPIC", "-o", cls.nodump, src],
+                       check=True, capture_output=True, timeout=120)
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_the_crash_preload_makes_a_process_not_dumpable(self):
+        code = "import ctypes; print(ctypes.CDLL(None).prctl(3, 0, 0, 0, 0))"   # PR_GET_DUMPABLE
+        r = subprocess.run([sys.executable, "-I", "-c", code], env={"LD_PRELOAD": self.nodump},
+                           capture_output=True, text=True, timeout=30, check=True)
+        self.assertEqual(r.stdout.strip(), "0")
 
     def run_probe(self, layer_dir=None, **env):
         e = {"PATH": "/usr/bin:/bin", "HOME": self.dir, "XDG_CACHE_HOME": self.dir}
@@ -601,7 +620,8 @@ class Probe(unittest.TestCase):
         shutil.copy(os.path.join(D, "appglass-vk.json"), bad)
         r = subprocess.run(["sh", "-c", "ulimit -c 0; exec \"$0\"", self.probe], timeout=60,
                            env={"PATH": "/usr/bin:/bin", "HOME": self.dir, "VK_DRIVER_FILES": LVP,
-                                "VK_ADD_LAYER_PATH": bad, "VK_INSTANCE_LAYERS": LAYER},
+                                "VK_ADD_LAYER_PATH": bad, "VK_INSTANCE_LAYERS": LAYER,
+                                "LD_PRELOAD": self.nodump},
                            capture_output=True, text=True)
         self.assertNotIn(r.returncode, (0, 1))
 

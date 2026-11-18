@@ -183,7 +183,8 @@ class ArtCraft(ShimCase, unittest.TestCase):
                          ("cpu", "no Vulkan GPU, only llvmpipe (LLVM 99)"))
         self.assertIn("render: artcraft on the CPU (no Vulkan GPU, only llvmpipe (LLVM 99))\n", dout)
         # no driver answers, or the probe crashes (a broken driver or a damaged layer;
-        # SIGKILL stands in for SIGBUS: a death by signal that leaves no core dump record)
+        # SIGKILL stands in for SIGBUS: a death by signal; SIGKILL, unlike SIGBUS, never
+        # reaches the crash handler, so the stub leaves no core dump record)
         for code in ("exit 2", "kill -KILL $$"):
             with self.device(code=code):
                 fam = self.status()["families"]["artcraft"]
