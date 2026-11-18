@@ -231,19 +231,6 @@
       "families": [],
       "family": null,
       "implemented": false,
-      "name": "steam-cdp",
-      "risk": "medium",
-      "summary": "Steam launch flags plus CSS injected over the local debug port",
-      "tier": "forced",
-      "toolkits": [
-        "cef"
-      ],
-      "why": "any local process can drive the logged-in client while it runs"
-    },
-    {
-      "families": [],
-      "family": null,
-      "implemented": false,
       "name": "obs-plugin",
       "risk": "medium",
       "summary": "an OBS plugin plus theme",
@@ -595,28 +582,26 @@
       "toolkit": "gtk3"
     },
     {
-      "adapter": "steam-cdp",
+      "adapter": "niri-fallback",
       "app_ids": [
         "^steam$"
       ],
       "conflicts": [],
       "effective": "fallback",
-      "enabled": false,
+      "enabled": null,
       "family": null,
       "generic": false,
-      "implemented": false,
+      "implemented": true,
       "injected": false,
       "key": "steam",
       "name": "Steam",
       "reason": "Steam client (CEF): no injection, it stays opaque (docs/steam.md)",
-      "risk": "medium",
+      "risk": "none",
       "route": null,
-      "routes": [
-        "steam-cdp"
-      ],
+      "routes": [],
       "source": "desktop",
-      "state": "off",
-      "tier": "forced",
+      "state": "opaque",
+      "tier": "fallback",
       "toolkit": "cef"
     },
     {

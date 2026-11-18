@@ -89,9 +89,6 @@ CATALOGUE = (
             ("localsend", "artcraft"),
             "a colour-key EGL shim",
             "may force software rendering"),
-    Adapter("steam-cdp", FORCED, "medium", ["cef"], None,
-            "Steam launch flags plus CSS injected over the local debug port",
-            "any local process can drive the logged-in client while it runs"),
     Adapter("obs-plugin", FORCED, "medium", [], None, "an OBS plugin plus theme"),
     Adapter("niri-fallback", FALLBACK, "none", [], None,
             "niri opacity only (fallback.mode)", "text fades too in value mode"),
@@ -106,7 +103,6 @@ BY_NAME = {a.NAME: a for a in CATALOGUE}
 # per-app routes the catalogue knows by app-id (before the toolkit default)
 APP_ROUTES = (
     (r"^discord$", "electron-vencord"),
-    (r"^steam$", "steam-cdp"),
     (r"^org\.jellyfin\.JellyfinDesktop$", "qtquick-shim"),
     (r"^com\.obsproject\.Studio$", "obs-plugin"),
 )
@@ -240,7 +236,7 @@ def routes(rec, families):
 
 # adapters that load code into the app (a preload or an inspector): never
 # for a game launcher (its children are games)
-PRELOAD = ("electron-hook", "webkit-shim", "qtquick-shim", "ck-shim", "steam-cdp")
+PRELOAD = ("electron-hook", "webkit-shim", "qtquick-shim", "ck-shim")
 # toolkits with no route at all, and why (opaque, never faded)
 NO_ROUTE = {
     "chromium": "Chromium browser: web content has no window alpha",

@@ -183,4 +183,4 @@ Failure always ends opaque, never half-faded:
 - **Dark logos drawn by an app** can be hard to see on dark glass. CSS cannot reach them.
 - **Opaque by design:** Steam, Chrome and other Chromium browsers, games, root GUIs, Java, Tk and X11 apps that are not GTK, Electron apps with no CSS hook. Qt flatpaks on the KDE runtime cannot load the host Qt style: only Kate and Konsole, which have their own routes, get glass. See [routes.md](routes.md#opaque) for each reason.
 
-  TODO(adapters): `appglass status` still lists Steam with the old Forced route `steam-cdp` and a switch; that switch does nothing (the reason stays "Steam client (CEF): no injection, it stays opaque") and Steam stays opaque. The route is to be dropped from the catalogue.
+  `appglass status` lists Steam with no route and no switch, and the reason "Steam client (CEF): no injection, it stays opaque"; only the niri fallback reaches it.

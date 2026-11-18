@@ -279,7 +279,7 @@ Item {
                     t.press(root.find(p, "rail-apps"));
                     const rows = root.findAll(p, "app:", []);
                     t.check("one row per app, all shown", [rows.length, rows.filter(x => x.visible).length], [14, 14]);
-                    t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => root.find(p, "status-" + k).text), ["Glass", "Conflict", "Game: never touched", "Delegated", "Fallback", "Waiting for check"]);
+                    t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => root.find(p, "status-" + k).text), ["Glass", "Conflict", "Game: never touched", "Delegated", "Opaque", "Waiting for check"]);
                     t.check("route shown", root.find(p, "route-Alacritty").text.indexOf("terminal · Native"), 0);
                     const toggles = root.findAll(p, "appToggle-", []);
                     t.check("one switch per switchable row", toggles.filter(x => x.visible).length, Logic.appRows(root.status, {}, true).filter(r => r.switchable).length);
@@ -546,7 +546,7 @@ Item {
                     // --- a saved route the status no longer lists: the chips show
                     root.fresh(true, undefined, {
                         "apps": {
-                            "steam": {
+                            "vlc": {
                                 "enabled": true,
                                 "route": "no-such-route"
                             }
@@ -559,14 +559,14 @@ Item {
                 "run": () => {
                     const p = root.page;
                     t.press(root.find(p, "rail-apps"));
-                    t.check("one route, saved one stale: its chip shows", [root.shown("route-steam-steam-cdp"), root.shown("route-vlc-qt-style")], [true, false]);
-                    t.press(root.find(p, "route-steam-steam-cdp"));
-                    t.check("picking it saves it over the stale one", root.saved("apps").steam.route, "steam-cdp");
+                    t.check("one route, saved one stale: its chip shows", [root.shown("route-vlc-qt-style"), root.shown("route-solaar-gtk3")], [true, false]);
+                    t.press(root.find(p, "route-vlc-qt-style"));
+                    t.check("picking it saves it over the stale one", root.saved("apps").vlc.route, "qt-style");
                 }
             },
             {
                 "run": () => {
-                    t.check("then the chips go", root.shown("route-steam-steam-cdp"), false);
+                    t.check("then the chips go", root.shown("route-vlc-qt-style"), false);
                     t.check("uninstall offered, no link hint", [root.find(root.page, "uninstallButton").enabled, root.shown("uninstallLinkHint")], [true, false]);
                     // --- the files are back but the plugin link stays
                     root.fresh(true, {

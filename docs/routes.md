@@ -190,7 +190,7 @@ With the default fallback ("Opaque", Settings > Fallback), these windows get `op
 
   Steam games are never touched either way.
 
-  TODO(adapters): `appglass status` still lists Steam with an old Forced route, `steam-cdp`, and Settings > Apps gives it a switch. That switch does nothing: on or off, the reason reads "Steam client (CEF): no injection, it stays opaque" and Steam stays opaque. The route is to be dropped from the catalogue.
+  `appglass status` lists Steam with no route, and Settings > Apps gives it no switch: the reason reads "Steam client (CEF): no injection, it stays opaque". Only the niri fallback reaches it.
 - **Chrome and Chromium browsers.** Web content has no window alpha: measured alpha 255 everywhere. See [electron.md](electron.md).
 - **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process.
 - **Root GUIs** (Timeshift through pkexec): opaque, with the reason "runs as root". Nothing is written for them.

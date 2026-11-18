@@ -210,7 +210,8 @@ class ApplyAll(unittest.TestCase):
         code, out, err = self.sb.run("apply", "--all", "--adopt", "--dry-run")
         self.assertEqual(code, 0, err)
         self.assertIn("apps: 1 delegated", out)
-        self.assertIn("steam-cdp", out)
+        self.assertIn("Steam client (CEF): no injection", out)
+        self.assertNotIn("steam-cdp", out)
         self.assertIn("niri: would write", out)
         self.assertEqual(self.sb.tree_hash(), before)
 

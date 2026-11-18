@@ -90,7 +90,10 @@ class Status(unittest.TestCase):
         self.assertEqual(apps["discord"]["routes"], ["electron-vencord"])
         self.assertEqual(apps["md.example.Electron"]["routes"], [])
         self.assertEqual(apps["org.example.Flutter"]["routes"], [])
-        self.assertEqual(apps["steam"]["routes"], ["steam-cdp"])
+        # Steam has no route: opaque, no switch (docs/steam.md)
+        self.assertEqual(apps["steam"]["routes"], [])
+        self.assertEqual((apps["steam"]["adapter"], apps["steam"]["state"]), ("niri-fallback", "opaque"))
+        self.assertIsNone(apps["steam"]["enabled"])
         self.assertEqual(apps["vlc"]["routes"], ["qt-style"])
         self.assertEqual(apps["Alacritty"]["routes"], ["terminal"])
         for key in ("org.mozilla.firefox", "Pinball"):

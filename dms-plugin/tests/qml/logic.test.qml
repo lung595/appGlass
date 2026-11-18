@@ -157,7 +157,9 @@ Item {
         t.check("app-id unescaped", byKey["com.github.tchx84.Flatseal"].appId, "com.github.tchx84.Flatseal");
         const delegated = rows.filter(r => r.effective === "delegated");
         t.ok("a delegated row has no switch", delegated.length > 0 && delegated.every(r => !r.switchable && r.badge === "Delegated" && r.status === "delegated"));
-        t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => byKey[k].status), ["glass", "conflict", "game", "delegated", "fallback", "waiting"]);
+        t.check("statuses", ["Alacritty", "vlc", "Pinball", "org.mozilla.firefox", "steam", "discord"].map(k => byKey[k].status), ["glass", "conflict", "game", "delegated", "opaque", "waiting"]);
+        // Steam has no route: opaque, and no switch
+        t.check("steam: opaque, no switch, no route", [byKey["steam"].switchable, byKey["steam"].routes.length], [false, 0]);
         t.check("the conflict names the file", byKey["vlc"].conflicts, ["~/.local/share/applications/vlc.desktop"]);
         t.check("discord: two routes, the mod first", byKey["discord"].routes, [{
                 "name": "electron-vencord",
@@ -239,8 +241,8 @@ Item {
                     "discord": {
                         "enabled": false
                     }
-                }), label("steam", {
-                    "steam": {
+                }), label("md.example.Electron", {
+                    "md.example.Electron": {
                         "enabled": false
                     }
                 })], ["Fallback", "Fallback", "Fallback"]);
@@ -253,7 +255,7 @@ Item {
                 "enabled": true,
                 "route": "electron-hook"
             },
-            "steam": {
+            "vlc": {
                 "route": "no-such-route"
             }
         };
@@ -262,8 +264,8 @@ Item {
             rows2[r.key] = r;
         t.check("switched off: paused", [rows2["Alacritty"].on, rows2["Alacritty"].status, rows2["Alacritty"].statusLabel], [false, "paused", "Paused"]);
         t.check("saved route", [rows2["discord"].on, rows2["discord"].route, rows2["discord"].kind], [true, "electron-hook", "Forced"]);
-        t.check("an unknown saved route is ignored, but marked", [rows2["steam"].route, rows2["steam"].routeStale, rows2["discord"].routeStale], ["steam-cdp", true, false]);
-        t.check("route chips: two routes, or a stale or unlisted one", [Logic.showRoutes(byKey["discord"]), Logic.showRoutes(byKey["steam"]), Logic.showRoutes(rows2["steam"]), Logic.showRoutes(byKey["Pinball"]), Logic.showRoutes({
+        t.check("an unknown saved route is ignored, but marked", [rows2["vlc"].route, rows2["vlc"].routeStale, rows2["discord"].routeStale], ["qt-style", true, false]);
+        t.check("route chips: two routes, or a stale or unlisted one", [Logic.showRoutes(byKey["discord"]), Logic.showRoutes(byKey["vlc"]), Logic.showRoutes(rows2["vlc"]), Logic.showRoutes(byKey["Pinball"]), Logic.showRoutes({
                 "route": "gtk4",
                 "routes": [{
                         "name": "gtk3"
@@ -274,7 +276,7 @@ Item {
         const off = {};
         for (const r of Logic.appRows(status, {}, false))
             off[r.key] = r;
-        t.check("glass off: every switchable app paused", ["Alacritty", "vlc", "steam", "Pinball", "org.mozilla.firefox"].map(k => off[k].status), ["paused", "paused", "paused", "game", "delegated"]);
+        t.check("glass off: every switchable app paused", ["Alacritty", "vlc", "solaar", "steam", "Pinball", "org.mozilla.firefox"].map(k => off[k].status), ["paused", "paused", "paused", "opaque", "game", "delegated"]);
         t.check("badges", [Logic.badge({
                 "effective": "glass",
                 "tier": "forced"

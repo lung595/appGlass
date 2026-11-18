@@ -219,26 +219,19 @@ class DocsSayWhatTheCodeDoes(unittest.TestCase):
         self.assertNotIn("or the app id shown by `appglass status`", g)
         self.assertRegex(g, r"dots?\b.*(IPC|settings page)")
 
-    def test_steam_s_status_route_is_documented(self):
+    def test_steam_has_no_route_and_no_switch(self):
         from appglass import adapters
         from appglass.core import discover
-        r = adapters.resolve({"key": "steam", "names": ["steam"], "toolkit": "cef"}, discover())
-        if r["adapter"] != "steam-cdp":
-            self.skipTest("the steam-cdp route is gone: drop the TODO in routes.md")
-        self.assertEqual((r["tier"], r["effective"], r["state"]), ("forced", "fallback", "off"))
-        on = adapters.resolve({"key": "steam", "names": ["steam"], "toolkit": "cef"},
-                              discover(), {"apps": {"steam": {"enabled": True}}})
-        # switched on, Steam is still opaque: the switch does nothing
-        self.assertEqual((on["effective"], on["state"]), ("fallback", "opaque"))
-        self.assertEqual(on["reason"], adapters.NO_ROUTE["cef"])
-        self.assertEqual(r["reason"], adapters.NO_ROUTE["cef"])
+        self.assertNotIn("steam-cdp", adapters.BY_NAME)
+        for settings in (None, {"apps": {"steam": {"enabled": True}}}):
+            r = adapters.resolve({"key": "steam", "names": ["steam"], "toolkit": "cef"},
+                                 discover(), settings)
+            self.assertEqual((r["adapter"], r["effective"], r["state"], r["enabled"]),
+                             ("niri-fallback", "fallback", "opaque", None))
+            self.assertEqual(r["reason"], adapters.NO_ROUTE["cef"])
         for name in ("routes.md", "engine.md"):
             text = doc(name)
-            self.assertNotIn("adapter steam-cdp not implemented yet", text, name)
-            lines = [l for l in text.splitlines() if "steam-cdp" in l]
-            self.assertTrue(lines, name)
-            self.assertTrue(any("TODO(adapters)" in l for l in lines), name)
-            self.assertTrue(any("does nothing" in l for l in lines), name)
+            self.assertNotIn("steam-cdp", text, name)
             self.assertIn("no injection, it stays opaque", text, name)
 
     def test_the_issue_demo_names_the_level_of_each_shot(self):
