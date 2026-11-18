@@ -848,14 +848,26 @@ class RouteTable(unittest.TestCase):
         self.assertEqual(apps_json_names({"app": "Nautilus 51.1 and libadwaita apps"}),
                          ["Nautilus"])
 
-    def test_kate_and_konsole_are_excepted_and_every_badge_is_explained(self):
+    def test_kate_and_konsole_are_excepted_and_every_chip_is_explained(self):
+        """Settings > Apps shows the route kind next to the route and a
+        status chip (AppList.qml): the README explains each, by its label."""
         r = section(read("README.md"), "Which apps get glass")
         self.assertIn("Qt flatpaks on the KDE runtime (Kate and Konsole excepted)", r)
         js = read("dms-plugin", "components", "logic.js")
-        badges = re.findall(r'"\w+": "(\w+)"', js[js.index("var BADGES"):js.index("var STATUS_LABELS")])
-        self.assertIn("Delegated", badges)
-        for b in badges:
-            self.assertRegex(r, r"(?m)^- \*\*%s\*\*:" % b, b)
+        labels = re.findall(r'"\w+": "([^"]+)"',
+                            js[js.index("var STATUS_LABELS"):js.index("function _bool")])
+        self.assertIn("Game: never touched", labels)
+        for b in ["Native", "Forced", "Mod"] + labels:
+            self.assertRegex(r, r"(?m)^- \*\*%s\*\*" % re.escape(b), b)
+        qml = read("dms-plugin", "components", "settings", "AppList.qml")
+        self.assertIn('row.app.route + (row.app.kind ? " · " + row.app.kind', qml)
+        self.assertIn("row.app.statusLabel", qml)
+        self.assertNotIn("badge", qml)
+        self.assertIn("status chip", r)
+        self.assertNotIn("badge", r.lower())
+        # excluded (DMS windows) has no chip of its own
+        self.assertNotIn("**Excluded**", r)
+        self.assertRegex(r, r"DMS draws[^\n]*Delegated")
         self.assertRegex(r, r"Steam[^\n]*switch[^\n]*does nothing")
 
 
@@ -984,7 +996,8 @@ class X11Apps(unittest.TestCase):
 
     def test_only_x11_apps_of_other_toolkits_stay_opaque(self):
         self.assertIn("VLC 3.0.24 (under XWayland)", doc("routes.md"))
-        opaque = [cell for cell, st in route_rows(read("README.md")) if "Opaque by design" in st]
+        opaque = [cell for cell, st in route_rows(read("README.md"))
+                  if st.strip().startswith("Fallback")]
         self.assertEqual(len(opaque), 1)
         self.assertNotRegex(opaque[0], r"X11 apps(?! of other toolkits)")
         self.assertIn("X11 apps of other toolkits", opaque[0])
@@ -1158,6 +1171,61 @@ class ReadmeRound3(unittest.TestCase):
                 self.assertTrue(hits, name)
                 for st in hits:
                     self.assertIn("popups not checked", st, (name, st))
+
+
+class FallbackOrOpaque(unittest.TestCase):
+    """adapters.resolve: an app with no route gets the fallback look (the
+    fallback mode decides: apply --all puts it in the value block), an
+    opaque one the games block, opaque and sharp in every mode. The README
+    rows and the Steam line say the same."""
+
+    FALLBACK = {
+        "Steam": {"key": "steam", "names": ["steam"], "toolkit": "cef"},
+        "Chrome": {"key": "chrome", "names": ["google-chrome"], "toolkit": "chromium"},
+        "Java": {"key": "j", "names": ["j"], "toolkit": "java"},
+        "Tk": {"key": "t", "names": ["t"], "toolkit": "tk"},
+        "X11 apps of other toolkits": {"key": "x", "names": ["x"], "toolkit": "x11"},
+        "Electron apps with no hook": {"key": "e", "names": ["e"], "toolkit": "electron"},
+    }
+    OPAQUE = {
+        "Games": {"key": "g", "names": ["g"], "toolkit": "game"},
+        "root GUIs": {"key": "r", "names": ["r"], "toolkit": "gtk3", "classes": {"root": "su"}},
+        "Qt flatpaks on the KDE runtime": {"key": "org.kde.k", "names": ["org.kde.k"],
+                                           "toolkit": "qt-widgets", "flatpak": True},
+    }
+
+    def test_the_rows_say_what_resolve_gives(self):
+        from appglass import adapters
+        from appglass.core import discover
+        fams = discover()
+        rows = route_rows(read("README.md"))
+        fb = [cell for cell, st in rows if st.strip().startswith("Fallback")]
+        op = [cell for cell, st in rows if st.strip().startswith("Opaque")]
+        self.assertEqual((len(fb), len(op)), (1, 1))
+        for want, cell, recs in (("fallback", fb[0], self.FALLBACK),
+                                 ("opaque", op[0], self.OPAQUE)):
+            for name, rec in recs.items():
+                self.assertIn(name, cell, name)
+                self.assertEqual(adapters.resolve(rec, fams)["effective"], want, name)
+        st = dict((cell, st) for cell, st in rows)
+        self.assertIn("fallback mode", st[fb[0]])
+        self.assertIn("every fallback mode", st[op[0]])
+
+    def test_the_fallback_mode_decides_and_the_games_block_stays(self):
+        from appglass import niri
+        kdl = niri.render([], fallback="value", value=0.7, fallback_ids=["^chrome$"],
+                          games=["^r$"])
+        self.assertIn('match app-id=r#"^chrome$"#\n    opacity 0.70', kdl)
+        self.assertIn('match app-id=r#"^r$"#\n    opacity 1.0\n    background-effect', kdl)
+
+    def test_no_opaque_by_design_claim_is_left(self):
+        r = read("README.md")
+        self.assertNotIn("Opaque by design", r)
+        self.assertNotIn("stays opaque either way", r)
+        line = next(l for l in r.splitlines() if l.startswith("Steam shows"))
+        self.assertIn("fallback mode", line)
+        self.assertIn("`steam-cdp · Forced`", line)
+        self.assertNotIn("Opaque by design", doc("engine.md"))
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ The app lists below name the apps each family lists by hand. The GTK3, GTK4 and 
 
 TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron apps no family lists.
 
-| Route | Badge | Family | Apps | Default |
+| Route | Kind | Family | Apps | Default |
 |---|---|---|---|---|
 | [Terminal opacity key](#terminals) | Native | `alacritty`, `kitty`, `foot`, `ghostty`, `wezterm`, `konsole` | Alacritty, kitty, foot, Ghostty, WezTerm, Konsole | on |
 | [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only); flatpaks: GNOME Text Editor, Mission Center, Resources; any other GTK4 app | on |
@@ -183,10 +183,10 @@ With the default fallback ("Opaque", Settings > Fallback), these windows get `op
 
   Steam games are never touched either way.
 
-  TODO(adapters): `appglass status` still lists Steam with an old Forced route, `steam-cdp`, and Settings > Apps gives it a switch. That switch does nothing: on or off, the reason reads "Steam client (CEF): no injection, it stays opaque" and Steam stays opaque. The route is to be dropped from the catalogue.
+  TODO(adapters): `appglass status` still lists Steam with an old Forced route, `steam-cdp`, and Settings > Apps gives it a switch. That switch does nothing: on or off, the reason reads "Steam client (CEF): no injection, it stays opaque" and Steam keeps the fallback look. The route is to be dropped from the catalogue.
 - **Chrome and Chromium browsers.** Web content has no window alpha: measured alpha 255 everywhere. See [electron.md](electron.md).
 - **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process.
 - **Root GUIs** (Timeshift through pkexec): opaque, with the reason "runs as root". Nothing is written for them.
 - **Electron apps without a CSS hook**, Java, Tk, X11 apps of other toolkits (a Qt app under XWayland gets the Qt route: VLC was measured that way), Qt from a flatpak KDE runtime (Kate and Konsole excepted): no route in this version.
 
-Settings > Fallback can make these windows translucent instead ("Translucent (text too)", at the Fallback opacity, 0.70 by default) or leave them at the DMS opacity ("DMS opacity"). Both fade the text with the background.
+Settings > Fallback can make Steam, Chrome, Electron apps without a CSS hook, Java, Tk and X11 apps of other toolkits translucent instead ("Translucent (text too)", at the Fallback opacity, 0.70 by default) or leave them at the DMS opacity ("DMS opacity"). Both fade the text with the background. Games, root GUIs and Qt flatpaks on the KDE runtime stay opaque in every mode.

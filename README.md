@@ -116,19 +116,27 @@ The GIFs are crossfades between real screenshots, taken in a separate test sessi
 
 ### Which apps get glass
 
-Each kind of app has a route. The badge in **Settings → Apps** tells you how it gets its glass:
+Each kind of app has a route. In **Settings → Apps**, a row shows the app's route and its kind under the name (for example `gtk4 · Native`). The kind tells you how the app gets its glass:
 
 - **Native**: the app's own colour or theme files. On at once.
 - **Forced**: a small shim or hook, started by a wrapper. On by default, but live only once a hidden check passes.
 - **Mod**: a client mod's theme. Same rule as Forced.
-- **Fallback**: no route for this app, or its family is not installed. It gets the fallback look (opaque by default).
-- **Opaque**: kept opaque on purpose. The window stays opaque and sharp.
-- **Delegated**: owned by someone else: Firefox-family browsers belong to browserGlass.
-- **Excluded**: DMS draws these windows itself. appGlass never touches them.
+
+The status chip on the right of the row tells you what the app has now:
+
+- **Glass**: the route is applied.
+- **Waiting for check**: a Forced or Mod route waits for its first hidden check. The app runs plain until then.
+- **Stale**: the app was updated, so its old check no longer counts. The app runs plain until the next check passes.
+- **Paused**: the glass is paused, or you switched a Native app off.
+- **Conflict**: a hand-made file that appGlass does not own is in the way.
+- **Fallback**: no route for this app, its family is not installed, its hidden check failed, or you switched a Forced or Mod app off. It gets the fallback look from **Settings → Fallback**: opaque by default, translucent (text too), or the DMS opacity.
+- **Opaque**: kept opaque on purpose, in every fallback mode. The window stays opaque and sharp.
+- **Game: never touched**: a game. Opaque, with blur off.
+- **Delegated**: owned by someone else: Firefox-family browsers belong to browserGlass. Windows DMS draws itself show as Delegated too. appGlass never touches them.
 
 The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, measured in a test session), **Partial** (glass with known gaps, listed there) or **Untested** (only the config writer is tested).
 
-| Route | Badge | Apps | Status |
+| Route | Kind | Apps | Status |
 | --- | --- | --- | --- |
 | Terminal opacity key | Native | Alacritty, foot, Konsole | Works |
 | Terminal opacity key | Native | kitty, Ghostty, WezTerm | Untested |
@@ -149,9 +157,10 @@ The status is what [docs/apps.md](docs/apps.md) measured: **Works** (glass, meas
 | Generic WebKitGTK route | Forced | Other WebKitGTK and Tauri apps | Being added |
 | Qt Quick shim | Forced | Jellyfin Desktop | Works, after its check |
 | Colour-key shim | Forced | LocalSend, ArtCraft Launcher | Works, after its check |
-| None | Opaque | Steam, Chrome, games, Java, Tk, X11 apps of other toolkits, Electron apps with no hook, Qt flatpaks on the KDE runtime (Kate and Konsole excepted) | Opaque by design |
+| None | None | Steam, Chrome, Java, Tk, X11 apps of other toolkits, Electron apps with no hook | Fallback: opaque by default, they follow the fallback mode |
+| None | None | Games, root GUIs, Qt flatpaks on the KDE runtime (Kate and Konsole excepted) | Opaque: in every fallback mode |
 
-Steam still shows an old route with a Fallback badge and a switch in **Settings → Apps**. That switch does nothing: Steam stays opaque either way.
+Steam shows an old route, `steam-cdp · Forced`, with a switch in **Settings → Apps**. That switch does nothing: on or off, Steam shows *Fallback* and follows the fallback mode.
 
 What each route writes, and the measured result per app: [docs/routes.md](docs/routes.md) and [docs/apps.md](docs/apps.md).
 
@@ -191,7 +200,7 @@ Open **Settings → Plugins → App Glass**. A search field sits on top (**Ctrl+
 | Page | What is there |
 | --- | --- |
 | **Glass** | **Glass for desktop apps** (the main switch), **Glass level** (read-only, from DMS), **Apps on glass**, **Re-apply** |
-| **Apps** | The **App list**: one row per app, with its status, route, badge, reason and switch |
+| **Apps** | The **App list**: one row per app, with its status chip, route and kind, reason and switch |
 | **Fade** | **Fade unfocused windows** (on), **Fade amount** (0 to 20 %, default 10 %), **Fade duration** (0 to 400 ms, default 180 ms), **Fade easing**, **Dim apps that cannot fade** (off) |
 | **Fallback** | **Apps without glass**: Opaque (default), Translucent (text too), or DMS opacity. **Fallback opacity** (50 to 100 %, default 70 %) |
 | **Advanced** | **Learn open windows**, **Adopt hand-made files**, **Copy report**, **Uninstall appGlass** |
