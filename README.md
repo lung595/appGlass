@@ -197,6 +197,8 @@ appglass verify [key] [--queue]         # run the hidden check now
 appglass fail <key> [reason]            # record a failed launch by hand
 ```
 
+`verify` and `fail` take the key that `appglass status` shows for the app (for example `org.localsend.localsend_app`).
+
 While the plugin is installed and enabled, it owns the settings: `appglass set` refuses and points you to the settings page. Use the page or the IPC calls then. `appglass set` takes a family name (`gtk3`) or a key with no dots (`discord`), not an app id like `org.gnome.Nautilus`.
 
 ## Troubleshooting
