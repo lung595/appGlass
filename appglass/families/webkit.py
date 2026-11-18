@@ -36,6 +36,8 @@ Files (all owned, removed by remove):
 """
 
 import os
+import re
+import shlex
 
 from .. import detect, shims
 from ..core import Conflict
@@ -78,7 +80,29 @@ def accepts(rec):
         # the shim stays in the first process it loads in and scrubs itself
         # from the environment of what that starts (appglass-wk.c)
         return "launcher is a script: the preload does not reach the app (point Exec= at the binary)"
+    if _env_option(rec.get("path")):
+        # the wrapper makes only plain assignments itself; env with an option
+        # stays the first process, the shim loads there and scrubs itself
+        return "the launcher runs env with an option (-u ...): the preload would not reach the app"
     return None
+
+
+def _env_option(path):
+    """True when the launcher's Exec= is env with an option before the app."""
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        argv = shlex.split(re.sub(r"%[a-zA-Z%]", "", detect.parse_desktop(path).get("Exec", "")))
+    except (OSError, ValueError):
+        return False
+    if not argv or os.path.basename(argv[0]) != "env":
+        return False
+    for a in argv[1:]:
+        if a.startswith("-"):
+            return True
+        if "=" not in a:
+            return False
+    return False
 
 
 def verify_mask(rec):

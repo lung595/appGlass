@@ -60,6 +60,24 @@ class Accepts(unittest.TestCase):
             self.assertIsNone(webkit.accepts(rec(exec=bin_)))
             self.assertIsNone(webkit.accepts(rec(exec=os.path.join(d, "gone"))))
 
+    def test_an_env_launcher_with_an_option_is_refused_with_its_reason(self):
+        """Exec=env -u X app: the wrapper makes only plain assignments and
+        leaves an option to env, which the shim then loads in and scrubs
+        itself from: the app would start plain."""
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "kiri.desktop")
+            for line, ok in (("env -u FOO kiri %U", False), ("env --unset=FOO kiri", False),
+                             ("env -i kiri", False), ("env FOO=1 BAR= kiri %U", True),
+                             ("kiri --flag -u x", True), ("/usr/bin/env FOO=1 kiri", True)):
+                with open(p, "w") as f:
+                    f.write("[Desktop Entry]\nType=Application\nName=Kiri\nExec=%s\n" % line)
+                why = webkit.accepts(rec(path=p))
+                if ok:
+                    self.assertIsNone(why, line)
+                else:
+                    self.assertIn("env with an option", why or "", line)
+        self.assertIsNone(webkit.accepts(rec(path=os.path.join(d, "gone.desktop"))))
+
     def test_resolve_by_toolkit(self):
         fams = core.discover()
         r = adapters.resolve(rec(), fams)
@@ -501,6 +519,7 @@ class Wrapper(unittest.TestCase):
         r = self.run_w("k", fake, "FOO=a b", "BAR=", app, "x")
         self.assertEqual(r.stdout, "x|a b||" + so)
         # an option (or no command after the assignments): left to env itself
+        # (accepts refuses a launcher with an option: the app would run plain)
         r = self.run_w("k", fake, "-u", "FOO", app, "x")
         self.assertTrue(r.stdout.startswith("via-env|x|"), r.stdout)
         r = self.run_w("k", fake, "1X=y", app)
