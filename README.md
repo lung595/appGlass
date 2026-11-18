@@ -24,9 +24,11 @@ The glass level follows your DMS window opacity.
 | --- | --- | --- |
 | DankMaterialShell | 2.0.0 or newer | The glass level and the settings page |
 | niri | Any recent version | The window rules |
-| Python 3 | Standard library only | Everything (`appglass` is a Python program) |
-| `gcc` | Any | The small C shims (Lian Li, LocalSend, ArtCraft) |
-| `g++` with the Qt 6 headers | Qt 6 | VLC (its Qt style plugin is built from source) and the Qt shims |
+| Python | 3.11 or newer, standard library only | Everything (`appglass` is a Python program) |
+| `gcc` and `pkg-config` | Any | The small C shims (Lian Li, LocalSend, ArtCraft) |
+| EGL headers (`EGL/egl.h`) | Any | The colour-key shim (LocalSend, and ArtCraft when its Vulkan layer cannot run) |
+| Vulkan headers (`vulkan/vk_layer.h`) | Any | The Vulkan layer (ArtCraft) |
+| `g++`, Qt 6 headers and `moc` | Qt 6 | VLC (its Qt style plugin is built from source) and the Qt shims |
 | Host Qt | 6.11 or newer | Jellyfin Desktop only |
 | A DMS window rule with an opacity | No match, blur on | The glass level itself (optional, see below) |
 

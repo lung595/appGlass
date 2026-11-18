@@ -674,6 +674,19 @@ class ChangelogCommands(unittest.TestCase):
             self.assertIn("[%s]: https://github.com/lung595/appGlass/releases/tag/v%s" % (v, v), c)
 
 
+class Requirements(unittest.TestCase):
+    def test_the_requirements_list_every_build_tool(self):
+        req = section(read("README.md"), "Requirements")
+        # tomllib (alacritty.py) is Python 3.11
+        self.assertIn("import tomllib", read("appglass", "families", "alacritty.py"))
+        self.assertIn("3.11", req)
+        self.assertIn("moc", read("appglass", "families", "qtstyle.py"))
+        self.assertIn("EGL/egl.h", read("shims", "ck-shim", "appglass-ck.c"))
+        self.assertIn("vulkan/vk_layer.h", read("shims", "vklayer", "appglass-vk.c"))
+        for tool in ("pkg-config", "moc", "EGL", "Vulkan"):
+            self.assertIn(tool, req, tool)
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""
