@@ -343,6 +343,30 @@ class Wrapper(unittest.TestCase):
     def test_usage(self):
         self.assertEqual(self.run_w("k").returncode, 2)
 
+    def test_an_env_launcher_starts_the_app_itself(self):
+        """Exec=env VAR=val app: the shim keeps itself out of the children of
+        the first process it loads in, so env would start the app plain; the
+        wrapper makes the plain assignments and starts the app itself."""
+        for f in ("appglass-wk.so", "webkit-glass.js"):
+            _w(os.path.join(self.lib, f), "x", 0o644)
+        with open(os.path.join(REPO, "shims/webkit-shim/webkit-glass.css.tmpl")) as f:
+            _w(os.path.join(self.lib, "webkit-glass.css.tmpl"), f.read(), 0o644)
+        d = self.sb.path("envbin")
+        os.makedirs(d)
+        fake = os.path.join(d, "env")
+        _w(fake, "#!/bin/sh\nprintf 'via-env|'\nexec /usr/bin/env \"$@\"\n", 0o755)
+        app = self.sb.path("app2")
+        _w(app, "#!/bin/sh\nprintf '%s|' \"$@\" \"${FOO:-}\" \"${BAR:-}\"; "
+                "printf '%s' \"${LD_PRELOAD:-none}\"\n", 0o755)
+        so = os.path.join(self.lib, "appglass-wk.so")
+        r = self.run_w("k", fake, "FOO=a b", "BAR=", app, "x")
+        self.assertEqual(r.stdout, "x|a b||" + so)
+        # an option (or no command after the assignments): left to env itself
+        r = self.run_w("k", fake, "-u", "FOO", app, "x")
+        self.assertTrue(r.stdout.startswith("via-env|x|"), r.stdout)
+        r = self.run_w("k", fake, "1X=y", app)
+        self.assertTrue(r.stdout.startswith("via-env|"), r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

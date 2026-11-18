@@ -9,6 +9,25 @@ set -u
 LIB="$HOME/.local/lib/appglass/webkit"
 [ $# -ge 2 ] || { echo "usage: appglass-webkit <key> <command> [args...]" >&2; exit 2; }
 AGKEY=$1; shift
+# Exec=env VAR=val ... app: the shim keeps itself out of the children of the first process it
+# loads in, so env would start the app plain. Plain assignments are made here and the app is
+# started itself; anything else (an option, no command) is left to env.
+case $1 in
+env|*/env)
+    found=0 n=0
+    for a in "$@"; do
+        n=$((n + 1)); [ $n -eq 1 ] && continue
+        case $a in
+            -*) break ;;
+            *=*) k=${a%%=*}; case $k in ''|[0-9]*|*[!A-Za-z0-9_]*) break ;; esac ;;
+            *) found=1; break ;;
+        esac
+    done
+    if [ $found = 1 ]; then
+        shift
+        while :; do case $1 in *=*) export "$1"; shift ;; *) break ;; esac; done
+    fi ;;
+esac
 plain() { exec "$@"; }
 # the engine (appglass verify, launch-check): a plain/ marker means start the plain app
 case $AGKEY in */*|.*|'') plain "$@" ;; esac
