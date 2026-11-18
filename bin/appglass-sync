@@ -108,9 +108,12 @@ if touched '/gtk-[34]\.0/'; then
         log "GTK CSS changed (no theme flip in a sandbox)"
     # GTK re-reads gtk.css when the theme name changes
     elif t=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null) && [ -n "$t" ]; then
+        # a stop meanwhile (a logout, systemctl stop) puts the theme back first
+        trap 'gsettings set org.gnome.desktop.interface gtk-theme "$t" 2>/dev/null; exit 143' TERM INT HUP
         gsettings set org.gnome.desktop.interface gtk-theme "''" 2>/dev/null
         sleep 0.3
         gsettings set org.gnome.desktop.interface gtk-theme "$t" 2>/dev/null
+        trap - TERM INT HUP
     fi
 fi
 exit 0

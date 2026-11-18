@@ -296,6 +296,57 @@ class SyncScript(unittest.TestCase):
         self.assertIn("GTK CSS changed", out)
         self.assertNotIn("GTK CSS changed", self.sync(**env))
 
+    def test_a_stop_during_the_theme_flip_puts_the_theme_back(self):
+        """A SIGTERM to the unit (a logout) while the GTK theme is flipped
+        to '' (the sleep between the two sets): the user's theme goes back."""
+        if shutil.which("setsid") is None:
+            self.skipTest("no setsid")
+        import signal
+        import time
+        bindir = os.path.join(self.run_dir, "bin")
+        os.makedirs(bindir)
+        glog = os.path.join(self.run_dir, "gsettings.log")
+        mark = os.path.join(self.run_dir, "flipped")
+        real_sleep = shutil.which("sleep")
+        for name, body in (
+                ("gsettings", "[ \"$1\" = get ] && { echo \"'Adwaita'\"; exit 0; }\n"
+                              'echo "$*" >> "%s"\n' % glog),
+                # the sleep between the two sets: long, and it says it started
+                ("sleep", '[ "$1" = 0.3 ] && { touch "%s"; exec %s 30; }\nexec %s "$@"\n'
+                          % (mark, real_sleep, real_sleep)),
+                ("appglass", 'echo "%s/gtk-4.0/gtk.css"\n' % self.w.sb.config)):
+            with open(os.path.join(bindir, name), "w") as f:
+                f.write("#!/bin/sh\n" + body)
+            os.chmod(os.path.join(bindir, name), 0o755)
+        env = dict(self.w.sb.env, XDG_RUNTIME_DIR=self.run_dir, APPGLASS_SYNC_SETTLE="0",
+                   APPGLASS_BIN=os.path.join(bindir, "appglass"),
+                   APPGLASS_RPMDB=os.path.join(self.run_dir, "no-rpmdb"),
+                   PATH=bindir + os.pathsep + os.environ.get("PATH", "/usr/bin"))
+        del env["APPGLASS_SANDBOX"]      # the flip runs only outside a sandbox
+        env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        p = subprocess.Popen([os.path.join(REPO, "bin", "appglass-sync")], env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             start_new_session=True)
+        try:
+            for _ in range(200):
+                if os.path.exists(mark):
+                    break
+                time.sleep(0.05)
+            self.assertTrue(os.path.exists(mark), "the flip never started")
+            os.killpg(p.pid, signal.SIGTERM)     # what systemd sends the cgroup
+            p.wait(timeout=20)
+        finally:
+            if p.poll() is None:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait()
+            p.stdout.close()
+            p.stderr.close()
+        with open(glog) as f:
+            sets = f.read().splitlines()
+        self.assertEqual(sets[-1], "set org.gnome.desktop.interface gtk-theme 'Adwaita'",
+                         sets)
+        self.assertNotEqual(p.returncode, 0)
+
     def test_colours_rerender_the_theme(self):
         self.w.run("set", "apps.vencord.enabled", "true")
         self.w.run("apply", "--only", "vencord")
