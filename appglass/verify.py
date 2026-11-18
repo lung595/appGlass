@@ -76,6 +76,8 @@ BARE = 0.25
 # square of HOLE_CORE blocks of HOLE_BLOCK px (40 x 40) and covers more than
 # HOLE of the window. CSD shadow margins (20 px at scale 1, 40 at scale 2),
 # rounded corners and the thin gaps between widgets never hold that square.
+# The price: a clear strip along an edge less than HOLE_EDGE + 40 px deep
+# (a transparent custom header) is not a hole; only BARE catches it.
 HOLE = 0.01
 HOLE_EDGE = 16
 HOLE_BLOCK = 8
