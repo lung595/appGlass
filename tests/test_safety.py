@@ -1525,6 +1525,80 @@ class UninstalledSinceApply(Base):
         self.assertFalse(os.path.exists(self.state_dir))
 
 
+class UninstalledForReal(unittest.TestCase):
+    """Apps uninstalled the way a package manager does it (the binary, the
+    system launcher and the flatpak gone; ~/.var/app stays), then the state
+    lost: the refusal and doctor name every file appglass wrote for them,
+    and rescue then remove gives the tree before apply back."""
+
+    FLATPAKS = (("org.kde.kate", "kate"), ("org.kde.konsole", "konsole"),
+                ("org.gnome.TextEditor", "gnome-text-editor"))
+
+    def setUp(self):
+        from fixtures.shimworld import ShimWorld
+        self.w = w = ShimWorld(bins=("vlc", "solaar"))
+        sb = w.sb
+        sb.seed("gtk/dank-colors.css", "gtk-3.0/dank-colors.css")
+        sb.seed("gtk/dank-colors.css", "gtk-4.0/dank-colors.css")
+        desk = "[Desktop Entry]\nType=Application\nName=%s\nExec=%s\n"
+        w.launcher("vlc.desktop", desk % ("VLC", os.path.join(w.bin, "vlc") + " %U"))
+        w.launcher("solaar.desktop", desk % ("Solaar", "solaar"))
+        sb.env["XDG_CONFIG_DIRS"] = sb.path("etc", "xdg")
+        sb.write("solaar.desktop", desk % ("Solaar", "solaar --window=hide"),
+                 base=sb.path("etc", "xdg", "autostart"))
+        for app_id, cmd in self.FLATPAKS:
+            w.launcher(app_id + ".desktop", desk % (
+                app_id, "/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=%s %s"
+                % (cmd, app_id)), flatpak=True)
+            d = sb.path("flatpak", "app", app_id, "current", "active")
+            os.makedirs(os.path.join(d, "files"))
+            sb.write("metadata", "[Application]\nname=%s\nruntime=org.kde.Platform/x86_64/6.8\n"
+                     "command=%s\n" % (app_id, cmd), base=d)
+
+    def tearDown(self):
+        self.w.cleanup()
+
+    def files(self):
+        out = set()
+        for dp, dns, fns in os.walk(self.w.sb.home):
+            out |= {os.path.join(dp, n) for n in fns}
+        return out
+
+    def test_their_files_are_found_and_taken_out(self):
+        sb, w = self.w.sb, self.w
+        tilde = core.Env(sb.env).tilde
+        before = sb.tree_hash(sb.home)
+        pre = self.files()
+        code, out, err = w.run("apply", "--only", "qtstyle,kate,konsole,gtk3,gtk4")
+        self.assertEqual(code, 0, err)
+        state = os.path.join(sb.state, "appglass")
+        theirs = sorted(p for p in self.files() - pre if not p.startswith(state + os.sep)
+                        and not p.startswith(sb.cache + os.sep))
+        for part in ("applications/vlc.desktop", "applications/solaar.desktop",
+                     "applications/org.kde.kate.desktop", "libappglass.so",
+                     "org.kde.kate/config/appglass/katerc", "AppGlass.colorscheme",
+                     "org.gnome.TextEditor/config/gtk-4.0/dank-glass.css"):
+            self.assertTrue(any(p.endswith(part) for p in theirs), (part, theirs))
+        shutil.rmtree(state)
+        # the uninstall: binaries, system launchers and flatpaks gone
+        shutil.rmtree(w.bin)
+        os.makedirs(w.bin)
+        shutil.rmtree(os.path.join(w.usr, "share", "applications"))
+        shutil.rmtree(sb.path("flatpak"))
+        shutil.rmtree(sb.path("etc"))
+        code, out, err = w.run("apply")
+        self.assertNotEqual(code, 0, err)
+        self.assertEqual([p for p in theirs if tilde(p) not in err], [], err)
+        code, out, err = w.run("doctor")
+        self.assertEqual([p for p in theirs if tilde(p) not in out + err], [], out + err)
+        code, out, err = w.run("adopt", "--rescue")
+        self.assertEqual(code, 0, out + err)
+        code, out, err = w.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(sorted(self.files() - pre), [])
+        self.assertEqual(sb.tree_hash(sb.home), before)
+
+
 class Durable(Base):
     """state.json, the ring manifest, the ring blobs and the originals in
     backup/ are on the disk before anything names them (a power loss

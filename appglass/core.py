@@ -2626,10 +2626,46 @@ ADOPTED_MARK = b"appglass adopted it"
 HOOK_MARK = b"written by appglass hook install"
 
 
+# what the probe answers for a binary that is not there (_as_if_installed):
+# never a real path, so a family that runs it gets an OSError
+PROBE_BIN = "/nonexistent/appglass-probe"
+
+
+@contextlib.contextmanager
+def _as_if_installed(app):
+    """While state.json is lost, every app counts as installed for the
+    probe: its binary on PATH, its flatpak there. An uninstall takes the
+    binary, the system launcher and the flatpak, and keeps the files
+    appglass wrote for the app (its launcher override, ~/.var/app): the
+    families plan them only for an app they find."""
+    from . import detect
+    env = app.env
+    which, flatpak_app = env.which, detect.flatpak_app
+
+    def probe_which(cmd):
+        return which(cmd) or (os.path.join(PROBE_BIN, os.path.basename(cmd)) if cmd else None)
+
+    def probe_flatpak(e, app_id):
+        info = flatpak_app(e, app_id)
+        if info is None and app_id:
+            info = {"installation": "user", "dir": PROBE_BIN, "files": PROBE_BIN,
+                    "name": app_id}
+        return info
+    env.which, env.flatpak_installed = probe_which, (lambda app_id: True)
+    detect.flatpak_app = probe_flatpak
+    try:
+        yield
+    finally:
+        del env.which, env.flatpak_installed
+        detect.flatpak_app = flatpak_app
+
+
 class _ProbeCtx(Ctx):
     """A family's plan made only to learn the paths it writes, while
     state.json is missing: no ownership check, nothing built or read
     from the system launchers."""
+
+    probe = True
 
     def write_owned(self, path, text, meta=None, mode=None):
         # the bytes too: a hand path holding exactly what appglass renders
@@ -2640,15 +2676,20 @@ class _ProbeCtx(Ctx):
     def desktop_override(self, desktop_id, fn):
         # the launcher as apply renders it from the system one: a hand path
         # holding exactly these bytes is appglass's (adopt --rescue)
+        dest = os.path.join(self.env.data_home, "applications", desktop_id)
         src = self.system_desktop(desktop_id)
         if src is None:
-            return None
+            # the app uninstalled since apply: the launcher appglass wrote
+            # stays. Its marker tells, or (a hand path) that fn renders it
+            # exactly from the text it holds minus a run of Exec= words
+            if not os.path.isfile(dest) or os.path.islink(dest):
+                return None
+            return self.write_owned(dest, _unrendered(fn, _read(dest)) or "")
         try:
             text = fn(_read(src).decode("utf-8", "replace"))
         except Exception:
             text = ""
-        return self.write_owned(os.path.join(self.env.data_home, "applications", desktop_id),
-                                text)
+        return self.write_owned(dest, text)
 
     def artifact(self, name, build, stamp, dest=None, mode=None):
         # never built here: the bytes are not known (data None in _engine_ops)
@@ -2662,6 +2703,44 @@ class _ProbeCtx(Ctx):
         self.fns = getattr(self, "fns", {})
         self.fns[os.path.abspath(path)] = fn
         return Ctx.edit_text(self, path, fn, undo)
+
+
+def _unrendered(fn, data):
+    """data (a launcher) when fn renders exactly it from a text that differs
+    from it only by one run of words taken out of its Exec= lines (the
+    prefix or the flags a family puts in): the system launcher it was made
+    from, read back. None when no such text is found."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    lines = text.splitlines(True)
+    execs = [i for i, ln in enumerate(lines) if ln.startswith("Exec=")]
+    if not execs:
+        return None
+    words = lines[execs[0]][5:].rstrip("\r\n").split(" ")
+
+    def cut(ln, run):
+        body = ln[5:].rstrip("\r\n")
+        ws = body.split(" ")
+        for k in range(len(ws) - len(run) + 1):
+            if ws[k:k + len(run)] == run:
+                return "Exec=" + " ".join(ws[:k] + ws[k + len(run):]) + ln[5 + len(body):]
+        return ln
+    for i in range(len(words)):
+        for j in range(len(words), i, -1):
+            run = words[i:j]
+            if j - i == len(words) or not any(run):
+                continue
+            phantom = list(lines)
+            for n in execs:
+                phantom[n] = cut(lines[n], run)
+            try:
+                if fn("".join(phantom)) == text:
+                    return data
+            except Exception:
+                continue
+    return None
 
 
 def _engine_paths(app):
@@ -2694,16 +2773,22 @@ def _engine_ops(app):
     # that is every launcher appglass wrote
     hooked, recs = getattr(app, "from_hook", False), getattr(app, "_engine_records", None)
     app.from_hook = False
+    from . import engine
     try:
+        here = {name: app.installed(fam) for name, fam in app.families.items()}
+        try:
+            engine.records(app)     # the real records, before the probe widens
+        except Exception:
+            pass
         for name, fam in sorted(app.families.items()):
-            here = app.installed(fam)
             ctx = _ProbeCtx(app, name)
             try:
-                fam.apply(ctx)
+                with _as_if_installed(app):
+                    fam.apply(ctx)
             except Conflict:
                 pass            # the family skips here (apply says why)
             except Exception as ex:
-                if here:
+                if here[name]:
                     warn("%s: probe failed (%s: %s); the files it writes after that "
                          "are not checked" % (name, type(ex).__name__, ex))
             for p, op in ctx.ops.items():
@@ -2770,6 +2855,18 @@ def _edit_is_ours(undo, fn, data, seen):
         return False
 
 
+def _edit_marked(undo, data):
+    """Every line undo takes out of data says appglass and one carries its
+    marker (gtk3's header on the launcher copy it made): appglass's edit,
+    even when the fn no longer gives the file again (its source is gone)."""
+    try:
+        lines = _taken_out(undo, data)
+    except Exception:
+        return False
+    return (bool(lines) and all("appglass" in ln.lower() for ln in lines)
+            and any(MARK.search(ln.encode("utf-8")) for ln in lines))
+
+
 def _taken_out(undo, data):
     """The lines undo takes out of data (the user's edits around them stay)."""
     import collections
@@ -2813,7 +2910,7 @@ def orphans(app):
         from . import adapters
         hand = {os.path.join(app.env.home, rel) for rel, _, _ in adapters.HAND_FILES}
         history = _ring_history(app.env)
-        out = []
+        out, later, found = [], [], set()
         for p, (owner, kind, undo, fn, planned, keys) in sorted(_engine_ops(app).items()):
             if not os.path.isfile(p):
                 continue
@@ -2833,12 +2930,25 @@ def orphans(app):
             elif undo is not None:
                 # the user's file, appglass's lines in it; not a JSON file
                 # (an app's settings: the user may have set the same key)
-                mine = not p.endswith(".json") and _edit_is_ours(undo, fn, data, p in history)
+                mine = not p.endswith(".json") and (_edit_is_ours(undo, fn, data, p in history)
+                                                    or _edit_marked(undo, data))
             else:
                 mine = bool(MARK.search(data))
             if mine:
                 out.append(p)
-        app._orphans = out
+                if owner in app.families:
+                    found.add(owner)
+            elif owner in app.families and undo is None and (
+                    planned is None or (planned and data == planned)
+                    or (p in hand and MARK.search(data))):
+                later.append((owner, p))
+        # a family that applied here (its marked files are on disk) skips on
+        # a file at its path that is not its own (a Conflict): a build of it,
+        # a file that holds exactly what it renders there, or its hand path
+        # with its marker in it, is its own too (adopt --rescue records them
+        # the same way). The ring, when kept, tells first (_hand_made)
+        out += [p for o, p in later if o in found]
+        app._orphans = sorted(out)
     return app._orphans
 
 

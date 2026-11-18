@@ -308,6 +308,10 @@ def _override(ctx, dest, source, plain=False):
         with open(source, "r", encoding="utf-8") as f:
             src = f.read()
         src = src if plain else themed(src, mark=True)
+    elif getattr(ctx, "probe", False) and MARK in (ctx.read_text(dest) or ""):
+        # state.json lost, the app uninstalled since: the copy appglass
+        # made, with the system text it was made from read back out of it
+        src = themed(undo(ctx.env, dest, ctx.read_text(dest)), mark=True)
     elif not os.path.lexists(dest) or MARK in (ctx.read_text(dest) or ""):
         return None                    # nothing to copy, or our old copy: dropped
 
