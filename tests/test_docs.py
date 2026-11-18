@@ -1091,5 +1091,32 @@ class Uninstall(unittest.TestCase):
         self.assertIn("not installed", out)
 
 
+class VencordInstaller(unittest.TestCase):
+    """The sync re-injects Vencord only with the installer CLI at one path:
+    the docs that promise the re-injection name that path and where to get
+    the installer, and the clone does not see the binary as a change."""
+
+    PATH = "~/.local/share/appglass/VencordInstallerCli-linux"
+    URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux"
+
+    def test_the_sync_runs_the_installer_from_that_path(self):
+        s = read("bin", "appglass-sync")
+        self.assertIn('SHARE="$HOME/.local/share/appglass"', s)
+        self.assertIn('[ -x "$SHARE/VencordInstallerCli-linux" ] || return 1', s)
+
+    def test_the_docs_name_the_path_and_the_download(self):
+        r = read("README.md")
+        row = next(l for l in section(r, "Requirements").splitlines() if "`jq`" in l)
+        self.assertIn(self.PATH, row)
+        self.assertIn(self.PATH, section(r, "Privacy"))
+        self.assertNotIn("your Vencord installer", r)
+        d = section(doc("routes.md"), "Discord (Vencord)")
+        self.assertIn(self.PATH, d)
+        self.assertIn(self.URL, d)
+        self.assertRegex(d, r"chmod \+x")
+
+    def test_git_ignores_the_installer_in_the_clone(self):
+        self.assertIn("/VencordInstallerCli-linux", read(".gitignore").splitlines())
+
 if __name__ == "__main__":
     unittest.main()

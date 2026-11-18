@@ -33,7 +33,7 @@ The glass level follows your DMS window opacity.
 | A DMS window rule with an opacity | No match, blur on | The glass level itself (optional, see below) |
 | `gamescope`, `niri`, `dbus-run-session` and `ffmpeg` | Any | The hidden check of the Forced and Mod routes. Without them the check cannot run, and those routes stay plain |
 | `bwrap` (bubblewrap), with user namespaces | Any | The hidden check of a flatpak app on a Forced or Mod route |
-| `jq` | Any | Putting Vencord back after a Discord update |
+| `jq` | Any | Putting Vencord back after a Discord update, with the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` ([how](docs/routes.md#discord-vencord)) |
 
 **The glass level** is the opacity of your global DMS window rule. Make one in **Settings → Applications → Window rules**: a rule with no match (it applies to every window), an opacity, and blur on. appGlass takes the first such rule, whatever you call it. With no such rule it uses the DMS `foregroundLayerTransparency` setting, then 0.60.
 
@@ -293,7 +293,7 @@ Click **Copy report** in **Settings → Advanced** and paste it in a [new issue]
 ## Privacy
 
 - **It stays in your home folder.** appGlass keeps its files under your home folder and never needs root. While an Electron app starts, its hook uses a private folder (mode 0700) in `$XDG_RUNTIME_DIR`, and the hidden check runs in a temporary folder there.
-- **appGlass itself uses no network.** It sends nothing anywhere. Two things it runs can: after a Discord update, the sync unit re-runs your Vencord installer, and the Vencord installer downloads Vencord again; and the hidden check runs the app for real, with the network on (LocalSend announces itself on your LAN). The Electron hook opens the app's inspector on 127.0.0.1 only, on a random port, and tries to close it right after the injection. If it cannot, the port stays open on 127.0.0.1 only, while the app runs.
+- **appGlass itself uses no network.** It sends nothing anywhere. Two things it runs can: after a Discord update, the sync unit re-runs the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` (when it is there), and the Vencord installer downloads Vencord again; and the hidden check runs the app for real, with the network on (LocalSend announces itself on your LAN). The Electron hook opens the app's inspector on 127.0.0.1 only, on a random port, and tries to close it right after the injection. If it cannot, the port stays open on 127.0.0.1 only, while the app runs.
 - **Backups first.** Every file it edits is backed up before the first change. If you edit a file after appGlass, `appglass remove` keeps your edit in place in a file it only edited into, and deletes a file it created whole, edits included. For a file you adopted, one whose appGlass part cannot be taken out cleanly, or one `appglass doctor --fix` writes back, the original comes back and your version is saved aside as `<file>.appglass-changed`.
 - **It leaves some windows alone.** Games, root GUIs, DMS windows and Firefox-family browsers are never touched. Password managers never get an injected route.
 - **The report stays with you.** **Copy report** goes to your clipboard only. It is never sent anywhere.

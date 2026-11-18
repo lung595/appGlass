@@ -105,7 +105,7 @@ These are the status chips in Settings > Apps:
 - A dnf transaction touches the rpm database many times. The path unit has no trigger limit (`TriggerLimitBurst=0`) and the service no start limit: a hit limit would put the path unit into a failure mode that stops every watch, the DMS follow included, until the next login. The service coalesces the burst instead: one run at a time, a 1 s settle, then it waits until the rpm database has been quiet for 5 s.
 - `appglass-sync.timer` runs the same sync once a day, for apps that update themselves and for a missed event.
 - `appglass-verify.service` runs the queued hidden checks (see [The gate](#the-gate-glass-waiting-stale-opaque-off-excluded)). A sync that queued a check starts it.
-- `appglass-discord.path` watches Discord's config, so the Vencord route survives a Discord update.
+- `appglass-discord.path` watches Discord's config, so the Vencord route survives a Discord update (with the installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux`).
 - `appglass-vibrancy.service` is the only resident process: it fades unfocused Alacritty windows, which niri cannot do without fading the text.
 - The DMS plugin only writes settings and runs `appglass sync`. The units and the CLI do the work, so the glass stays the same when the plugin is off.
 
@@ -138,7 +138,7 @@ First run: the hidden check starts Feishin in a throwaway HOME. Left alone, Feis
 - **System files.** appglass writes only under your home folder, never needs root, and never modifies an app binary, asar or flatpak deploy. Its changes sit beside the app: launcher overrides in `~/.local/share/applications`, user CSS and themes, a preload for one launch. The preload variables are taken out of the environment of the app's child processes.
 - **Your own edits.** A file you changed after appglass keeps your change. Anything you took out stays out on later theme changes.
 
-One exception to "beside the app": the Mod route for Discord re-runs the Vencord installer you installed after a Discord update, and that installer patches Discord's own `app-*/resources` folder. This is why it is a Mod route.
+One exception to "beside the app": the Mod route for Discord re-runs the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` after a Discord update (see [routes.md](routes.md#discord-vencord)), and that installer patches Discord's own `app-*/resources` folder. This is why it is a Mod route.
 
 TODO(engine): a hard deny-list that refuses writes under `/usr`, `/etc`, `/var`, `/opt` and `/app`. Today every write path is under the home folder by construction, but nothing refuses a system path.
 

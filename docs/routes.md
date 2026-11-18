@@ -114,7 +114,15 @@ Native routes through each app's own config files, for the native and the flatpa
 A Mod route: client mods are against Discord's terms. appglass never installs Vencord and never owns it; you install it with the official installer.
 
 - **Writes:** `~/.config/Vencord/themes/appglass-discord.css` (rendered from the DMS colours and levels), and merges `transparent` and the enabled themes into Vencord's `settings.json`.
-- **After a Discord update:** the `appglass-discord.path` unit re-runs the Vencord installer, so the glass comes back. That installer patches Discord's own `app-*/resources` folder. The niri rule is written only while Vencord is in the newest Discord folder; otherwise Discord keeps the fallback look.
+- **After a Discord update:** the `appglass-discord.path` unit re-runs the Vencord installer CLI, so the glass comes back. It runs it only from `~/.local/share/appglass/VencordInstallerCli-linux`, and only when that file is executable; nothing else is looked for. The one-line install command from vencord.dev does not keep the installer, so put it there yourself:
+
+  ```sh
+  curl -fL -o ~/.local/share/appglass/VencordInstallerCli-linux \
+      https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux
+  chmod +x ~/.local/share/appglass/VencordInstallerCli-linux
+  ```
+
+  `.gitignore` keeps it out of the clone's changes. Without it, run the Vencord installer again yourself after each Discord update. That installer patches Discord's own `app-*/resources` folder. The niri rule is written only while Vencord is in the newest Discord folder; otherwise Discord keeps the fallback look.
 - **Measured:** not measured in a nested session for this version.
 - **Fade, not recorded:** Discord's window shows Discord's web app, which needs a signed-in account. A test session must not reuse your signed-in profile (it holds the account's session), and a fresh profile stops at the login page. What is checked: the rendered theme puts `html:not(.app-focused)` (Discord drops that class when its window loses focus) at the unfocused level and eases `#app-mount` (unit test).
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps, or `appglass set apps.vencord.enabled false --apply` without the plugin.
