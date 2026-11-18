@@ -200,7 +200,14 @@ class Docs(unittest.TestCase):
                                    text=True, check=True).stdout.split()
         except (OSError, subprocess.CalledProcessError):
             self.skipTest("not a git checkout")
-        self.assertEqual(images(files), [])
+        # docs/media holds the README hero and GIFs only: built in a test
+        # session, each viewed before commit, each under 5 MB
+        self.assertEqual([f for f in images(files) if not f.startswith("docs/media/")], [])
+        readme = read("README.md")
+        for f in images(files):
+            if f.startswith("docs/media/"):
+                self.assertIn(f, readme, f)
+                self.assertLess(os.path.getsize(os.path.join(REPO, f)), 5 * 1024 * 1024, f)
 
     def test_the_image_guard_finds_an_image(self):
         self.assertEqual(images(["docs/a.md", "shots/x.PNG", "a.webm", "png.txt"]),
