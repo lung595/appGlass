@@ -40,8 +40,12 @@ class EpiphanyDocs(unittest.TestCase):
                     self.assertNotIn("fallback recommended", low, line)
                     self.assertNotIn("recommended: fallback", low, line)
                     self.assertNotIn("recommended fallback", low, line)
-        fallback = readme.split("### Fallback apps", 1)[1].split("## Findings", 1)[0]
-        self.assertNotIn("GNOME Web", fallback)
+        # the apps that stay opaque are listed in routes.md (Opaque)
+        with open(os.path.join(docs, "routes.md")) as f:
+            routes = f.read()
+        opaque = routes.split("\n## Opaque", 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn("GNOME Web", opaque)
+        self.assertNotIn("Epiphany", opaque)
 
 
 class Gtk4(unittest.TestCase):
