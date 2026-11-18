@@ -892,7 +892,7 @@ class HiddenScope(unittest.TestCase):
             seen.update(argv=argv, env=kw.get("env"))
             raise Stop()
         app = core.App(self.sb.env, quiet=True)
-        with mock.patch.object(verify, "mask_argv", lambda env: mask), \
+        with mock.patch.object(verify, "mask_argv", lambda env, *a, **k: mask), \
                 mock.patch.object(verify, "launcher_exec", lambda a, r, h: "true"), \
                 mock.patch.object(verify.subprocess, "Popen", popen):
             try:
@@ -942,6 +942,98 @@ class HiddenScope(unittest.TestCase):
                                    '/tmp/.X11-unix)"', "sh", sd],
                            env={"PATH": "/usr/bin:/bin"}, capture_output=True, timeout=20)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_family_mask_reaches_the_session(self):
+        from unittest import mock
+        asked = []
+        mask = ["/x/bwrap", "--unshare-net", "--"]
+
+        def margv(env, hide=(), nonet=False):
+            asked.append((tuple(hide), nonet))
+            return mask
+        want = {"hide": ["/run/kiri"], "nonet": True}
+        with mock.patch.object(verify, "verify_mask", lambda app, rec: want), \
+                mock.patch.object(verify, "mask_argv", margv):
+            r, seen = self.harness_raw({"key": "kiri", "fp": "1"})
+        self.assertIsNone(r)
+        self.assertEqual(asked, [(("/run/kiri",), True)])
+        self.assertEqual(seen["argv"][:len(mask)], mask)
+
+    def test_a_family_mask_that_cannot_be_made_is_unverifiable(self):
+        from unittest import mock
+        with mock.patch.object(verify, "verify_mask",
+                               lambda app, rec: {"hide": ["/run/kiri"], "nonet": True}), \
+                mock.patch.object(verify, "mask_argv", lambda env, *a, **k: None):
+            r, seen = self.harness_raw({"key": "kiri", "fp": "1"})
+        self.assertEqual(r["result"], "unverifiable")
+        self.assertEqual(seen, {})                     # the app never started
+
+    def harness_raw(self, rec):
+        """harness() with mask_argv left as the test patched it."""
+        from unittest import mock
+        seen = {}
+
+        class Stop(Exception):
+            pass
+        real = subprocess.Popen
+
+        def popen(argv, *a, **kw):
+            if seen or argv[0] == "rm" or "fusermount" in argv[0]:
+                return real(argv, *a, **kw)
+            seen.update(argv=argv, env=kw.get("env"))
+            raise Stop()
+        app = core.App(self.sb.env, quiet=True)
+        with mock.patch.object(verify, "launcher_exec", lambda a, r, h: "true"), \
+                mock.patch.object(verify.subprocess, "Popen", popen):
+            try:
+                r = verify.run_harness(app, rec, 0.6)
+            except Stop:
+                r = None
+        return r, seen
+
+    def test_run_paths_from_the_binary(self):
+        run = self.sb.path("run")
+        for d in ("eng", "user", "dbus", "other"):
+            os.makedirs(os.path.join(run, d))
+        open(os.path.join(run, "eng", "engine.sock"), "w").close()
+        os.symlink(os.path.join(run, "eng", "engine.sock"), os.path.join(run, "engine.sock"))
+        open(os.path.join(run, "app.lock"), "w").close()
+        b = self.sb.path("app-bin")
+        with open(b, "wb") as f:
+            f.write(b"\0ELF..%s/engine.sock\0%s/user/1000\0%s/dbus/system_bus_socket\0"
+                    b"%s/gone/x\0%s/app.lock\0" % ((run.encode(),) * 5))
+        rec = {"exec": b, "seen": [b]}
+        got = verify.run_paths(rec, keys=("app",), run=run)
+        self.assertEqual(got, [os.path.join(run, "app.lock"), os.path.join(run, "eng")])
+        self.assertEqual(verify.run_paths({"exec": b, "seen": [b]}, keys=("other",), run=run),
+                         [os.path.join(run, "app.lock"), os.path.join(run, "eng"),
+                          os.path.join(run, "other")])
+        self.assertEqual(verify.run_paths({"flatpak": {"x": 1}, "exec": b}, run=run), [])
+
+    def test_the_mask_hides_paths_and_cuts_the_network(self):
+        env = core.App(self.sb.env, quiet=True).env
+        real = shutil.which("bwrap", path="/usr/bin:/bin")
+        if not real:
+            self.skipTest("no bwrap")
+        for t in ("bwrap", "sh", "test", "ls", "grep", "cat"):
+            os.symlink(shutil.which(t, path="/usr/bin:/bin"), os.path.join(self.bin, t))
+        d = self.sb.path("svc")
+        os.makedirs(d)
+        open(os.path.join(d, "daemon.sock"), "w").close()
+        f = self.sb.path("lone.lock")
+        with open(f, "w") as fh:
+            fh.write("held")
+        verify._MASK.clear()
+        argv = verify.mask_argv(env, hide=[d, f], nonet=True)
+        if argv is None:
+            self.skipTest("bwrap cannot make a mount namespace here")
+        self.assertIn("--unshare-net", argv)
+        r = subprocess.run(argv + ["sh", "-c", 'test -z "$(ls -A "$1")" && test -c "$2" && '
+                                   'test "$(grep -c : /proc/net/dev)" = 1', "sh", d, f],
+                           env={"PATH": "/usr/bin:/bin"}, capture_output=True, timeout=20)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.exists(os.path.join(d, "daemon.sock")))   # outside: kept
+        self.assertIsNot(verify.mask_argv(env), argv)                    # cached per mask
 
     def test_the_kdl_has_no_xwayland_satellite(self):
         self.assertIn("xwayland-satellite {\n    off\n}", verify.KDL)

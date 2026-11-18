@@ -107,6 +107,37 @@ class Accepts(unittest.TestCase):
         self.assertEqual(webkit.launcher(once, "/h/.local/bin/appglass-webkit", "kiri"), once)
 
 
+class VerifyMask(unittest.TestCase):
+    """The hidden check of a WebKitGTK app: off the network, and the /run
+    entries its binary names hidden (Kiri: /run/kiri/docker.sock)."""
+
+    def test_the_mask_of_the_family(self):
+        from unittest import mock
+        seen = []
+
+        def rp(r, keys=(), run="/run"):
+            seen.append(list(keys))
+            return ["/run/kiri"]
+        with mock.patch.object(verify, "run_paths", rp):
+            m = webkit.verify_mask(rec())
+        self.assertEqual(m, {"hide": ["/run/kiri"], "nonet": True})
+        self.assertEqual(seen, [["kiri", "kiri", "kiri-window"]])
+
+    def test_lianli_hides_its_daemon(self):
+        from unittest import mock
+        from appglass.families import lianli
+        with mock.patch.object(verify, "run_paths",
+                               lambda r, keys=(), run="/run": ["/run/" + k for k in keys]):
+            self.assertEqual(lianli.verify_mask({"key": "x"}),
+                             {"hide": ["/run/lianli"], "nonet": True})
+
+    def test_the_real_kiri_binary(self):
+        b = "/usr/lib/kiri/kiri-window"
+        if not os.path.isfile(b) or not os.path.isdir("/run/kiri"):
+            self.skipTest("no Kiri here")
+        self.assertIn("/run/kiri", verify.run_paths({"exec": b, "seen": [b]}, keys=("kiri",)))
+
+
 class Route(unittest.TestCase):
     def setUp(self):
         self.w = ShimWorld()

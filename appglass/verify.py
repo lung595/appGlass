@@ -340,8 +340,8 @@ def session_env(env, home, run, fp=None):
          "USER": env.environ.get("USER", ""), "LANG": env.environ.get("LANG", "C.UTF-8"),
          "TERM": "dumb", "XDG_RUNTIME_DIR": os.path.join(run, "rt"),
          # the app's temp files and its path sockets stay in the private dir
-         # (abstract sockets and the network are shared: mask_argv makes a
-         # mount namespace only, docs/engine.md)
+         # (abstract sockets and the network are shared, unless the family
+         # asks mask_argv for its own network namespace, docs/engine.md)
          "TMPDIR": os.path.join(run, "tmp"),
          "XDG_DATA_DIRS": env.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
          "XDG_CONFIG_DIRS": "/etc/xdg", "GTK_USE_PORTAL": "0",
@@ -363,36 +363,100 @@ def session_env(env, home, run, fp=None):
 _MASK = {}
 
 
-def mask_argv(env):
+def mask_argv(env, hide=(), nonet=False):
     """The bwrap argv (ending in --) the hidden session runs under: its own
     mount namespace with the systemd user manager's dir empty (flatpak run
     reaches the manager by the hard-coded /run/user/UID/systemd/private and
     would put the app in an app-flatpak-*.scope, out of the check's cgroup
     and its limits; without it flatpak runs the app in its own process
     tree) and an empty /tmp/.X11-unix (the hidden X server's socket is not
-    next to the user's). None when bwrap cannot do it here (not installed,
-    no user namespaces): proven once per bwrap with a probe."""
+    next to the user's). hide: more paths out of reach (a family's
+    verify_mask: a dir becomes an empty tmpfs, a file /dev/null); nonet: its
+    own network namespace (no network, no abstract socket of the session).
+    None when bwrap cannot do it here (not installed, no user namespaces):
+    proven once per bwrap and mask with a probe."""
     bw = env.which("bwrap")
     if not bw:
         return None
-    if bw not in _MASK:
+    hide = tuple(hide)
+    k = (bw, hide, bool(nonet))
+    if k not in _MASK:
         sd = "/run/user/%d/systemd" % os.getuid()
         argv = [bw, "--dev-bind", "/", "/", "--die-with-parent"]
+        if nonet:
+            argv.append("--unshare-net")
         if os.path.isdir(sd):
             argv += ["--tmpfs", sd]
         if os.path.isdir("/tmp/.X11-unix"):
             argv += ["--perms", "1777", "--tmpfs", "/tmp/.X11-unix"]
+        probe = ['test ! -e "$1/private"']
+        args = [sd]
+        for p in hide:
+            if os.path.isdir(p):
+                argv += ["--tmpfs", p]
+                probe.append('test -z "$(ls -A "$%d")"' % (len(args) + 1))
+            else:
+                argv += ["--ro-bind", "/dev/null", p]
+                probe.append('test -c "$%d"' % (len(args) + 1))
+            args.append(p)
+        if nonet:
+            probe.append('test "$(grep -c : /proc/net/dev)" = 1')
         argv.append("--")
         try:
-            r = subprocess.run(argv + ["/bin/sh", "-c", 'test ! -e "$1/private"', "sh", sd],
+            r = subprocess.run(argv + ["/bin/sh", "-c", " && ".join(probe), "sh"] + args,
                                env={"PATH": "/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=20)
             ok = r.returncode == 0
         except (OSError, subprocess.SubprocessError):
             ok = False
-        _MASK[bw] = argv if ok else None
-    return _MASK[bw]
+        _MASK[k] = argv if ok else None
+    return _MASK[k]
+
+
+# what the hidden session never masks under /run: the private runtime dir
+# is under /run/user, the bus and systemd's sockets serve the session itself
+RUN_KEEP = frozenset(("user", "dbus", "systemd"))
+
+
+def run_paths(rec, keys=(), run="/run"):
+    """The entries under /run a host app reaches by a path its binaries
+    name (a daemon's socket, a container engine's), and /run/<key> for each
+    key: those that exist, as the mask hides them (a link resolved, a
+    socket in a dir of its own gives the dir). [] for a flatpak (its
+    sandbox has its own /run)."""
+    if rec.get("flatpak"):
+        return []
+    rx = re.compile(re.escape(run.encode()) + rb"/([A-Za-z0-9][A-Za-z0-9._-]*)")
+    names = set(keys)
+    for b in [rec.get("exec")] + list(rec.get("seen") or ()):
+        if not b:
+            continue
+        try:
+            with open(b, "rb") as f:
+                names.update(m.decode("ascii") for m in rx.findall(f.read()))
+        except OSError:
+            continue
+    out = set()
+    for n in names:
+        p = os.path.join(run, n)
+        if n in RUN_KEEP or not os.path.lexists(p):
+            continue
+        real = os.path.realpath(p)
+        rel = os.path.relpath(real, os.path.realpath(run)).split(os.sep)
+        if rel[0] in (os.pardir, ".") or rel[0] in RUN_KEEP:
+            continue
+        out.add(os.path.join(run, rel[0]))
+    return sorted(out)
+
+
+def verify_mask(app, rec):
+    """The app's family's verify_mask(rec): {"hide": [paths], "nonet": bool},
+    or nothing more than the base mask."""
+    fam = app.families.get(route_of(app, rec).get("family") or "")
+    fn = getattr(fam, "verify_mask", None)
+    m = fn(rec) if fn else None
+    return {"hide": list((m or {}).get("hide") or ()), "nonet": bool((m or {}).get("nonet"))}
 
 
 def is_flatpak(rec, cmd=""):
@@ -507,7 +571,12 @@ def run_harness(app, rec, level):
     for tool in ("gamescope", "niri", "dbus-run-session", "ffmpeg"):
         if not env.which(tool):
             return {"result": "unverifiable", "reason": "%s not installed" % tool}
-    mask = mask_argv(env)
+    want = verify_mask(app, rec)
+    mask = mask_argv(env, want["hide"], want["nonet"])
+    if mask is None and (want["hide"] or want["nonet"]):
+        return {"result": "unverifiable",
+                "reason": "no bwrap mount namespace: the app would reach %s"
+                          % (", ".join(want["hide"]) or "the network")}
     if mask is None and is_flatpak(rec):
         return {"result": "unverifiable", "reason": NO_MASK}
     base = private_base(env)

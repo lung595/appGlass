@@ -33,6 +33,13 @@ def installed(env):
     return bool(env.which(COMMAND))
 
 
+def verify_mask(rec):
+    """The hidden check keeps the app away from its daemon (/run/lianli:
+    the fans and lights of the real machine) and off the network."""
+    from .. import verify
+    return {"hide": verify.run_paths(rec, keys=("lianli",)), "nonet": True}
+
+
 def css(ctx):
     lv = shims.levels(ctx)
     return shims.fill(shims.source(ADAPTER, TMPL).decode("utf-8"),
