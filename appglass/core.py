@@ -536,14 +536,23 @@ class State:
             return []
         return sorted(n for n in names if n not in named)
 
+    def back_in_place(self, name):
+        """The original backup/name is no longer the only copy: the file it
+        is the original of (the rescue named it) holds those bytes again."""
+        p = (self.data.get("originals") or {}).get(name)
+        if not isinstance(p, str):
+            return False
+        b = _read(os.path.join(self.env.state_dir, "backup", name))
+        return b is not None and os.path.isfile(p) and _read(p) == b
+
     def destroy(self, created=()):
         """Remove the state dir and any parent dirs it created (when empty).
-        Kept whole while backup/ holds an original no record names; returns
-        those (else [])."""
+        Kept whole while backup/ holds an original no record names and that
+        is not back in place (back_in_place); returns those (else [])."""
         if self.event_guard is not None:
             self.event_guard("take out the state dir")
         d = self.env.state_dir
-        kept = self.unnamed_backups()
+        kept = [n for n in self.unnamed_backups() if not self.back_in_place(n)]
         if kept:
             return kept
         if os.path.isdir(d):
@@ -1232,9 +1241,14 @@ class App:
         old = _read(bpath) if os.path.isfile(bpath) else None
         if old is not None and old != cur and bname in st.unnamed_backups():
             # the original of an earlier state, its record gone: never lost
+            hint = RESCUE_HINT
+            if not self.state_missing:
+                # adopt --rescue left it (the file was not recorded)
+                hint = ("cp %s %s puts it back first (then apply backs it up again); "
+                        "appglass restore --list shows the ring" % (env.tilde(bpath),
+                                                                   env.tilde(p)))
             raise LostState("%s holds an original of %s that state.json does not name; "
-                            "nothing written. %s" % (env.tilde(bpath), env.tilde(p),
-                                                     RESCUE_HINT))
+                            "nothing written. %s" % (env.tilde(bpath), env.tilde(p), hint))
         if not os.path.isdir(self.backup_dir()):
             st.save()  # creates the state dir (records created parents)
             os.makedirs(self.backup_dir(), exist_ok=True)
@@ -1781,9 +1795,13 @@ def _unlock(env, lockf, created, app, failed=False):
             app.full_remove or app.ring_entry is not None or not ring_entries(env)):
         kept = st.destroy(created)
         if kept:
+            known = st.data.get("originals") or {}
+            what = ", ".join("%s (the original of %s: cp %s %s puts it back)" % (
+                n, env.tilde(known[n]), env.tilde(os.path.join(env.state_dir, "backup", n)),
+                env.tilde(known[n])) if isinstance(known.get(n), str) else n for n in kept)
             app.warn("%s kept with its ring: backup/ holds originals no record names "
                      "(%s; appglass restore --list shows the saved states)"
-                     % (env.tilde(env.state_dir), ", ".join(kept)))
+                     % (env.tilde(env.state_dir), what))
 
 
 def _selected(app, only):
@@ -3097,12 +3115,14 @@ def _edit_created(undo, fn, text, made, mark=None):
 
 
 def _rescue_claims(app, backups=()):
-    """adopt --rescue: ([claim], [doubt]) for the files appglass wrote,
+    """adopt --rescue: ([claim], [doubt], names) for the files appglass wrote,
     edited or adopted. A claim is a dict: path, owner, kind (owned | edit |
     json | retired), data (the bytes now), undo, fn, keys (a merge's),
     backup (its original's name in backup/, when backups holds one), made
     (the ring shows appglass made the file). A doubt is a line for the user:
-    a file that looks like appglass's but is left as it is.
+    a file that looks like appglass's but is left as it is. names: {name in
+    backup/: path} of every path appglass may have backed up (the probe's,
+    the hand files', the ring's).
 
     Never claimed: a path reached through a symlinked dir or that is a
     symlink, a file that is also another path appglass writes or a file it
@@ -3159,6 +3179,7 @@ def _rescue_claims(app, backups=()):
         if p not in cand:
             inodes.setdefault(_inode(p), set()).add(p)
     shared = {p for ps in inodes.values() if len(ps) > 1 for p in ps}
+    names = {_bname(p): p for p in list(cand) + list(history)}
     read_bytes = {data for p, data in reads.items() if p not in cand and data}
     out, doubts, weak, edits, merged = [], [], [], [], []
 
@@ -3300,7 +3321,43 @@ def _rescue_claims(app, backups=()):
             doubts.append("%s holds a line like appglass's but nothing else proves it is: "
                           "left as is (not recorded)" % t(c["path"]))
     out.sort(key=lambda c: c["path"])
-    return out, doubts
+    return out, doubts, names
+
+
+def _ring_original(env, p, name):
+    """What the ring says of backup/name, the original of p: (record,
+    bytes). record: p's record in the newest ring entry's state.json (the
+    state before the last run that saved one), when it names that backup
+    and an orig_sha256 (else None); bytes: a ring blob with that sha256
+    (else None)."""
+    rec = None
+    for n in reversed(ring_entries(env)):
+        d = os.path.join(ring_dir(env), n)
+        m = _load_json(os.path.join(d, "manifest.json"))
+        if not (isinstance(m, dict) and m.get("state")):
+            continue
+        st = _load_json(os.path.join(d, "state.json"))
+        owners = st.get("owners") if isinstance(st, dict) else None
+        for o in (owners.values() if isinstance(owners, dict) else ()):
+            r = ((o.get("files") if isinstance(o, dict) else None) or {}).get(p)
+            if isinstance(r, dict) and isinstance(r.get("backup"), str) \
+                    and os.path.basename(r["backup"]) == name \
+                    and isinstance(r.get("orig_sha256"), str):
+                rec = r
+        break           # only the newest state: an older one may name an older backup
+    if rec is None:
+        return None, None
+    for n in ring_entries(env):
+        d = os.path.join(ring_dir(env), n)
+        m = _load_json(os.path.join(d, "manifest.json"))
+        files = m.get("files") if isinstance(m, dict) else None
+        for r in (files.values() if isinstance(files, dict) else ()):
+            if isinstance(r, dict) and r.get("sha256") == rec["orig_sha256"] \
+                    and isinstance(r.get("blob"), str):
+                data = _read(os.path.join(d, r["blob"]))
+                if data is not None and sha(data) == rec["orig_sha256"]:
+                    return rec, data
+    return rec, None
 
 
 def _json_owner(app, p):
@@ -3390,7 +3447,7 @@ def cmd_rescue(app, dry_run=False):
     except OSError:
         backups = []
     history = _ring_history(env)
-    claims, doubts = _rescue_claims(app, backups)
+    claims, doubts, names = _rescue_claims(app, backups)
     for d in doubts:
         app.warn("adopt --rescue: %s" % d)
 
@@ -3427,6 +3484,7 @@ def cmd_rescue(app, dry_run=False):
     app.lost_state = app.state_missing = app.state_unreadable = False
     app._orphans, app.backups_at_start = None, []
     used = set()
+    damaged = set()     # an original that does not match the ring's record
     records = {}
 
     def orig_mode(p, orig):
@@ -3437,8 +3495,27 @@ def cmd_rescue(app, dry_run=False):
         return _mode(p) if os.path.isfile(p) else None
     for c in claims:
         p, owner, kind, data, b = c["path"], c["owner"], c["kind"], c["data"], c["backup"]
-        o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
         orig = _read(os.path.join(bdir, b)) if b else None
+        ring_rec = None
+        if b and orig is not None:
+            # the original is checked against the ring's last state.json:
+            # a damaged one is never put back (09b74b0)
+            ring_rec, good = _ring_original(env, p, b)
+            if ring_rec is not None and sha(orig) != ring_rec["orig_sha256"]:
+                bp = os.path.join(bdir, b)
+                if good is None:
+                    app.warn("adopt --rescue: %s, the original of %s, does not match the one "
+                             "recorded for it (sha256) and the ring holds no copy: %s left as "
+                             "is (not recorded), the backup kept" % (t(bp), t(p), t(p)))
+                    damaged.add(b)
+                    continue
+                app.warn("adopt --rescue: %s, the original of %s, does not match the one "
+                         "recorded for it (sha256): the ring's copy put in its place"
+                         % (t(bp), t(p)))
+                env.guard(bp)
+                _write_durable(bp, good)
+                orig = good
+        o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
         if kind == "retired":
             rec = {"kind": "modified", "how": "owned", "sha256": None, "adopted": True,
                    "retired": True, "backup": os.path.join("backup", b),
@@ -3530,17 +3607,29 @@ def cmd_rescue(app, dry_run=False):
         sd = hook.record_enabled(app, {})
         if sd:
             st.owners["hook"]["systemd"] = sd
-    # 3. originals no record names: in the ring entry, out of backup/ (a
-    # later apply would refuse over them)
+    # 3. originals no record names stay in backup/: they may be the only
+    # copy of a file the rescue left as it is (a path reached through a
+    # link); the state dir stays with them (State.destroy) until each one
+    # is back in place
     left = [n for n in backups if n not in used]
+    kept = {}
     for n in left:
         bp = os.path.join(bdir, n)
-        env.guard(bp)
-        os.remove(bp)
-    if left:
-        app.warn("adopt --rescue: %d original%s in backup/ named by no file appglass knows "
-                 "moved to the ring entry %s (appglass restore %s puts them back)"
-                 % (len(left), "" if len(left) == 1 else "s", entry, entry))
+        p = names.get(n)
+        if n in damaged:
+            continue        # said above
+        if p is not None:
+            kept[n] = p
+            app.warn("adopt --rescue: %s holds the original of %s, which is not recorded: "
+                     "kept there, and the state folder with it (a full remove too), until "
+                     "that file holds it again (cp %s %s puts it back)"
+                     % (t(bp), t(p), t(bp), t(p)))
+        else:
+            app.warn("adopt --rescue: %s holds an original no file appglass knows names: "
+                     "kept there, and the state folder with it (appglass restore --list "
+                     "shows the ring)" % t(bp))
+    if kept:
+        st.data["originals"] = kept
     st.save()
     app.info("adopt --rescue: %d file%s recorded; the files as they were are in the ring "
              "entry %s (appglass restore %s puts them back); appglass apply runs again, "

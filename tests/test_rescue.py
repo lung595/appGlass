@@ -300,5 +300,119 @@ class EditCreatedRule(unittest.TestCase):
         self.assertFalse(core._edit_created(undo, lambda t: copy, copy, False))
 
 
+class RescueBase(unittest.TestCase):
+    def setUp(self):
+        self.sb = sb = Sandbox()
+        sb.seed_dms()
+        sb.seed_niri()
+        b = sb.path("bin")
+        os.makedirs(b)
+        with open(os.path.join(b, "vlc"), "w") as f:
+            f.write("#!/bin/sh\n")
+        os.chmod(os.path.join(b, "vlc"), 0o755)
+        os.makedirs(sb.path("sysdata", "applications"))
+        with open(sb.path("sysdata", "applications", "vlc.desktop"), "w") as f:
+            f.write("[Desktop Entry]\nType=Application\nName=VLC\nExec=vlc %U\n")
+        sb.env.update(PATH=b + ":/usr/bin:/bin", XDG_DATA_DIRS=sb.path("sysdata"),
+                      FLATPAK_SYSTEM_DIR=sb.path("flatpak"),
+                      FLATPAK_USER_DIR=sb.path("no-user-flatpak"))
+        self.state_dir = os.path.join(sb.state, "appglass")
+        self.addCleanup(sb.cleanup)
+
+    def ok(self, *argv, fams):
+        code, out, err = self.sb.run(*argv, assume=fams)
+        self.assertEqual(code, 0, out + err)
+        return out + err
+
+    def kept(self, data):
+        """The state dir holds data (the original) somewhere."""
+        for dp, _dns, fns in os.walk(self.state_dir):
+            for fn in fns:
+                if self.sb.readb(os.path.join(dp, fn)) == data:
+                    return True
+        return False
+
+
+DUX_MINE = (b'{\n    "floatingWindowTransparency": 0.9,\n    "blurEnabled": false,\n'
+            b'    "theme": "mine"\n}')
+VLC_MINE = b"[Desktop Entry]\nType=Application\nName=My VLC\nExec=vlc --no-video-title %U\n"
+
+
+class LinkedOriginal(RescueBase):
+    """w2 B1: a file reached through a symlinked dir is left as is by the
+    rescue; its original in backup/ is the user's only copy and must
+    survive the remove the rescue points to."""
+
+    def dux(self):
+        sb = self.sb
+        dot = os.path.join(sb.home, "dotfiles", "dfiles")
+        os.makedirs(dot)
+        with open(os.path.join(dot, "ui-settings.json"), "wb") as f:
+            f.write(DUX_MINE)
+        os.symlink(dot, sb.cfg("dfiles"))
+        return sb.cfg("dfiles", "ui-settings.json"), DUX_MINE, "dux"
+
+    def vlc(self):
+        sb = self.sb
+        dot = os.path.join(sb.home, "dotfiles", "applications")
+        os.makedirs(dot)
+        with open(os.path.join(dot, "vlc.desktop"), "wb") as f:
+            f.write(VLC_MINE)
+        os.symlink(dot, os.path.join(sb.data, "applications"))
+        p = os.path.join(sb.data, "applications", "vlc.desktop")
+        self.ok("apply", "--only", "qtstyle", fams="qtstyle")
+        self.ok("adopt", p, fams="qtstyle")
+        return p, VLC_MINE, "qtstyle"
+
+    def check(self, setup):
+        sb = self.sb
+        p, mine, fams = setup()
+        self.ok("apply", "--only", fams, fams=fams)
+        self.assertNotEqual(sb.readb(p), mine)
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        out = self.ok("adopt", "--rescue", fams=fams)
+        self.assertIn(core.Env(sb.env).tilde(p), out)
+        out = self.ok("remove", fams=fams)
+        # never lost: back in place, or kept in backup/ and named
+        if sb.readb(p) != mine:
+            self.assertTrue(self.kept(mine), out)
+            self.assertIn(core.Env(sb.env).tilde(p), out)
+            # put back by hand: the next remove takes the state dir out
+            with open(p, "wb") as f:
+                f.write(mine)
+            self.ok("remove", fams=fams)
+            self.assertFalse(os.path.exists(self.state_dir))
+        self.assertEqual(sb.readb(p), mine)
+
+    def test_merged_json_through_a_linked_dir(self):
+        self.check(self.dux)
+
+    def test_adopted_launcher_in_a_linked_dir(self):
+        self.check(self.vlc)
+
+
+class DamagedOriginal(RescueBase):
+    """w2 B2: with only state.json lost, a damaged original in backup/ is
+    checked against the record the ring's last state.json holds: the good
+    copy in the ring goes back, never the damaged bytes."""
+
+    def test_the_rings_copy_goes_back(self):
+        sb = self.sb
+        p = os.path.join(sb.data, "applications", "vlc.desktop")
+        sb.write("applications/vlc.desktop", VLC_MINE.decode(), base=sb.data)
+        fams = "qtstyle"
+        self.ok("apply", "--only", fams, fams=fams)
+        self.ok("adopt", p, fams=fams)
+        self.ok("apply", "--only", fams, fams=fams)
+        bp = os.path.join(self.state_dir, "backup", core._bname(p))
+        with open(bp, "wb") as f:
+            f.write(VLC_MINE[:20])
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        out = self.ok("adopt", "--rescue", fams=fams)
+        out += self.ok("remove", fams=fams)
+        self.assertEqual(sb.readb(p), VLC_MINE, out)
+        self.assertIn("does not match", out)
+
+
 if __name__ == "__main__":
     unittest.main()
