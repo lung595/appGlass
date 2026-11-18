@@ -12,8 +12,8 @@
 // idles, then finishes the page loads asked for (a document runs the user
 // scripts registered when it finishes loading, as WebKit's do at document
 // end, and the view emits load-changed committed then finished: fk_navigate
-// starts another document), fk_report prints one line of the
-// window and the view.
+// starts another document; fk_hold keeps a view's loads from finishing until
+// fk_release), fk_report prints one line of the window and the view.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,8 +29,8 @@ typedef struct W {
     struct W *titlebar;                  // a window: its custom titlebar
     D *data; H *handlers;
     GdkRGBA bg; int sheets, scripts;     // a WebView: its background, its content manager
-    int loading, page, shown;            // ... a document loading; the scripts its document ran;
-                                         //     a document committed once
+    int loading, page, shown, held;      // ... a document loading; the scripts its document ran;
+                                         //     a document committed once; its loads held
 } W;
 static W *loads[16]; static int nloads;
 static void load(W *v) { v->loading = 1; if (nloads < 16) loads[nloads++] = v; }
@@ -74,14 +74,17 @@ void fk_idle(void) {
         Idle q[256]; int n = nidle; memcpy(q, idles, sizeof q); nidle = 0;
         for (int i = 0; i < n; i++) { q[i].fn(q[i].data); if (q[i].destroy) q[i].destroy(q[i].data); }
     }
-    for (int i = 0; i < nloads; i++) if (loads[i]->loading) {
+    int kept = 0;
+    for (int i = 0; i < nloads; i++) {
         W *v = loads[i];
+        if (v->held) { loads[kept++] = v; continue; }
+        if (!v->loading) continue;
         v->loading = 0; v->page = v->scripts; v->shown = 1;
         for (int ev = 2; ev <= 3; ev++)   // WEBKIT_LOAD_COMMITTED, WEBKIT_LOAD_FINISHED
             for (H *h = v->handlers; h; h = h->next)
                 if (!strcmp(h->sig, "load-changed")) ((void (*)(void *, int, void *))h->fn)(v, ev, h->data);
     }
-    nloads = 0;
+    nloads = kept;
 }
 
 static void add_handler(W *w, const char *sig, void *fn, void *data, int flags) {
@@ -193,6 +196,7 @@ void fk_map(void *top) { ((W *)top)->realized = 1; map_tree(top); }
 void fk_show(void *w) { W *x = w; x->visible = 1; if (x->parent && x->parent->mapped) map_tree(x); }
 void fk_hide(void *w) { W *x = w; x->visible = 0; if (x->mapped) unmap_tree(x); }
 void fk_navigate(void *view) { load(view); }   // the page goes to another document
+void fk_hold(void *v, int on) { ((W *)v)->held = on; }
 void fk_titlebar(void *win, void *w) { ((W *)win)->titlebar = w; }
 void fk_frame(void *w, unsigned border, int margin) { ((W *)w)->border = border; ((W *)w)->margin = margin; }
 void fk_report(const char *step, void *top, void *view) {

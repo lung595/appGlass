@@ -531,9 +531,30 @@ DRIVER = r"""
 void *fk_widget(const char *, void *, int); void fk_map(void *); void fk_show(void *);
 void fk_hide(void *); void fk_idle(void); void fk_report(const char *, void *, void *);
 void fk_navigate(void *); void fk_frame(void *, unsigned, int); void fk_titlebar(void *, void *);
+void fk_hold(void *, int);
 void webkit_web_view_load_html(void *, const char *, const char *);
+// box[sidebar (hidden), stack[A (hidden page, loaded), B (shown, its page slow)]]; reported: B,
+// then A on its page and B again
+static int twoview(void) {
+    void *win = fk_widget("window", 0, 1), *box = fk_widget("box", win, 0);
+    void *side = fk_widget("sidebar", box, 0), *stack = fk_widget("stack", box, 0);
+    void *a = fk_widget("view-a", stack, 0), *b = fk_widget("view-b", stack, 0);
+    fk_widget("label", side, 0);
+    fk_hide(side); fk_hide(a);
+    webkit_web_view_load_html(a, "<p>a</p>", 0);
+    fk_hold(b, 1); webkit_web_view_load_html(b, "<p>b</p>", 0);
+    fk_map(win); fk_idle(); fk_report("mapped", win, b);
+    fk_show(side); fk_idle(); fk_report("shown", win, b);
+    fk_hold(b, 0); fk_idle(); fk_report("committed", win, b);   // B's page, the sidebar still there
+    fk_hide(side); fk_idle(); fk_report("hidden", win, b);
+    fk_hide(b); fk_show(a); fk_idle(); fk_report("page-a", win, a);
+    fk_hide(a); fk_show(b); fk_idle(); fk_report("page-b", win, b);
+    fk_show(side); fk_idle(); fk_report("again", win, b);
+    return 0;
+}
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
+    if (!strcmp(mode, "twoview")) return twoview();
     void *win = fk_widget("window", 0, 1), *box = fk_widget("box", win, 0);
     void *side = fk_widget("sidebar", box, 0), *view = fk_widget("view", box, 0);
     fk_widget("label", side, 0);
@@ -641,6 +662,19 @@ class ShimDecision(unittest.TestCase):
             r = self.run_driver(mode)
             self.assertEqual(r["mapped"], self.OPAQUE, mode)
             self.assertEqual(r["hidden"], self.OPAQUE, mode)
+
+    def test_every_view_of_the_window_is_decided_again(self):
+        """Two views in a stack: each map or unmap decides every view of
+        the window, not only the first one seen, and a page committed while
+        a sidebar is up does not glass the window."""
+        r = self.run_driver("twoview")
+        self.assertEqual(r["mapped"], "paintable=0 bg_alpha=0 sheets=1 scripts=2 page=0")
+        self.assertEqual(r["shown"], "paintable=0 bg_alpha=1 sheets=0 scripts=2 page=0")
+        self.assertEqual(r["committed"], self.OPAQUE)
+        self.assertEqual(r["hidden"], self.GLASS)
+        self.assertEqual(r["page-a"], self.GLASS)
+        self.assertEqual(r["page-b"], self.GLASS)
+        self.assertEqual(r["again"], self.OPAQUE)
 
     def test_a_header_bar_as_the_titlebar_is_not_beside_the_view(self):
         """GTK3 lists a custom titlebar among the window's children: a
