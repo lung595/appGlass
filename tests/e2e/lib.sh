@@ -172,3 +172,30 @@ ag_wait_window() {
 }
 
 ag_measure() { python3 "$AG_E2E/measure.py" "$@"; }
+
+# ag_hide_args <path>... -> the bwrap args hiding those that exist (a dir an
+# empty tmpfs, a file /dev/null), one per line (read with mapfile). A missing
+# path is left alone: bwrap would create its mount point on the real disk.
+ag_hide_args() {
+    local p
+    for p in "$@"; do
+        if [ -d "$p" ]; then printf '%s\n' --tmpfs "$p"
+        elif [ -e "$p" ] || [ -L "$p" ]; then printf '%s\n' --ro-bind /dev/null "$p"
+        fi
+    done
+}
+# the system manager's doors (verify.SYSTEM_SOCKETS): the system bus and
+# systemd's private socket
+AG_SYSTEM_SOCKETS=(/run/dbus/system_bus_socket /run/systemd/private)
+
+# ag_journal_mark -> a cursor of the system journal now ("" when unreadable)
+ag_journal_mark() {
+    journalctl -q -n 0 --show-cursor --no-pager 2>/dev/null | sed -n 's/^-- cursor: //p'
+}
+# ag_journal_since <cursor> <unit>... -> the entries of those units after it
+ag_journal_since() {
+    local c=$1 u a=(); shift
+    [ -n "$c" ] || return 0
+    for u in "$@"; do a+=(-u "$u"); done
+    journalctl -q --no-pager --after-cursor="$c" "${a[@]}" 2>/dev/null || true
+}

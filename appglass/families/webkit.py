@@ -70,10 +70,12 @@ def verify_mask(rec):
     """The hidden check runs the app off the network and away from what it
     reaches under /run (a daemon or container engine socket its binary
     names, /run/<its name>): a throwaway HOME does not make a throwaway
-    daemon (Kiri drives the real container engine by /run/kiri/docker.sock)."""
+    daemon (Kiri drives the real container engine by /run/kiri/docker.sock),
+    and from the system manager (the system bus and systemd's private
+    socket: a Tauri app may start units, as Lian Li's GUI does)."""
     from .. import verify
     keys = [rec["key"]] + [n for n in rec.get("names") or () if "/" not in n]
-    return {"hide": verify.run_paths(rec, keys=keys), "nonet": True}
+    return {"hide": verify.run_paths(rec, keys=keys) + verify.system_paths(), "nonet": True}
 
 
 # the first-run state of the apps it knows, so the hidden check shoots the

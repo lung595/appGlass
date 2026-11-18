@@ -475,6 +475,17 @@ def run_paths(rec, keys=(), run="/run"):
     return sorted(out)
 
 
+# the system manager's doors: the system bus (systemctl as a user, polkit)
+# and systemd's private socket. A WebKitGTK family hides them (Lian Li's GUI
+# starts a root unit, lianli-control-recovery, over the system bus).
+SYSTEM_SOCKETS = ("dbus/system_bus_socket", "systemd/private")
+
+
+def system_paths(run="/run"):
+    """The SYSTEM_SOCKETS under run that exist, for a verify_mask hide."""
+    return [os.path.join(run, p) for p in SYSTEM_SOCKETS if os.path.lexists(os.path.join(run, p))]
+
+
 def verify_mask(app, rec):
     """The app's family's verify_mask(rec): {"hide": [paths], "nonet": bool},
     or nothing more than the base mask."""

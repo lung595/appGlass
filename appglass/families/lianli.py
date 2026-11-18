@@ -35,9 +35,13 @@ def installed(env):
 
 def verify_mask(rec):
     """The hidden check keeps the app away from its daemon (/run/lianli:
-    the fans and lights of the real machine) and off the network."""
+    the fans and lights of the real machine), from the system manager (the
+    GUI runs systemctl start lianli-control-recovery.service, a root unit
+    its polkit rule allows: the system bus and systemd's private socket
+    hidden) and off the network."""
     from .. import verify
-    return {"hide": verify.run_paths(rec, keys=("lianli",)), "nonet": True}
+    return {"hide": verify.run_paths(rec, keys=("lianli",)) + verify.system_paths(),
+            "nonet": True}
 
 
 def css(ctx):

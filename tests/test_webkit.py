@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 from fixtures.sandbox import Sandbox, fixture  # noqa: F401  (sets sys.path)
@@ -118,7 +119,8 @@ class VerifyMask(unittest.TestCase):
         def rp(r, keys=(), run="/run"):
             seen.append(list(keys))
             return ["/run/kiri"]
-        with mock.patch.object(verify, "run_paths", rp):
+        with mock.patch.object(verify, "run_paths", rp), \
+                mock.patch.object(verify, "system_paths", lambda run="/run": []):
             m = webkit.verify_mask(rec())
         self.assertEqual(m, {"hide": ["/run/kiri"], "nonet": True})
         self.assertEqual(seen, [["kiri", "kiri", "kiri-window"]])
@@ -127,9 +129,33 @@ class VerifyMask(unittest.TestCase):
         from unittest import mock
         from appglass.families import lianli
         with mock.patch.object(verify, "run_paths",
-                               lambda r, keys=(), run="/run": ["/run/" + k for k in keys]):
+                               lambda r, keys=(), run="/run": ["/run/" + k for k in keys]), \
+                mock.patch.object(verify, "system_paths", lambda run="/run": []):
             self.assertEqual(lianli.verify_mask({"key": "x"}),
                              {"hide": ["/run/lianli"], "nonet": True})
+
+    def test_the_system_manager_out_of_reach(self):
+        """Lian Li's GUI starts a root unit (systemctl start
+        lianli-control-recovery.service, allowed by its polkit rule) over the
+        system bus: the check of a WebKitGTK app hides the system bus socket
+        and systemd's private socket."""
+        from appglass.families import lianli
+        d = tempfile.mkdtemp()
+        try:
+            for rel in ("dbus/system_bus_socket", "systemd/private"):
+                os.makedirs(os.path.join(d, os.path.dirname(rel)), exist_ok=True)
+                open(os.path.join(d, rel), "w").close()
+            self.assertEqual(verify.system_paths(run=d),
+                             [d + "/dbus/system_bus_socket", d + "/systemd/private"])
+            os.unlink(os.path.join(d, "systemd/private"))
+            self.assertEqual(verify.system_paths(run=d), [d + "/dbus/system_bus_socket"])
+        finally:
+            shutil.rmtree(d)
+        from unittest import mock
+        with mock.patch.object(verify, "run_paths", lambda r, keys=(), run="/run": []), \
+                mock.patch.object(verify, "system_paths", lambda run="/run": ["/run/s"]):
+            self.assertEqual(lianli.verify_mask({"key": "x"})["hide"], ["/run/s"])
+            self.assertEqual(webkit.verify_mask(rec())["hide"], ["/run/s"])
 
     def test_the_real_kiri_binary(self):
         b = "/usr/lib/kiri/kiri-window"
