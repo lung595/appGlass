@@ -157,10 +157,14 @@ exit 0
         self.assertIn("agl-inactive", js)
 
 
-NODE = shutil.which("node")
+# the hook's own focus test needs a Node: node on PATH, or APPGLASS_NODE (an
+# Electron binary works too, it is started with ELECTRON_RUN_AS_NODE=1); the
+# host has none, so the CSS side is covered by Feishin above and the focus
+# side by the recorded fade (docs/routes.md)
+NODE = os.environ.get("APPGLASS_NODE") or shutil.which("node")
 
 
-@unittest.skipUnless(NODE, "no node")
+@unittest.skipUnless(NODE, "no node on PATH and no APPGLASS_NODE")
 class FeishinHookNode(unittest.TestCase):
     """agl-hook.js against a fake electron: focus/blur toggle the class."""
 
@@ -174,7 +178,8 @@ class FeishinHookNode(unittest.TestCase):
             f.write(FAKE_ELECTRON)
         with open(os.path.join(tmp, "main.js"), "w") as f:
             f.write("process.type='browser';require(%s);\n%s" % (json.dumps(hook), DRIVE))
-        r = subprocess.run([NODE, "main.js"], cwd=tmp, capture_output=True, text=True, timeout=60)
+        r = subprocess.run([NODE, "main.js"], cwd=tmp, capture_output=True, text=True, timeout=60,
+                           env=dict(os.environ, ELECTRON_RUN_AS_NODE="1"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.split(), ["blur:true", "focus:false"])
 
