@@ -283,7 +283,7 @@ Click **Copy report** in **Settings → Advanced** and paste it in a [new issue]
 ## Privacy
 
 - **It stays in your home folder.** appGlass keeps its files under your home folder and never needs root. While an Electron app starts, its hook uses a private folder (mode 0700) in `$XDG_RUNTIME_DIR`, and the hidden check runs in a temporary folder there.
-- **No network.** Nothing is downloaded or sent. The Electron hook opens the app's inspector on 127.0.0.1 only, on a random port, and closes it right after the injection.
+- **No network.** Nothing is downloaded or sent. The Electron hook opens the app's inspector on 127.0.0.1 only, on a random port, and tries to close it right after the injection. If it cannot, the port stays open on 127.0.0.1 only, while the app runs.
 - **Backups first.** Every file it edits is backed up before the first change. If you edit a file after appGlass, `appglass remove` keeps your edit in place in a file it only edited into, and deletes a file it created whole, edits included. For a file you adopted, one whose appGlass part cannot be taken out cleanly, or one `appglass doctor --fix` writes back, the original comes back and your version is saved aside as `<file>.appglass-changed`.
 - **It leaves some windows alone.** Games, root GUIs, DMS windows and Firefox-family browsers are never touched. Password managers never get an injected route.
 - **The report stays with you.** **Copy report** goes to your clipboard only. It is never sent anywhere.

@@ -782,6 +782,16 @@ class RequirementRows(unittest.TestCase):
         self.assertIn('("cxx", "moc", "pkgconfig")', read("appglass", "families", "qtstyle.py"))
 
 
+class InspectorPrivacy(unittest.TestCase):
+    def test_privacy_owns_up_to_an_inspector_that_stays_open(self):
+        p = section(read("README.md"), "Privacy")
+        self.assertNotIn("closes it right after the injection", p)
+        self.assertIn("tries to close it right after the injection", p)
+        self.assertRegex(p, r"stays open on 127\.0\.0\.1 only[^\n]*while the app runs")
+        self.assertIn("inspector still open on 127.0.0.1",
+                      read("shims", "electron-hook", "agl-inject.py"))
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""
