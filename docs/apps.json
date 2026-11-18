@@ -287,10 +287,10 @@
    "toolkit": "Electron (client mod)",
    "family": "vencord",
    "route": "Vencord transparent window + DMS theme with alpha; on by default, live after its check",
-   "tested": "earlier",
+   "tested": "no",
    "result": "partial",
-   "reason": "needs the Vencord client mod; the official client alone has no route",
-   "evidence": "commit fc31872"
+   "reason": "not measured: Discord's web app needs a signed-in account, and a test session must not reuse yours; the theme and the settings merge are unit-tested (tests/test_vencord.py). Needs the Vencord client mod; the official client alone has no route",
+   "evidence": "docs/routes.md#discord-vencord"
   },
   {
    "app": "kitty",
