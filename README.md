@@ -199,7 +199,13 @@ appglass fail <key> [reason]            # record a failed launch by hand
 
 `verify` and `fail` take the key that `appglass status` shows for the app (for example `org.localsend.localsend_app`).
 
-While the plugin is installed and enabled, it owns the settings: `appglass set` refuses and points you to the settings page. Use the page or the IPC calls then. `appglass set` takes a family name (`gtk3`) or a key with no dots (`discord`), not an app id like `org.gnome.Nautilus`.
+Once the plugin is installed (unless it is disabled in DMS), it owns the settings: `appglass set` refuses and points you to the settings page. Use the page or the IPC calls then. Without the plugin, one app or family goes off with:
+
+```sh
+appglass set apps.<key>.enabled false --apply
+```
+
+`<key>` is a family name (`gtk3`) or an app key with no dots (`discord`), not an app id like `org.gnome.Nautilus`.
 
 ## Troubleshooting
 
@@ -230,7 +236,7 @@ If its state file is gone but its files are still there, appGlass writes nothing
 <details>
 <summary><b>appglass set refuses</b></summary>
 
-The plugin is installed and enabled, so it owns the settings. Change the setting on the settings page, or with `dms ipc call appGlass app <key> on|off`. To use `appglass set`, disable the plugin in **Settings → Plugins** first.
+The plugin is installed, so it owns the settings, unless it is disabled in DMS. Enabling it is not needed: the link alone is enough. Change the setting on the settings page, or with `dms ipc call appGlass app <key> on|off`. To use `appglass set`, disable the plugin in **Settings → Plugins** first, or remove it with `appglass plugin remove`.
 </details>
 
 <details>

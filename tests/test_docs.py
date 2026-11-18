@@ -565,6 +565,36 @@ class RootReadme(unittest.TestCase):
             sb.cleanup()
         self.assertIn("**%s**" % name, section(self.readme(), "2. Enable"))
 
+    def test_set_takes_the_apps_key_path(self):
+        sb = Sandbox()
+        try:
+            sb.seed_dms()
+            sb.seed_niri()
+            for key in ("gtk3", "discord"):
+                code, out, err = sb.run("set", key, "false")
+                self.assertEqual(code, 1, key)
+                self.assertIn("no setting %s" % key, err)
+            for key in ("gtk3", "discord"):
+                code, out, err = sb.run("set", "apps.%s.enabled" % key, "false")
+                self.assertEqual(code, 0, err)
+        finally:
+            sb.cleanup()
+        cli = section(self.readme(), "Command line and keybindings")
+        self.assertIn("appglass set apps.<key>.enabled false --apply", cli)
+        self.assertNotIn("`appglass set` takes a family name (`gtk3`)", cli)
+
+    def test_set_refuses_once_the_plugin_is_installed(self):
+        """settings.plugin_active: plugin.json is there and DMS has not
+        disabled it; enabling it in DMS is not needed."""
+        r = self.readme()
+        cli = section(r, "Command line and keybindings")
+        self.assertNotIn("installed and enabled, it owns", cli)
+        self.assertRegex(cli, r"plugin is installed \(unless it is disabled in DMS\)")
+        ts = r[r.index("appglass set refuses"):]
+        ts = ts[:ts.index("</details>")]
+        self.assertNotIn("installed and enabled", ts)
+        self.assertIn("unless it is disabled in DMS", ts)
+
 
 class FadeRecorded(unittest.TestCase):
     """Each fading route says what its recorded fade did, or why none was
