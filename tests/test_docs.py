@@ -948,7 +948,17 @@ class FadeRecorded(unittest.TestCase):
         # the 0.999 rule the fade was recorded under is the one shipped
         self.assertRegex(f, r"appglass\.kdl[^\n]*opacity 0\.999[^\n]*Feishin and VSCodium")
         self.assertNotRegex(f, r"TODO\(engine\)[^\n]*opaque")
-        self.assertEqual(niri.BLEND_FAMILIES, ("feishin", "vscodium"))
+        self.assertEqual(niri.BLEND_FAMILIES, ("feishin", "vscodium", "obsidian", "webkit", "lianli"))
+
+    def test_every_blended_family_says_why(self):
+        """Each family niri blends at 0.999 says so in its routes.md section
+        (the opaque region its window sets), and webkit.md says what the shim
+        does about it."""
+        r = doc("routes.md")
+        for head in ("Obsidian", "Lian Li (WebKitGTK shim)", "Any WebKitGTK app (generic WebKit shim)"):
+            self.assertRegex(section(r, head), r"opacity 0\.999[^\n]*opaque region", head)
+        self.assertRegex(section(doc("webkit.md"), "The generic route (family `webkit`)"),
+                         r"gdk_window_set_opaque_region")
 
 
 

@@ -9,7 +9,7 @@ appglass now also glasses Discord (through Vencord) and Feishin and VSCodium (th
 
 | App | Tested / Documented | Works | Method | niri rule needed |
 |---|---|---|---|---|
-| Obsidian (flatpak `md.obsidian.Obsidian` 1.15.1, Electron 43.8.9) | Tested in a nested niri session (isolated vault, no network) | partial: yes after a one-line fix (stock snippet leaves faint text under 2:1) | CSS snippet `appglass.css` in each vault, enabled in Settings > Appearance > CSS snippets | `opacity 1.0` for `^md\.obsidian\.Obsidian$` |
+| Obsidian (flatpak `md.obsidian.Obsidian` 1.15.1, Electron 43.8.9) | Tested in a nested niri session (isolated vault, no network) | partial: yes after a one-line fix (stock snippet leaves faint text under 2:1) | CSS snippet `appglass.css` in each vault, enabled in Settings > Appearance > CSS snippets | `opacity 1.0` for `^md\.obsidian\.Obsidian$`, with the 0.999 blend block (its window says it is opaque; [routes.md](routes.md#obsidian)) |
 | Any Electron app (decision rule, Electron 43.8.9) | Tested in a nested niri session (bare Electron binary, own test page) | partial: only if the app's code sets a transparent `backgroundColor` | Nothing you can configure from outside. See [the Electron rule](#the-electron-rule) | Only for apps that pass the rule |
 | Google Chrome (flatpak `com.google.Chrome`) | Tested in a nested niri session (temp profile, `--app=` window) | no (alpha 255 everywhere) | None. Fallback | None. Keep the global `opacity 0.60` |
 | Discord (stock rpm) | Documented (source read, not run) | no | None. `transparent:false` and an opaque background are hard-coded, and there is no user CSS | None (fallback) |

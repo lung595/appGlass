@@ -16,6 +16,9 @@ The first release.
   Text, icons and logos are never faded.
 - **One niri rule file.** `~/.config/niri/appglass.kdl` sets `opacity 1.0` for each glass app.
   It also has the fallback, unfocused and games blocks.
+  The glass apps whose window marks itself opaque while it paints with alpha (Feishin, VSCodium,
+  Obsidian, the WebKitGTK apps) get `opacity 0.999`, so niri keeps drawing what is behind them
+  (at 1.0 their background could go black or flicker). The WebKit shim also clears that region itself.
 - **Native routes** (the app's own colour files):
   - terminals: Alacritty, kitty, foot, Ghostty, WezTerm, Konsole;
   - GTK4 and libadwaita apps through user CSS, with the GtkSourceView background cleared;

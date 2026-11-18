@@ -8,9 +8,10 @@ $XDG_CONFIG_HOME/niri/appglass.kdl holds up to six window-rules, in order:
                     paints its own translucency over the blur (an app
                     switched off on its own too, while its glass files stay:
                     never in the fallback block as well, see kept_glass)
-  blend             the Electron hook apps (BLEND_FAMILIES) at ``opacity
-                    0.999``: their window says it is opaque, and at 1.0 niri
-                    believes it and can draw black behind it
+  blend             the glass apps whose window says it is opaque
+                    (BLEND_FAMILIES) at ``opacity 0.999``: at 1.0 niri
+                    believes it and skips what is behind (black, or a
+                    background that flickers)
   fallback "value"  the detected fallback apps at ``opacity <value>``
   inactive          glass apps that are not focused, ``opacity <inactive>``:
                     fallback.inactive (every glass app but the ones
@@ -63,9 +64,12 @@ BROWSERGLASS_IDS = (
 BROWSERGLASS_RE = "^(%s)$" % "|".join(a.replace(".", "\\.") for a in BROWSERGLASS_IDS)
 GAME_IDS = (r"^steam_app_\d+$", r"^gamescope$")
 FALLBACK_MODES = ("opaque", "value", "off")
-# Chromium marks these windows opaque (wl_surface.set_opaque_region) while
-# the hook paints them with alpha: below 1.0 niri blends them (docs/routes.md)
-BLEND_FAMILIES = ("feishin", "vscodium")
+# these windows mark themselves opaque (a whole-window wl_surface.set_opaque_region)
+# while the glass paints them with alpha: Chromium without transparent (the
+# Electron hook apps, Obsidian) and GTK3 (the WebKit shim apps: GTK sets it
+# from the window's CSS background; the shim clears it too, the rule is the
+# second guard). Below 1.0 niri blends them (docs/routes.md)
+BLEND_FAMILIES = ("feishin", "vscodium", "obsidian", "webkit", "lianli")
 BLEND_OPACITY = "0.999"
 
 

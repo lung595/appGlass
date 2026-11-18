@@ -90,6 +90,34 @@ class Render(unittest.TestCase):
         kw = niri.rule_inputs(app)
         self.assertEqual(kw["blend_ids"], [r"^feishin$", r"^com\.vscodium\.codium$", r"^code$"])
 
+    def test_rule_inputs_blend_every_family_whose_window_says_it_is_opaque(self):
+        """GTK3 (the WebKit shim apps: Kiri, Lian Li) and Chromium without
+        transparent (Obsidian) set a whole-window opaque region while the
+        glass paints with alpha: at 1.0 niri skips what is behind and the
+        background flickers. The apps that clear it or never set it
+        (Alacritty, Herdr, Dux, Vencord's transparent window) stay at 1.0."""
+        owners = {"webkit": {"app_ids": [r"^kiri$"]},
+                  "lianli": {"app_ids": [r"^com\.sgtaziz\.lianlilinux$"]},
+                  "obsidian": {"app_ids": [r"^md\.obsidian\.Obsidian$", r"^obsidian$"]},
+                  "vencord": {"app_ids": [r"^discord$"]},
+                  "dux": {"app_ids": [r"^dev\.duxlabs\.files$"]},
+                  "herdr": {"app_ids": [r"^herdr-app$"]}}
+        st = types.SimpleNamespace(owners=owners, families=lambda: sorted(owners))
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        app = types.SimpleNamespace(settings={}, state=st, env=core.Env(sb.env),
+                                    levels=types.SimpleNamespace(content=0.8))
+        kw = niri.rule_inputs(app)
+        self.assertEqual(sorted(kw["blend_ids"]),
+                         sorted([r"^kiri$", r"^com\.sgtaziz\.lianlilinux$",
+                                 r"^md\.obsidian\.Obsidian$", r"^obsidian$"]))
+        t = niri.render([r"^kiri$", r"^discord$"], blend_ids=kw["blend_ids"])
+        blk = t[t.index("says it is opaque"):]
+        blk = blk[:blk.index("}")]
+        self.assertIn('match app-id=r#"^kiri$"#', blk)
+        self.assertNotIn("discord", blk)
+        self.assertNotIn("obsidian", t)    # not applied: no line anywhere
+
     def test_old_single_block_by_default(self):
         t = niri.render([r"^Alacritty$"])
         self.assertEqual(t.count("window-rule {"), 1)
