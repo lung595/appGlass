@@ -59,6 +59,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 - **Reload:** GTK4 reads the CSS at start: restart the app.
 - **Fade, not recorded for this version:** `window.background:backdrop` at the unfocused level with a CSS transition; the rendered CSS is unit-tested (`tests/test_gtk4.py`). It uses the same mechanism as GTK3, recorded below. An earlier build was recorded at 0.80 (nested niri, three runs, kept in the probe notes, `shots/fade/gtk4.fade.txt`): 0.80 to 0.72 in 117 to 133 ms, back in 117 to 134 ms.
 - **Undo:** `appglass remove --only gtk4` takes the import out and deletes `gtk.css` when nothing of yours is left in it. Taking the import out by hand, or deleting `gtk.css`, is an opt-out that appglass keeps.
+- **A `gtk.css` of your own** (anything more than the DMS import line) is never rewritten: the family is skipped and its apps show Fallback. To opt in, add `@import url("dank-glass.css");` after the dank-colors import line yourself.
 - **Flatpaks:** flatpak GTK4 apps do not read the host `gtk-4.0` folder. GNOME Text Editor, Mission Center and Resources get the same files in their own `~/.var/app/<id>/config/gtk-4.0`. Any other GTK4 flatpak the engine finds gets a launcher override that gives that launch read-only access to the host `gtk-4.0` folder; no `flatpak override` is written. Measured: GNOME Text Editor 153, Mission Center 153, Resources 153, text and popups 255 ([apps.md](apps.md)).
 
 ## GTK3
@@ -99,6 +100,7 @@ Native routes through each app's own config files, for the native and the flatpa
 - **Measured:** content 153, ribbon, sidebars and tab bar 166, menus and modals 255, text 255; the stock `--text-faint` (under 2:1) is replaced. Source: [electron.md](electron.md).
 - **Fade, not recorded:** `body:not(.is-focused)` lowers the snippet colours, with a transition; not recorded in a session for this version; the snippet is unit-tested (`tests/test_obsidian.py`).
 - **Reload:** later theme changes reload live. Quit Obsidian before the first `appglass apply`: the first enable needs an Obsidian restart, or the snippet toggled off and on.
+- **No vault:** with no vault in `obsidian.json` there is nowhere to put the snippet: the family is skipped and Obsidian shows Fallback until you open a vault and apply again.
 - **Undo:** `appglass remove --only obsidian`. A snippet you turn off in Obsidian stays off.
 
 ## Herdr

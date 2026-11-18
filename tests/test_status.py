@@ -76,6 +76,39 @@ class Status(unittest.TestCase):
         self.assertIn("family gtk3 removed", line)
         self.assertEqual(line.split()[3], "fallback")
 
+    def test_a_user_gtk_css_keeps_the_gtk4_apps_off_glass(self):
+        # w2 r2: apply skips gtk4 over a user stylesheet (no glass for its
+        # apps), so status must not count them as glass
+        user = "/* my own css */ window { color: red; }\n"
+        self.sb.write("gtk-4.0/gtk.css", user)
+        apps = {a["key"]: a for a in self.doc()["apps"]}
+        for key in ("org.gnome.Nautilus", "com.github.tchx84.Flatseal"):
+            self.assertEqual((apps[key]["effective"], apps[key]["state"]), ("fallback", "opaque"), key)
+            self.assertIn("user stylesheet", apps[key]["reason"])
+        # the opt-in line the skip names: glass again
+        self.sb.write("gtk-4.0/gtk.css", '@import url("dank-colors.css");\n'
+                      '@import url("dank-glass.css");\n' + user)
+        apps = {a["key"]: a for a in self.doc()["apps"]}
+        self.assertEqual(apps["org.gnome.Nautilus"]["effective"], "glass")
+        # only DMS's import (apply merges it) or none (apply writes it): glass
+        self.sb.write("gtk-4.0/gtk.css", '@import url("dank-colors.css");\n')
+        self.assertEqual({a["key"]: a for a in self.doc()["apps"]}["org.gnome.Nautilus"]["effective"],
+                         "glass")
+
+    def test_obsidian_with_no_vault_is_not_glass(self):
+        from appglass.families import obsidian
+        env = core.Env(self.sb.env)
+        rec = {"key": "md.obsidian.Obsidian", "flatpak": None}
+        self.assertIn("no Obsidian vaults found", obsidian.skip_reason(env, rec))
+        vault = os.path.join(self.sb.home, "Notes")
+        os.makedirs(vault)
+        self.sb.write(os.path.join("obsidian", "obsidian.json"),
+                      json.dumps({"vaults": {"a": {"path": vault}}}))
+        self.assertIsNone(obsidian.skip_reason(env, rec))
+        # an obsidian.json that does not read: apply keeps the files, not known
+        self.sb.write(os.path.join("obsidian", "obsidian.json"), "{")
+        self.assertIsNone(obsidian.skip_reason(env, rec))
+
     def test_not_installed_family(self):
         routes = {a["key"]: a for a in json.loads(self.sb.run(
             "status", "--json", assume_not="gtk3")[1])["apps"]}

@@ -268,6 +268,28 @@ def is_dms_import(text):
     return not ls or (len(ls) == 1 and bool(_DANK_RE.match(ls[0])))
 
 
+def skip_reason(env, rec):
+    """Why a glass GTK4 app is plain: the gtk.css it reads is a user
+    stylesheet without the glass import (apply leaves it untouched, so
+    nothing loads dank-glass.css there), else None."""
+    d = os.path.join(env.config_home, "gtk-4.0")
+    fid = rec.get("key") if rec.get("flatpak") else None
+    if fid in {a[1] for a in FLATPAK_APPS}:
+        own = os.path.join(env.home, ".var", "app", fid, "config", "gtk-4.0")
+        if os.path.realpath(own) != os.path.realpath(d):
+            d = own
+    p = os.path.join(d, "gtk.css")
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return None             # absent: apply writes it
+    if is_dms_import(text) or GLASS_IMPORT in _lines(text):
+        return None
+    return ("%s is a user stylesheet without the glass import (add %s after the "
+            "dank-colors import to opt in)" % (env.tilde(p), GLASS_IMPORT))
+
+
 def merge(text, path, changed=False):
     """gtk.css edit: text is '' when appglass creates the file.
 

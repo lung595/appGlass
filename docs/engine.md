@@ -84,7 +84,7 @@ These are the status chips in Settings > Apps:
 | Chip | Meaning |
 |---|---|
 | Glass | The route is applied. |
-| Fallback | No route, the app's family is not installed, an injected route that failed its check or two launches, or a Forced or Mod app switched off. The window gets the fallback look (Settings > Fallback). |
+| Fallback | No route, the app's family is not installed or skipped (a user `gtk-4.0/gtk.css` without the glass import, Obsidian with no vault: the reason says which), an injected route that failed its check or two launches, or a Forced or Mod app switched off. The window gets the fallback look (Settings > Fallback). |
 | Waiting for check | An injected route waits for its first hidden check. The app runs plain, its window opaque. |
 | Stale | An injected route after an app update: the old check no longer counts. The app runs plain until it passes again. |
 | Paused | The glass is paused, or you switched this app off. For a Native app the files stay until its family is off (see [guide.md](guide.md#per-app-switch)). |

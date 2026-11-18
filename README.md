@@ -129,7 +129,7 @@ The status chip on the right of the row tells you what the app has now:
 - **Stale**: the app was updated, so its old check no longer counts. The app runs plain until the next check passes.
 - **Paused**: the glass is paused, or you switched a Native app off.
 - **Conflict**: a hand-made file that appGlass does not own is in the way.
-- **Fallback**: no route for this app, its family is not installed, its hidden check failed, or you switched a Forced or Mod app off. It gets the fallback look from **Settings → Fallback**: opaque by default, translucent (text too), or the DMS opacity.
+- **Fallback**: no route for this app, its family is not installed or skipped (a `~/.config/gtk-4.0/gtk.css` of your own without the glass import, Obsidian with no vault), its hidden check failed, or you switched a Forced or Mod app off. It gets the fallback look from **Settings → Fallback**: opaque by default, translucent (text too), or the DMS opacity.
 - **Opaque**: kept opaque on purpose, in every fallback mode. The window stays opaque and sharp.
 - **Game: never touched**: a game. Opaque, with blur off.
 - **Delegated**: owned by someone else: Firefox-family browsers belong to browserGlass. Windows DMS draws itself show as Delegated too. appGlass never touches them.

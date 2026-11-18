@@ -117,6 +117,17 @@ def vaults(env, warn=None, unreadable=None):
     return out
 
 
+def skip_reason(env, rec):
+    """Why a glass Obsidian is plain: no vault to put the snippet in (apply
+    skips the family), else None. An obsidian.json that does not read says
+    nothing (apply keeps the files of an earlier run)."""
+    unreadable = []
+    if vaults(env, unreadable=unreadable) or unreadable:
+        return None
+    return "no Obsidian vaults found in %s or %s" % (env.tilde(flatpak_config(env)),
+                                                     env.tilde(native_config(env)))
+
+
 # ---------------------------------------------------------------- appearance.json
 
 def _dump(obj, like):
