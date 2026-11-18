@@ -530,7 +530,7 @@ DRIVER = r"""
 #include <string.h>
 void *fk_widget(const char *, void *, int); void fk_map(void *); void fk_show(void *);
 void fk_hide(void *); void fk_idle(void); void fk_report(const char *, void *, void *);
-void fk_navigate(void *); void fk_frame(void *, unsigned, int);
+void fk_navigate(void *); void fk_frame(void *, unsigned, int); void fk_titlebar(void *, void *);
 void webkit_web_view_load_html(void *, const char *, const char *);
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
@@ -540,6 +540,10 @@ int main(int argc, char **argv) {
     if (strcmp(mode, "showall")) fk_hide(side);
     if (!strcmp(mode, "border")) fk_frame(win, 12, 0);     // a bare frame round the view
     if (!strcmp(mode, "margin")) fk_frame(view, 0, 6);
+    if (!strcmp(mode, "headerbar") || !strcmp(mode, "titlebox")) {   // gtk_window_set_titlebar
+        void *t = fk_widget(mode[0] == 'h' ? "headerbar" : "titlebox", win, 0);
+        fk_widget("label", t, 0); fk_titlebar(win, t);
+    }
     webkit_web_view_load_html(view, "<p>page</p>", 0);
     fk_map(win); fk_report("painting", win, view);   // the page not there yet
     fk_idle(); fk_report("mapped", win, view);
@@ -637,6 +641,19 @@ class ShimDecision(unittest.TestCase):
             r = self.run_driver(mode)
             self.assertEqual(r["mapped"], self.OPAQUE, mode)
             self.assertEqual(r["hidden"], self.OPAQUE, mode)
+
+    def test_a_header_bar_as_the_titlebar_is_not_beside_the_view(self):
+        """GTK3 lists a custom titlebar among the window's children: a
+        GtkHeaderBar paints itself (opaque, or at the bar level), so the view
+        still fills the window; any other titlebar (a plain box, clear in a
+        CSD window) is a widget beside it."""
+        r = self.run_driver("headerbar")
+        self.assertEqual(r["mapped"], self.GLASS)
+        self.assertEqual(r["hidden"], self.GLASS)
+        self.assertEqual(r["again"], self.OPAQUE)       # the sidebar still counts
+        r = self.run_driver("titlebox")
+        self.assertEqual(r["mapped"], self.OPAQUE)
+        self.assertEqual(r["hidden"], self.OPAQUE)
 
 
 if __name__ == "__main__":

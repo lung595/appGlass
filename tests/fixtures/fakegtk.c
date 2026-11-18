@@ -6,7 +6,9 @@
 // Driver API: fk_widget(name, parent, toplevel) makes a widget (visible),
 // fk_show/fk_hide set visible and map/unmap it when its parent is mapped,
 // fk_map maps a toplevel and its visible children, fk_frame gives a widget a
-// border-width and margins, fk_idle runs the queued
+// border-width and margins, fk_titlebar makes a child of a window its custom
+// titlebar (gtk_container_get_children lists it, as GTK3's forall does; a
+// widget named "headerbar..." is a GtkHeaderBar), fk_idle runs the queued
 // idles, then finishes the page loads asked for (a document runs the user
 // scripts registered when it finishes loading, as WebKit's do at document
 // end, and the view emits load-changed committed then finished: fk_navigate
@@ -24,6 +26,7 @@ typedef struct W {
     const char *name; struct W *parent, *kids[8]; int nkids;
     int top, visible, mapped, realized, paintable, draws, refs;
     unsigned border; int margin;         // container border-width; the same margin on each side
+    struct W *titlebar;                  // a window: its custom titlebar
     D *data; H *handlers;
     GdkRGBA bg; int sheets, scripts;     // a WebView: its background, its content manager
     int loading, page, shown;            // ... a document loading; the scripts its document ran;
@@ -124,6 +127,11 @@ int gtk_widget_get_margin_end(void *w) { return ((W *)w)->margin; }
 int gtk_widget_get_margin_top(void *w) { return ((W *)w)->margin; }
 int gtk_widget_get_margin_bottom(void *w) { return ((W *)w)->margin; }
 const char *gtk_widget_get_name(void *w) { return ((W *)w)->name; }
+void *gtk_window_get_titlebar(void *w) { return ((W *)w)->titlebar; }
+unsigned long gtk_header_bar_get_type(void) { return 77; }
+int g_type_check_instance_is_a(void *w, unsigned long t) {
+    return t == 77 && !strncmp(((W *)w)->name, "headerbar", 9);
+}
 void *gtk_container_get_children(void *c) {
     W *w = c; L *head = NULL, *tail = NULL;
     for (int i = 0; i < w->nkids; i++) {
@@ -185,6 +193,7 @@ void fk_map(void *top) { ((W *)top)->realized = 1; map_tree(top); }
 void fk_show(void *w) { W *x = w; x->visible = 1; if (x->parent && x->parent->mapped) map_tree(x); }
 void fk_hide(void *w) { W *x = w; x->visible = 0; if (x->mapped) unmap_tree(x); }
 void fk_navigate(void *view) { load(view); }   // the page goes to another document
+void fk_titlebar(void *win, void *w) { ((W *)win)->titlebar = w; }
 void fk_frame(void *w, unsigned border, int margin) { ((W *)w)->border = border; ((W *)w)->margin = margin; }
 void fk_report(const char *step, void *top, void *view) {
     W *t = top, *v = view;

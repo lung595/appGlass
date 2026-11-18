@@ -8,7 +8,8 @@
 //   1. webkit_web_view_set_background_color(view, rgba(0,0,0,0))  (and every later call is forced to alpha 0)
 //   2. toplevel: RGBA visual (if not yet realized) + app-paintable  (what tao does for transparent:true),
 //      only while the view fills it: no other widget is mapped beside the view or any of its
-//      ancestors (a header bar given with gtk_window_set_titlebar is fine: it paints itself).
+//      ancestors (a GtkHeaderBar given with gtk_window_set_titlebar is fine: it paints itself;
+//      any other custom titlebar counts, a plain box is clear in a CSD window).
 //      Looked at when the toplevel maps and again whenever a widget in it maps or unmaps (an
 //      emission hook, once the main loop is idle): native chrome around a WebView (a mail
 //      client's folder list, a sidebar shown later) would be holes on the bare blur, so the view
@@ -152,9 +153,19 @@ static int framed(void *w, int container) {
     return 0;
 }
 
+// the window's custom titlebar when it is a GtkHeaderBar (it paints its own background), else NULL
+static void *header_bar(void *top) {
+    void *(*get_titlebar)(void *) = sym("gtk_window_get_titlebar");
+    unsigned long (*hb_type)(void) = sym("gtk_header_bar_get_type");
+    gboolean (*is_a)(void *, unsigned long) = sym("g_type_check_instance_is_a");
+    void *t = get_titlebar && hb_type && is_a ? get_titlebar(top) : NULL;
+    return t && is_a(t, hb_type()) ? t : NULL;
+}
+
 // 1 when nothing but the view is drawn in the toplevel: no other child of the view's ancestors is
 // mapped (at the toplevel's map, after its children), and no margin or border-width leaves a frame
-// round it. A titlebar is not a child (it paints itself).
+// round it. GTK3 lists a custom titlebar among the window's children: a GtkHeaderBar does not count
+// (it paints itself), any other titlebar does.
 static int fills(void *view, void *top) {
     void *(*get_parent)(void *) = sym("gtk_widget_get_parent");
     gboolean (*mapped)(void *) = sym("gtk_widget_get_mapped");
@@ -163,12 +174,15 @@ static int fills(void *view, void *top) {
     const char *(*name)(void *) = sym("gtk_widget_get_name");
     if (!get_parent || !mapped || !children || !list_free) return 1;
     typedef struct L { void *data; struct L *next, *prev; } L;
+    void *hb = header_bar(top);
     for (void *w = view; w && w != top; ) {
         void *p = get_parent(w); if (!p) return 0;
         if (framed(w, 0) || framed(p, 1)) { LOG("a frame round the view"); return 0; }
         L *l = children(p); int other = 0;
         for (L *i = l; i; i = i->next)
-            if (i->data != w && mapped(i->data)) { other = 1; LOG("beside the view: %s", name ? name(i->data) : "?"); break; }
+            if (i->data != w && !(p == top && i->data == hb) && mapped(i->data)) {
+                other = 1; LOG("beside the view: %s", name ? name(i->data) : "?"); break;
+            }
         list_free(l);
         if (other) return 0;
         w = p;
