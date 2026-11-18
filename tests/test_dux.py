@@ -90,6 +90,17 @@ class Dux(unittest.TestCase):
         self.assertIn(r'match app-id=r#"^dev\.duxlabs\.calendar$"#', kdl)
         self.assertIn("opacity 1.0", kdl)
 
+    def test_the_check_takes_the_calendar_panes_at_0_80(self):
+        """The hidden check judges the window fill: Dux Calendar's panes
+        cover most of it at 1 - (1 - w)(1 - f) by design (237 at 0.80), Dux
+        Files is one uniform fill."""
+        self.sb.set_level(0.8)
+        self.apply()
+        env = core.Env(self.sb.env)
+        cal = fam.verify_alphas(env, {"key": "dev.duxlabs.calendar"}, 0.8)
+        self.assertEqual([round(a * 255) for a in cal], [237])
+        self.assertEqual(fam.verify_alphas(env, {"key": "dev.duxlabs.files"}, 0.8), [])
+
     def test_window_alpha_follows_dms_setting(self):
         self.sb.set_level(0.75)
         self.apply()

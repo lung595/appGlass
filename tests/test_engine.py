@@ -1252,6 +1252,20 @@ class Judge(unittest.TestCase):
         r = self.j({150: 9000, 255: 400})
         self.assertIn("expected 204", r["reason"])
 
+    def test_a_family_pane_level_passes_at_0_80(self):
+        """Dux Calendar draws its panes over the window fill by design
+        (1 - 0.2 * 0.35 = 0.93 at 0.80): the family says so, the judge takes
+        that alpha too; any other one still fails."""
+        import collections
+        h = collections.Counter({237: 9000, 204: 1500, 255: 400})
+        self.assertIn("expected 204", self.j(h)["reason"])
+        r = verify.judge(None, None, 0.8, hist=h, panes=(0.93,))
+        self.assertEqual(r["result"], "pass", r)
+        self.assertEqual(r["share"], 1.0 - round(400 / 10900.0, 3))
+        r = verify.judge(None, None, 0.8, hist=collections.Counter({170: 9000, 255: 400}),
+                         panes=(0.93,))
+        self.assertEqual(r["result"], "fail")
+
     def test_text_faded_with_the_window(self):
         r = self.j({204: 9000, 200: 300})
         self.assertIn("no opaque text", r["reason"])

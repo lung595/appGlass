@@ -576,6 +576,14 @@ def verify_mask(app, rec):
     return {"hide": list((m or {}).get("hide") or ()), "nonet": bool((m or {}).get("nonet"))}
 
 
+def verify_alphas(app, rec, level):
+    """The family's verify_alphas(env, rec, level): the alphas its own design
+    draws over the window fill at that level (Dux Calendar's panes), or ()."""
+    fam = app.families.get(route_of(app, rec).get("family") or "")
+    fn = getattr(fam, "verify_alphas", None)
+    return tuple(fn(app.env, rec, level) or ()) if fn else ()
+
+
 def is_flatpak(rec, cmd=""):
     words = (cmd or "").split()
     return bool(rec.get("flatpak")) or (bool(words) and os.path.basename(words[0]) == "flatpak")
@@ -746,7 +754,7 @@ def run_harness(app, rec, level):
         if "window=none" in log or not os.path.isfile(shot):
             return {"result": "unverifiable",
                     "reason": "no window within %d s" % WINDOW_WAIT, "log": log[-400:]}
-        res = judge(env, shot, level)
+        res = judge(env, shot, level, panes=verify_alphas(app, rec, level))
         seen = parse_window(log)[1]
         if seen:
             res["app_id"] = seen
@@ -844,19 +852,22 @@ def hole_share(w, h, alpha):
     return best * b * b / float(w * h)
 
 
-def judge(env, png, level, hist=None, plane=None):
+def judge(env, png, level, hist=None, plane=None, panes=()):
     """The window shot against the content level (spec 1.7 measure). The
     holes are looked for when the whole plane is known (a shot, or plane:
-    (width, height, alpha bytes)), not from a histogram alone."""
+    (width, height, alpha bytes)), not from a histogram alone. panes: the
+    alphas the family's own design draws over the window fill (verify_alphas),
+    taken as well as the level."""
     if hist is None:
         plane = alpha_plane(env, png) if plane is None else plane
         hist = collections.Counter(plane[2])
     want = int(round(level * 255))
     tol = int(round(TOL * 255))
+    wants = [want] + [int(round(a * 255)) for a in panes]
     visible = sum(v for k, v in hist.items() if k)
     trans = {k: v for k, v in hist.items() if 0 < k < 255}
     mode = max(trans, key=trans.get) if trans else None
-    near = sum(v for k, v in trans.items() if abs(k - want) <= tol)
+    near = sum(v for k, v in trans.items() if any(abs(k - w) <= tol for w in wants))
     opaque = hist.get(255, 0)
     bare = hist.get(0, 0) / max(sum(hist.values()), 1)
     rep = {"alpha_mode": mode, "expected": want, "share": round(near / max(visible, 1), 3),
@@ -871,7 +882,7 @@ def judge(env, png, level, hist=None, plane=None):
     if rep.get("hole", 0) > HOLE:
         return dict(rep, result="fail", reason="a hole of %.0f%% of the window at alpha 0 "
                     "(native widgets on the bare blur)" % (100.0 * rep["hole"]))
-    if abs(mode - want) > tol:
+    if all(abs(mode - w) > tol for w in wants):
         return dict(rep, result="fail", reason="background alpha %d, expected %d+-%d"
                     % (mode, want, tol))
     if near / max(visible, 1) < 0.25:
@@ -879,8 +890,8 @@ def judge(env, png, level, hist=None, plane=None):
                     % (100.0 * near / max(visible, 1)))
     if opaque < 12:
         return dict(rep, result="fail", reason="no opaque text on screen")
-    return dict(rep, result="pass", reason="background %d (want %d), %d opaque text px"
-                % (mode, want, opaque))
+    return dict(rep, result="pass", reason="background %d (want %s), %d opaque text px"
+                % (mode, " or ".join(str(w) for w in wants), opaque))
 
 
 def with_lock(app, fn):

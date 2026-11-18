@@ -25,6 +25,9 @@ as opaque as the bars) and DDropdown menus take the window alpha; see
 docs/qtquick.md.
 """
 
+import json
+import re
+
 from ..core import Conflict, hex_to_rgb, luminance, worst_contrast
 
 NAME = "dux"
@@ -109,6 +112,23 @@ def readable_layer(ctx, app, w):
     while not ok(f) and f < 1.0:
         f = min(1.0, round(f + 0.05, 2))
     return f
+
+
+def verify_alphas(env, rec, level):
+    """The hidden check (appglass verify): the pane alpha of the app at the
+    window level, from the layer apply wrote (raised for text included), or
+    none for a uniform fill. The panes cover most of a Dux Calendar window."""
+    for app in APPS:
+        if not re.match(app.app_id, rec.get("key") or "") and app.app_id not in (
+                rec.get("app_ids") or ()):
+            continue
+        try:
+            with open(settings_path(env, app)) as fh:
+                f = float(json.load(fh).get("floatingWindowForegroundTransparency", app.layer))
+        except (OSError, ValueError, TypeError, AttributeError):
+            f = app.layer
+        return [stacked(level, f)] if f > 0 else []
+    return []
 
 
 def keys(ctx, app):
