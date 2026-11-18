@@ -134,8 +134,23 @@ static const char FOCUS_JS[] =
 
 static void remove_sheet(void *view);
 
+// a frame of the bare window round w: its margins, or the border-width of a container (CSS padding
+// is not looked at)
+static int framed(void *w, int container) {
+    static const char *const M[] = { "gtk_widget_get_margin_start", "gtk_widget_get_margin_end",
+                                     "gtk_widget_get_margin_top", "gtk_widget_get_margin_bottom" };
+    unsigned (*border)(void *) = sym("gtk_container_get_border_width");
+    if (container && border && border(w)) return 1;
+    for (int i = 0; i < 4 && !container; i++) {
+        int (*m)(void *) = sym(M[i]);
+        if (m && m(w)) return 1;
+    }
+    return 0;
+}
+
 // 1 when nothing but the view is drawn in the toplevel: no other child of the view's ancestors is
-// mapped (at the toplevel's map, after its children). A titlebar is not a child (it paints itself).
+// mapped (at the toplevel's map, after its children), and no margin or border-width leaves a frame
+// round it. A titlebar is not a child (it paints itself).
 static int fills(void *view, void *top) {
     void *(*get_parent)(void *) = sym("gtk_widget_get_parent");
     gboolean (*mapped)(void *) = sym("gtk_widget_get_mapped");
@@ -146,6 +161,7 @@ static int fills(void *view, void *top) {
     typedef struct L { void *data; struct L *next, *prev; } L;
     for (void *w = view; w && w != top; ) {
         void *p = get_parent(w); if (!p) return 0;
+        if (framed(w, 0) || framed(p, 1)) { LOG("a frame round the view"); return 0; }
         L *l = children(p); int other = 0;
         for (L *i = l; i; i = i->next)
             if (i->data != w && mapped(i->data)) { other = 1; LOG("beside the view: %s", name ? name(i->data) : "?"); break; }

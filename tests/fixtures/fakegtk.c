@@ -5,7 +5,8 @@
 //
 // Driver API: fk_widget(name, parent, toplevel) makes a widget (visible),
 // fk_show/fk_hide set visible and map/unmap it when its parent is mapped,
-// fk_map maps a toplevel and its visible children, fk_idle runs the queued
+// fk_map maps a toplevel and its visible children, fk_frame gives a widget a
+// border-width and margins, fk_idle runs the queued
 // idles, then finishes the page loads asked for (a document runs the user
 // scripts registered when it finishes loading, as WebKit's do at document
 // end: fk_navigate starts another document), fk_report prints one line of the
@@ -21,6 +22,7 @@ typedef struct H { const char *sig; void *fn; void *data; int flags; struct H *n
 typedef struct W {
     const char *name; struct W *parent, *kids[8]; int nkids;
     int top, visible, mapped, realized, paintable, draws, refs;
+    unsigned border; int margin;         // container border-width; the same margin on each side
     D *data; H *handlers;
     GdkRGBA bg; int sheets, scripts;     // a WebView: its background, its content manager
     int loading, page;                   // ... a document loading; the scripts its document ran
@@ -108,6 +110,11 @@ static void emit(W *w, const char *sig) {
 // ---------------------------------------------------------------------- gtk
 void *gtk_widget_get_parent(void *w) { return ((W *)w)->parent; }
 int gtk_widget_get_mapped(void *w) { return ((W *)w)->mapped; }
+unsigned gtk_container_get_border_width(void *w) { return ((W *)w)->border; }
+int gtk_widget_get_margin_start(void *w) { return ((W *)w)->margin; }
+int gtk_widget_get_margin_end(void *w) { return ((W *)w)->margin; }
+int gtk_widget_get_margin_top(void *w) { return ((W *)w)->margin; }
+int gtk_widget_get_margin_bottom(void *w) { return ((W *)w)->margin; }
 const char *gtk_widget_get_name(void *w) { return ((W *)w)->name; }
 void *gtk_container_get_children(void *c) {
     W *w = c; L *head = NULL, *tail = NULL;
@@ -168,6 +175,7 @@ void fk_map(void *top) { ((W *)top)->realized = 1; map_tree(top); }
 void fk_show(void *w) { W *x = w; x->visible = 1; if (x->parent && x->parent->mapped) map_tree(x); }
 void fk_hide(void *w) { W *x = w; x->visible = 0; if (x->mapped) unmap_tree(x); }
 void fk_navigate(void *view) { load(view); }   // the page goes to another document
+void fk_frame(void *w, unsigned border, int margin) { ((W *)w)->border = border; ((W *)w)->margin = margin; }
 void fk_report(const char *step, void *top, void *view) {
     W *t = top, *v = view;
     printf("%s paintable=%d bg_alpha=%g sheets=%d scripts=%d page=%d\n", step, t->paintable, v->bg.a,

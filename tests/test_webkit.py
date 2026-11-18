@@ -508,7 +508,7 @@ DRIVER = r"""
 #include <string.h>
 void *fk_widget(const char *, void *, int); void fk_map(void *); void fk_show(void *);
 void fk_hide(void *); void fk_idle(void); void fk_report(const char *, void *, void *);
-void fk_navigate(void *);
+void fk_navigate(void *); void fk_frame(void *, unsigned, int);
 void webkit_web_view_load_html(void *, const char *, const char *);
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
@@ -516,6 +516,8 @@ int main(int argc, char **argv) {
     void *side = fk_widget("sidebar", box, 0), *view = fk_widget("view", box, 0);
     fk_widget("label", side, 0);
     if (strcmp(mode, "showall")) fk_hide(side);
+    if (!strcmp(mode, "border")) fk_frame(win, 12, 0);     // a bare frame round the view
+    if (!strcmp(mode, "margin")) fk_frame(view, 0, 6);
     webkit_web_view_load_html(view, "<p>page</p>", 0);
     fk_map(win); fk_idle(); fk_report("mapped", win, view);
     if (!strcmp(mode, "nav")) {      // another document while opaque
@@ -597,6 +599,14 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r["mapped"], self.GLASS)
         self.assertEqual(r["navigated"], self.OPAQUE)
         self.assertEqual(r["hidden"], self.GLASS)
+
+    def test_a_border_or_a_margin_round_the_view_is_not_filling(self):
+        """A container border-width or a widget margin leaves a frame of the
+        bare window round the view: opaque, like a widget beside it."""
+        for mode in ("border", "margin"):
+            r = self.run_driver(mode)
+            self.assertEqual(r["mapped"], self.OPAQUE, mode)
+            self.assertEqual(r["hidden"], self.OPAQUE, mode)
 
 
 if __name__ == "__main__":
