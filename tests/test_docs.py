@@ -545,6 +545,27 @@ class DocsRound2Minors(unittest.TestCase):
             self.assertIn("off` while the plugin is installed and enabled (", text, name)
 
 
+class RootReadme(unittest.TestCase):
+    """The root README and the CLI say what the code does (readme review,
+    round 1)."""
+
+    def readme(self):
+        return read("README.md")
+
+    def test_the_refusal_names_the_plugin_as_dms_lists_it(self):
+        with open(os.path.join(REPO, "dms-plugin", "plugin.json")) as f:
+            name = json.load(f)["name"]
+        sb = Sandbox()
+        try:
+            sb.write("dms/plugins/appGlass/plugin.json", '{"id": "appGlass"}')
+            code, out, err = sb.run("set", "fallback.mode", "off")
+            self.assertEqual(code, 1)
+            self.assertIn("Settings > Plugins > %s" % name, err)
+        finally:
+            sb.cleanup()
+        self.assertIn("**%s**" % name, section(self.readme(), "2. Enable"))
+
+
 class FadeRecorded(unittest.TestCase):
     """Each fading route says what its recorded fade did, or why none was
     recorded (a frame-by-frame capture in a headless niri session)."""
