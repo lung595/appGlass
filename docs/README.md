@@ -213,7 +213,7 @@ Runs that come from events (`sync` from the plugin, the matugen hook and the syn
 
 IPC: `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> on|off`. `pause` and `resume` turn the glass off and on, like the pill; `sync`, `toggle`, `pause`, `resume` and `app` answer `uninstalling` or `uninstalled` once Uninstall has started, and change nothing. When `appglass remove` fails, the glass and the syncs go on at once (with any change made meanwhile); when only the plugin link could not be taken out, Uninstall stays off and the page says to run `appglass plugin remove` in a terminal.
 
-`appglass plugin remove` takes the link out again (only a link to this repository's plugin); the glass files stay until `appglass remove`. Tests: `sh dms-plugin/tests/qml/run.sh [filter]` (Qt 6 `qml`, run by the unittest suite too). The unittest suite: `python3 -m unittest discover -s tests` from the repository root (about 15 minutes; run it in a throwaway HOME).
+`appglass plugin remove` takes the link out again (only a link to this repository's plugin); the glass files stay until `appglass remove`. Tests: `sh dms-plugin/tests/qml/run.sh [filter]` (Qt 6 `qml`, run by the unittest suite too). The unittest suite: `python3 -m unittest discover -s tests` from the repository root (about 15 minutes; run it in a throwaway HOME, with a short `TMPDIR` path: the GTK tests' broadwayd puts its socket in a folder there, and a Unix socket path is at most 107 bytes).
 
 ## Findings
 
