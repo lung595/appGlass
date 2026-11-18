@@ -695,7 +695,9 @@ def verify_one(app, key):
     """Check one app. Returns the result dict (also recorded)."""
     rec = engine.record_for(app, key)
     if rec is None:
-        return {"result": "unverifiable", "reason": "no launcher for %s" % key}
+        return {"result": "unverifiable",
+                "reason": "no launcher for %s (verify takes an app key or a family name,"
+                          " as appglass status lists them)" % key}
     route = route_of(app, rec)
     if route.get("state") == "excluded" or not route.get("family"):
         def skip(a):
@@ -737,6 +739,13 @@ def _verify_keys(app, key, queue):
             return list(engine.store(a).data["queue"])
         keys = with_lock(app, queued)
         app.from_hook = True
+    elif engine.record_for(app, key) is None and key in app.families:
+        # a family name: check the apps of that family that are installed
+        keys = [r["key"] for r in engine.records(app)
+                if route_of(app, r).get("family") == key]
+        if not keys:
+            app.info("verify: %s: no app of this family found" % key)
+            return 0
     else:
         keys = [key]
     if not keys:

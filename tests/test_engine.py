@@ -777,6 +777,17 @@ class Heal(unittest.TestCase):
         self.assertEqual(self.state()["state"], "glass")
         self.assertTrue(os.path.exists(self.w.user(".local/bin/appglass-localsend")))
 
+    def test_verify_takes_a_family_name(self):
+        self.run_ok("apply")
+        out = self.run_ok("verify", "localsend")
+        self.assertIn("verify: %s: pass" % LS, out)
+        self.assertNotIn("no launcher", out)
+        self.assertEqual(self.state()["state"], "glass")
+        # an unknown name says what verify expects
+        code, out, err = self.w.run("verify", "no-such-app")
+        self.assertIn("no launcher for no-such-app", out + err)
+        self.assertIn("appglass status", out + err)
+
     def test_stale_then_reverified(self):
         """B5c Accept 1."""
         self.live()
