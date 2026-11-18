@@ -4,7 +4,7 @@
 
 *Left: without appGlass. Right: with appGlass.*
 
-**Glass backgrounds for desktop apps on [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) + niri.**
+**Glass backgrounds for desktop apps on [DMS](https://github.com/duxlabs-dev/dux-shell) + niri.**
 
 Your wallpaper shows through the app. Text, icons and logos stay sharp.
 The glass level follows your DMS window opacity.
@@ -22,7 +22,7 @@ The glass level follows your DMS window opacity.
 
 | Dependency | Version | Needed for |
 | --- | --- | --- |
-| DankMaterialShell | 2.0.0 or newer | The glass level and the settings page |
+| DMS (Dux Modular Shell, formerly DankMaterialShell) | 2.0.0 or newer | The glass level and the settings page |
 | niri | Any recent version | The window rules |
 | Python | 3.11 or newer, standard library only | Everything (`appglass` is a Python program) |
 | `gcc` | Any | The small C shims (Lian Li, LocalSend, ArtCraft) |
@@ -331,7 +331,7 @@ These are plans, not promises. They have no dates.
 
 ## Credits
 
-Built on [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell), [Quickshell](https://quickshell.org) and [niri](https://github.com/YaLTeR/niri).
+Built on [DMS](https://github.com/duxlabs-dev/dux-shell) (Dux Modular Shell, formerly DankMaterialShell), [Quickshell](https://quickshell.org) and [niri](https://github.com/YaLTeR/niri).
 
 The levels come from [browserGlass](https://github.com/lung595/browserGlass): the bar level of 0.65 and the opaque menus are its own.
 

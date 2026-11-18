@@ -1118,5 +1118,14 @@ class VencordInstaller(unittest.TestCase):
     def test_git_ignores_the_installer_in_the_clone(self):
         self.assertIn("/VencordInstallerCli-linux", read(".gitignore").splitlines())
 
+
+class ReadmeRound3(unittest.TestCase):
+    def test_dms_is_named_and_linked_as_it_is_now(self):
+        r = read("README.md")
+        self.assertNotIn("AvengeMedia", r)
+        self.assertNotRegex(r, r"(?m)^\| DankMaterialShell \|")
+        self.assertIn("[DMS](https://github.com/duxlabs-dev/dux-shell)", r)
+        self.assertIn("Dux Modular Shell", r)
+
 if __name__ == "__main__":
     unittest.main()
