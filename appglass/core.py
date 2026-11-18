@@ -615,16 +615,40 @@ def _missing_dirs(d):
     return list(reversed(out))
 
 
-def _atomic_write(path, data):
-    tmp = os.path.join(os.path.dirname(path), ".%s.appglass-tmp" % os.path.basename(path))
-    with open(tmp, "wb") as f:
+def _write_durable(path, data):
+    """Write path, on the disk before it returns (a backup, a ring blob:
+    what state.json then names must not be empty after a power loss)."""
+    with open(path, "wb") as f:
         f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _fsync_dir(d):
+    try:
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def _atomic_write(path, data):
+    """Replace path whole: a power loss leaves the old bytes or the new
+    ones, never an empty file (state.json, the ring manifest)."""
+    tmp = os.path.join(os.path.dirname(path), ".%s.appglass-tmp" % os.path.basename(path))
+    _write_durable(tmp, data)
     try:
         st = os.stat(path)
         os.chmod(tmp, st.st_mode & 0o7777)
     except FileNotFoundError:
         pass
     os.replace(tmp, path)
+    _fsync_dir(os.path.dirname(path) or ".")
 
 
 def _mode(path):
@@ -1211,8 +1235,7 @@ class App:
             os.makedirs(self.backup_dir(), exist_ok=True)
         if old != cur:
             self.snapshot(bpath)    # a restore of this run's entry takes it out again
-            with open(bpath, "wb") as f:
-                f.write(cur)
+            _write_durable(bpath, cur)
         return {"backup": os.path.join("backup", bname), "orig_sha256": sha(cur)}
 
     # ---- the backup ring
@@ -1232,8 +1255,7 @@ class App:
             blob = hashlib.sha1(p.encode()).hexdigest()[:16]
             bpath = os.path.join(entry, blob)
             self.env.guard(bpath)
-            with open(bpath, "wb") as f:
-                f.write(data)
+            _write_durable(bpath, data)
             rec = {"sha256": sha(data), "blob": blob, "mode": _mode(p)}
         elif os.path.lexists(p):
             return              # not a file: appglass writes none there

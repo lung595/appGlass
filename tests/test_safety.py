@@ -1525,5 +1525,33 @@ class UninstalledSinceApply(Base):
         self.assertFalse(os.path.exists(self.state_dir))
 
 
+class Durable(Base):
+    """state.json, the ring manifest, the ring blobs and the originals in
+    backup/ are on the disk before anything names them (a power loss
+    leaves no empty state.json)."""
+
+    def test_each_write_is_synced_before_the_replace(self):
+        log = []
+        real_fsync, real_replace = os.fsync, os.replace
+        with unittest.mock.patch.object(core.os, "fsync",
+                                        lambda fd: (log.append(("fsync", fd)), real_fsync(fd))), \
+                unittest.mock.patch.object(core.os, "replace",
+                                           lambda a, b: (log.append(("replace", b)),
+                                                         real_replace(a, b))):
+            self.apply()
+        replaced = [i for i, (k, _) in enumerate(log) if k == "replace"]
+        names = {os.path.basename(log[i][1]) for i in replaced}
+        self.assertTrue({"state.json", "manifest.json"} <= names, names)
+        for i in replaced:
+            self.assertGreater(i, 0)
+            self.assertEqual(log[i - 1][0], "fsync", log[i][1])
+        with open(self.state_json) as f:
+            st = json.load(f)
+        self.assertTrue(any(r.get("backup") for o in st["owners"].values()
+                            for r in o.get("files", {}).values()))
+        # one more fsync per backup and blob than per replace
+        self.assertGreater(sum(k == "fsync" for k, _ in log), 2 * len(replaced))
+
+
 if __name__ == "__main__":
     unittest.main()
