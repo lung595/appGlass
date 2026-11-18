@@ -89,7 +89,7 @@ TODO(adapters): this table is from the first per-app tests and is kept as a reco
 | Feishin (flatpak) | electron | yes | no | no | fallback (`custom.css` recolours only) | [electron.md](electron.md) |
 | Steam (flatpak, CEF) | electron | yes | no | no | fallback | [electron.md](electron.md) |
 | Vesktop / Vencord / Equibop | electron | no | no | partial (unverified) | "Transparent window" + alpha variant of DMS `dank-discord.css` | [electron.md](electron.md) |
-| VSCodium 1.143 (flatpak) | electron | yes | yes | yes (opt-in) | `vscodium` family: electron hook via the wrapper `appglass-vscodium` + workbench CSS ([apps.md](apps.md)) | [electron.md](electron.md) |
+| VSCodium 1.143 (flatpak) | electron | yes | yes | yes (on, after its check) | `vscodium` family: electron hook via the wrapper `appglass-vscodium` + workbench CSS ([apps.md](apps.md)) | [electron.md](electron.md) |
 | VS Code (Microsoft build) | electron | no | no | no | fallback | [electron.md](electron.md) |
 | Element / Signal / Slack / Spotify | electron | no | no | no | fallback | [electron.md](electron.md) |
 | Lian Li Linux (`lianli-gui`, Tauri 2) | webkit | yes | yes | no | fallback (transparency compiled in, `gtk.css` has no effect) | [webkit.md](webkit.md) |

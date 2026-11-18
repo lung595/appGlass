@@ -29,7 +29,8 @@ inactive        unfocused windows a little more transparent, faded
                 instantFallback (an instant niri rule for apps with no fade)
 apps.<key>      {"enabled": bool, "route": str}: per app or family switch
                 (key = a family/adapter name or a detected app key).
-                Forced and Mod adapters stay off until enabled here.
+                Forced and Mod families are on by default and go live once
+                their hidden check passes; enabled false switches one off.
 
 When the DMS plugin is installed and enabled, its settings page is the one
 writer: ``appglass set`` refuses (the plugin calls ``sync --settings-file``).

@@ -104,7 +104,7 @@
    "app": "VSCodium 1.143 (flatpak)",
    "toolkit": "Electron",
    "family": "vscodium",
-   "route": "electron-hook (the Feishin hook) with workbench CSS; opt-in",
+   "route": "electron-hook (the Feishin hook) with workbench CSS; on by default, live after its check",
    "tested": "here",
    "result": "glass",
    "reason": "breadcrumb strip and terminal panel checked as regions (opaque share 4% and 0%); the terminal uses the DOM renderer (gpuAcceleration off). Fresh-HOME starts vsf1-13: 2 of 5 without glass before the injector retried while Node starts, 8 of 8 glass after",
@@ -241,16 +241,16 @@
    "app": "ArtCraft Launcher 0.19.2",
    "toolkit": "egui / wgpu",
    "family": "artcraft",
-   "route": "ck-shim: Mesa EGL + wgpu GL + colour keys, 60 fps cap; opt-in",
+   "route": "ck-shim: on a Vulkan GPU the layer VK_LAYER_APPGLASS_glass (colour keys on the GPU), else Mesa EGL + wgpu GL + colour keys, 60 fps cap; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
-   "evidence": "docs/gpu.md"
+   "evidence": "docs/artcraft-gpu.md, docs/gpu.md"
   },
   {
    "app": "Feishin (flatpak)",
    "toolkit": "Electron",
    "family": "feishin",
-   "route": "electron-hook main-process hook; opt-in",
+   "route": "electron-hook main-process hook; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
    "evidence": "commit 1571a2a"
@@ -259,7 +259,7 @@
    "app": "Jellyfin Desktop 2.0.0 (flatpak)",
    "toolkit": "Qt Quick + WebEngine",
    "family": "jellyfin",
-   "route": "qtquick-shim libjfglass.so; opt-in",
+   "route": "qtquick-shim libjfglass.so; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
    "evidence": "commit de7eee8"
@@ -268,7 +268,7 @@
    "app": "LocalSend 1.18.2 (flatpak)",
    "toolkit": "Flutter",
    "family": "localsend",
-   "route": "ck-shim colour keys; opt-in",
+   "route": "ck-shim colour keys; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
    "evidence": "commit ec1db1a"
@@ -277,7 +277,7 @@
    "app": "Lian Li Linux (lianli-gui)",
    "toolkit": "Tauri / WebKitGTK",
    "family": "lianli",
-   "route": "webkit-shim appglass-wk.so; opt-in",
+   "route": "webkit-shim appglass-wk.so; on by default, live after its check",
    "tested": "earlier",
    "result": "glass",
    "evidence": "commit 7b90b43"
@@ -286,7 +286,7 @@
    "app": "Discord + Vencord",
    "toolkit": "Electron (client mod)",
    "family": "vencord",
-   "route": "Vencord transparent window + DMS theme with alpha; opt-in",
+   "route": "Vencord transparent window + DMS theme with alpha; on by default, live after its check",
    "tested": "earlier",
    "result": "partial",
    "reason": "needs the Vencord client mod; the official client alone has no route",

@@ -1,7 +1,7 @@
 # GPU-native Rust UIs (gpui, egui/wgpu)
 
 Herdr (gpui) reaches all three levels: 0.60 content, 0.65 bars and sidebar, 1.0 popups. It needs a theme file, one custom layout and a niri rule. One ANSI palette entry still needs a fix. Zed (gpui) is expected to work the same way, but this is documented only.
-ArtCraft Launcher (egui/wgpu) gets glass through the forced `ck-shim` adapter (family `artcraft`, off until enabled): on a Vulkan GPU, the Vulkan layer `VK_LAYER_APPGLASS_glass` ([artcraft-gpu.md](artcraft-gpu.md)); otherwise Mesa EGL + wgpu's GL backend plus the colour-key shim.
+ArtCraft Launcher (egui/wgpu) gets glass through the forced `ck-shim` adapter (family `artcraft`, on by default, live once its hidden check passes; `apps.artcraft.enabled = false` switches it off): on a Vulkan GPU, the Vulkan layer `VK_LAYER_APPGLASS_glass` ([artcraft-gpu.md](artcraft-gpu.md)); otherwise Mesa EGL + wgpu's GL backend plus the colour-key shim.
 
 ## Apps
 

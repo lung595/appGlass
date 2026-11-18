@@ -1,7 +1,7 @@
 """ck-shim: LocalSend (flatpak org.localsend.localsend_app, Flutter).
 
-A forced adapter (off until apps.localsend or apps.org.localsend.localsend_app
-is enabled). appglass-ck.so (LD_PRELOAD inside the flatpak, built from
+A forced adapter (on by default, live once its hidden check passes;
+apps.localsend.enabled=false switches it off). appglass-ck.so (LD_PRELOAD inside the flatpak, built from
 shims/ck-shim with gcc) colour-keys LocalSend's own background colours to
 the glass levels. The wrapper passes the lib dir read-only for that run only
 (no flatpak override) and picks the keys from LocalSend's theme setting.

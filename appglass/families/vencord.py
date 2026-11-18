@@ -1,6 +1,7 @@
 """electron-vencord: the official Discord with Vencord (a client mod).
 
-A mod adapter: off until apps.vencord or apps.discord is enabled. Client
+A mod adapter: on by default, live once its hidden check passes;
+apps.vencord.enabled=false switches it off. Client
 mods are against Discord's terms; appglass never installs Vencord itself
 (the user does, with the official installer) and never owns it.
 

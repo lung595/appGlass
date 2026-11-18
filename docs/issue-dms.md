@@ -55,7 +55,7 @@ Measured from window screenshots composited over black and white, in nested niri
 - **A check before anything loaded into an app.** Shims, the inspector hook and the Vencord route go live only after a hidden headless check (gamescope headless, nested niri, a private D-Bus and a throwaway HOME) shows the background at the level and opaque text. After an app update, that app runs plain until it passes again; a failed check, or two launches with no window, leave it plain until its next update, with one notification. The user can switch any of them off, and turning one back on asks first.
 
 - **Safe by default:**
-  - no system files, no sudo; app binaries, asars and flatpak deploys are not modified (the opt-in Vencord route re-runs the user's Vencord installer after a Discord update);
+  - no system files, no sudo; app binaries, asars and flatpak deploys are not modified (the Vencord route, on by default once its check passes, re-runs the user's Vencord installer after a Discord update);
   - every file it writes is recorded and restored byte for byte on uninstall, with a backup ring of the last 5 applies;
   - games are never touched: no file, env or preload, `opacity 1.0` and blur off;
   - root GUIs stay opaque, password managers get native routes only, and game launchers never get a preload;

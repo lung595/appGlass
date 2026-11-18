@@ -1,8 +1,8 @@
 """qtquick-shim: Jellyfin Desktop 2.x (flatpak org.jellyfin.JellyfinDesktop,
 Qt Quick + QtWebEngine + mpv).
 
-A forced adapter (off until apps.jellyfin or apps.org.jellyfin.JellyfinDesktop
-is enabled). libjfglass.so (LD_PRELOAD in the main process only, built from
+A forced adapter (on by default, live once its hidden check passes;
+apps.jellyfin.enabled=false switches it off). libjfglass.so (LD_PRELOAD in the main process only, built from
 shims/qtquick-shim with the host Qt 6) gives the Qt Quick window an alpha
 channel, clears the window and web view backgrounds, shows the mpv layer only
 while a video plays (videos and text stay 1.0) and injects the CSS named by

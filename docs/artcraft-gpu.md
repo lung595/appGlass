@@ -10,7 +10,7 @@ Without it, wgpu's Vulkan swapchain is opaque, and the only glass route is the C
 
 ## Install and routes
 
-`appglass apply --only artcraft` (the family is off until `apps.artcraft.enabled = true`) builds and records, next to `appglass-ck.so`:
+`appglass apply --only artcraft` (the family is on by default and goes live once its hidden check passes; `apps.artcraft.enabled = false` switches it off) builds and records, next to `appglass-ck.so`:
 
 - `~/.local/lib/appglass/artcraft/vk/libappglass-vk.so`, built with the host `cc` from `appglass-vk.c` and `glass-spv.h` (rebuilt only when they or the compiler change);
 - `~/.local/lib/appglass/artcraft/vk/appglass-vk.json`, the explicit manifest (`library_path` `./libappglass-vk.so`);

@@ -29,7 +29,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 | [Electron inspector hook](#feishin-and-vscodium-electron-inspector-hook) | Forced | `feishin`, `vscodium` | Feishin, VSCodium | on, after its check |
 | [WebKit shim](#lian-li-webkitgtk-shim) | Forced | `lianli` | Lian Li Linux | on, after its check |
 | [Qt Quick shim](#jellyfin-qt-quick-shim) | Forced | `jellyfin` | Jellyfin Desktop | on, after its check |
-| [Colour-key shim](#localsend-and-artcraft-colour-key-shim) | Forced | `localsend`, `artcraft` | LocalSend, ArtCraft Launcher | on, after its check |
+| [Colour-key shim](#localsend-and-artcraft-colour-key-shim) | Forced | `localsend`, `artcraft` | LocalSend, ArtCraft Launcher (GPU route through a Vulkan layer, else CPU route) | on, after its check |
 | [Opaque](#opaque) | | | Steam, Chrome, games, everything else | |
 
 ## Terminals
@@ -154,8 +154,17 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 
 Flutter and egui apps draw everything themselves into one surface. The shim replaces the app's own background colours (known keys) with the same colour at the glass level, and leaves every other pixel, text included, untouched.
 
-- **Writes:** `appglass-ck.so` built with `gcc`, the wrapper (`appglass-localsend`, `appglass-artcraft`) and a launcher override. For LocalSend (flatpak) the lib folder is passed read-only for that run only, with no `flatpak override`. ArtCraft is moved to Mesa EGL with wgpu's GL backend, which renders on the CPU (software rendering, llvmpipe), and its swaps are capped at 60 fps.
-- **Measured:** LocalSend on the real desktop at 0.80: background 204, text 255. ArtCraft at 0.80: background 204, text 255. See [flutter.md](flutter.md), [gpu.md](gpu.md) and the [issue draft](issue-dms.md#screenshots).
+- **Writes:** `appglass-ck.so` built with `gcc`, the wrapper (`appglass-localsend`, `appglass-artcraft`) and a launcher override. For LocalSend (flatpak) the lib folder is passed read-only for that run only, with no `flatpak override`. ArtCraft also gets the Vulkan layer `VK_LAYER_APPGLASS_glass` and its device probe in `~/.local/lib/appglass/artcraft/vk/` (nothing in the system or user Vulkan layer folders).
+- **ArtCraft's routes:** the wrapper picks one at every start ([artcraft-gpu.md](artcraft-gpu.md#install-and-routes)):
+
+  | Route | When | What it does |
+  |---|---|---|
+  | GPU | the layer is installed and the probe finds a Vulkan device that is not the CPU | wgpu stays on Vulkan; the layer asks for a premultiplied swapchain and runs the colour keys on the GPU; no frame cap |
+  | CPU | `APPGLASS_ARTCRAFT=cpu`, no layer (it did not build), or only llvmpipe, no device or a probe that fails; Mesa EGL installed | Mesa EGL with wgpu's GL backend on llvmpipe (software rendering), the colour keys, swaps capped at 60 fps |
+  | plain | `APPGLASS_ARTCRAFT=off`, the check not passed yet (waiting, stale, paused), a light system theme, no keys, or neither route possible | the launcher as it ships, opaque |
+
+  `appglass status`, `doctor` and the plugin's app row say which route it takes and why.
+- **Measured:** LocalSend on the real desktop at 0.80: background 204, text 255. ArtCraft at 0.80 on the CPU route: background 204, text 255. ArtCraft 0.19.2 in the headless harness at 0.60, both routes: content 153, bar 166, text 255; scrolling costs about 25 times less CPU on the GPU route at 60 Hz ([artcraft-gpu.md](artcraft-gpu.md#the-installed-family-headless-harness)). See [flutter.md](flutter.md), [gpu.md](gpu.md) and the [issue draft](issue-dms.md#screenshots).
 - **Fade, recorded:** LocalSend 1.18.2 at 0.80 (light theme), three runs: no fade, the background stays 0.80 focused and unfocused. The shim has no focus lever; only "Dim apps that cannot fade" reaches it.
 - **Limit:** the colour keys are per app and per light/dark theme. A colour that is not a key stays opaque: a miss fails safe, it never fades text.
 - **Keys:** the keys are data, one file per app version and dark or light mode (`~/.cache/appglass/keys/`), read by the wrapper through `appglass keys`, so an update or a theme flip needs no wrapper edit.

@@ -1,7 +1,7 @@
 """electron-hook: Feishin (flatpak org.jeffvli.feishin, Electron).
 
-A forced adapter (off until apps.feishin or apps.org.jeffvli.feishin is
-enabled). The wrapper starts Feishin through its normal flatpak command with
+A forced adapter (on by default, live once its hidden check passes;
+apps.feishin.enabled=false switches it off). The wrapper starts Feishin through its normal flatpak command with
 a Node inspector on 127.0.0.1 (random port, --inspect-publish-uid=stderr:
 the target is not listed over HTTP, the session UUID is read only by the
 wrapper from a 0700 dir and deleted after injection); agl-inject.py then

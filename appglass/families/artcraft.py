@@ -1,7 +1,7 @@
 """ck-shim: ArtCraft Launcher (artcraft-launcher, egui / winit / wgpu).
 
-A forced adapter (off until apps.artcraft or apps.ai.storyteller.artcraft-launcher
-is enabled). The wrapper appglass-artcraft picks one of two routes at launch:
+A forced adapter (on by default, live once its hidden check passes;
+apps.artcraft.enabled=false switches it off). The wrapper appglass-artcraft picks one of two routes at launch:
 
 * GPU (when the layer files are there and appglass-vkprobe, run with the
   route's Vulkan env and the layer on, finds a device that is not the CPU):

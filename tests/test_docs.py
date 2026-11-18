@@ -548,6 +548,22 @@ class ResearchNotes(unittest.TestCase):
         self.assertRegex(doc("README.md"), r"Research notes per toolkit[^\n]*routes\.md")
 
 
+class DefaultOn(unittest.TestCase):
+    """Forced and Mod families are on by default and go live once checked
+    (core._family_enabled): nothing says they are opt-in or off until enabled."""
+    def test_no_doc_or_docstring_says_opt_in(self):
+        import importlib
+        rx = re.compile(r"opt-in|off until", re.I)
+        for name in ("artcraft", "feishin", "jellyfin", "lianli", "localsend", "vencord", "vscodium"):
+            m = importlib.import_module("appglass.families." + name)
+            self.assertNotRegex(m.__doc__ or "", rx, name)
+        for row in json.loads(doc("apps.json"))["apps"]:
+            self.assertNotRegex(row.get("route", ""), rx, row["app"])
+        for name in ("artcraft-gpu.md", "gpu.md", "electron.md", "apps.md", "routes.md"):
+            self.assertNotRegex(doc(name), rx, name)
+        self.assertIn("VK_LAYER_APPGLASS_glass", section(doc("routes.md"), "LocalSend and ArtCraft"))
+
+
 class FadeRecorded(unittest.TestCase):
     """Each fading route says what its recorded fade did, or why none was
     recorded (a frame-by-frame capture in a headless niri session)."""

@@ -6,8 +6,9 @@ would need. Each adapter has:
 
   TIER   native    the app's own theme/config files (on when detected)
          forced    an env var, a preload shim or a launcher flag the app does
-                   not offer (off until switched on in settings.json)
-         mod       a third-party client mod (off until switched on)
+                   not offer (a family: on by default, live once its hidden
+                   check passes, apps.<family>.enabled=false switches it off)
+         mod       a third-party client mod (the same)
          fallback  niri whole-window opacity only (fallback.mode)
          opaque    games: niri opacity 1.0, blur off
          delegated another plugin owns it (browserGlass)

@@ -1,7 +1,7 @@
 """webkit-shim: Lian Li Linux (lianli-gui, Tauri / WebKitGTK).
 
-A forced adapter (off until apps.lianli or apps.com.sgtaziz.lianlilinux is
-enabled). appglass-wk.so (LD_PRELOAD, built from shims/webkit-shim with gcc)
+A forced adapter (on by default, live once its hidden check passes;
+apps.lianli.enabled=false switches it off). appglass-wk.so (LD_PRELOAD, built from shims/webkit-shim with gcc)
 clears the WebView background, gives the window an RGBA visual and injects
 lianli-glass.css as a user stylesheet.
 
