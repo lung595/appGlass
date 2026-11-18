@@ -174,6 +174,98 @@ PY
 RT0=$(runtime_snapshot)
 printf '%s\n' "$RT0" > "$AG_OUT/runtime-before-$RUN.txt"
 
+# Quickshell's instance records, $RT/quickshell/{by-pid,by-id,by-shell/<h>,
+# by-path}: our instances add some there. Names and link mtimes only (the
+# user's shells write their logs all the time). clean: the new records of a
+# dead instance on our display ($WL) that ran from a dfiles/dankcal unpack go,
+# a by-path link the run touched gets its mtime back; prints the records
+# of our display still there
+qs_records() {   # list | clean <before.json>
+    python3 - "$RT" "$WL" "$@" <<'PY'
+import json, os, re, shutil, sys
+rt, wl, mode = sys.argv[1:4]
+q = os.path.join(rt, "quickshell")
+def ls(d):
+    try:
+        return sorted(os.listdir(d))
+    except OSError:
+        return []
+def names():
+    out = {}
+    for sub in ("by-pid", "by-id", "by-path", "by-shell"):
+        for n in ls(os.path.join(q, sub)):
+            p = os.path.join(q, sub, n)
+            try:
+                out[sub + "/" + n] = os.lstat(p).st_mtime_ns
+            except OSError:
+                continue
+            if sub == "by-shell" and os.path.isdir(p) and not os.path.islink(p):
+                for i in ls(p):
+                    out["%s/%s/%s" % (sub, n, i)] = 0
+    return out
+if mode == "list":
+    print(json.dumps(names()))
+    sys.exit(0)
+with open(sys.argv[4]) as f:
+    before = json.load(f)
+new = set(names()) - set(before)
+shell = re.compile(re.escape(rt) + r"/(dfiles|dankcal)-shell/")
+display = re.compile(r"(?<![\w-])%s(?![\w])" % re.escape(wl))
+gone = set()
+for k in sorted(new):
+    pid = k[len("by-pid/"):] if k.startswith("by-pid/") else ""
+    if not pid.isdigit() or os.path.exists("/proc/" + pid):
+        continue
+    link = os.path.join(q, k)
+    iid = os.path.basename(os.readlink(link)) if os.path.islink(link) else ""
+    if not iid or "by-id/" + iid not in new:
+        continue
+    try:
+        with open(os.path.join(q, "by-id", iid, "instance.lock"), "rb") as f:
+            lock = f.read().replace(b"\0", b"").decode("latin-1")
+    except OSError:
+        continue
+    if not (shell.search(lock) and display.search(lock)):
+        continue
+    os.unlink(link)
+    shutil.rmtree(os.path.join(q, "by-id", iid))
+    gone.add(iid)
+    print("e2e: runtime: removed our quickshell record %s (pid %s)" % (iid, pid), file=sys.stderr)
+for k in sorted(new):
+    parts = k.split("/")
+    if len(parts) == 3 and parts[0] == "by-shell" and parts[2] in gone:
+        os.unlink(os.path.join(q, k))
+for k in sorted(new):
+    parts = k.split("/")
+    if len(parts) == 2 and parts[0] == "by-shell":
+        try:
+            os.rmdir(os.path.join(q, k))
+        except OSError:
+            pass
+for k in sorted(new):
+    p = os.path.join(q, k)
+    if k.startswith("by-path/") and os.path.islink(p) and not os.path.exists(p):
+        os.unlink(p)     # its by-shell dir went with our records
+for k, t in before.items():
+    p = os.path.join(q, k)
+    if k.startswith("by-path/") and os.path.islink(p) and os.lstat(p).st_mtime_ns != t:
+        os.utime(p, ns=(t, t), follow_symlinks=False)
+# still new and on our display (a shell the user starts meanwhile is not ours)
+for k in sorted(set(names()) - set(before)):
+    if not k.startswith("by-id/"):
+        continue
+    try:
+        with open(os.path.join(q, k, "instance.lock"), "rb") as f:
+            lock = f.read().replace(b"\0", b"").decode("latin-1")
+    except OSError:
+        lock = ""
+    if display.search(lock):
+        print(k)
+PY
+}
+QS0=$AG_OUT/quickshell-before-$RUN.json
+qs_records list > "$QS0"
+
 # the Quickshell copies our instances unpacked ($RT/<app>-shell/<id>, read-only
 # dirs): those not there before the run and that no live process runs from
 # (qs -p <dir>) are ours, and go; a shell parent made by the run goes once empty
@@ -426,6 +518,8 @@ if [ -n "$DPATH_SAVE" ] && ! cmp -s "$DPATH_SAVE" "$DPATH"; then
     [ -e "$DPATH" ] || cp -p -- "$DPATH_SAVE" "$DPATH"
 fi
 drop_own_shells
+QS_NEW=$(qs_records clean "$QS0")
+[ -z "$QS_NEW" ] || FAILS+=("runtime: quickshell records left behind: $(echo $QS_NEW)")
 RT1=$(runtime_snapshot)
 printf '%s\n' "$RT1" > "$AG_OUT/runtime-after-$RUN.txt"
 RT_LOST=$(comm -23 <(printf '%s\n' "$RT0" | sort) <(printf '%s\n' "$RT1" | sort) | grep -v '^$' || true)
