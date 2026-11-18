@@ -15,7 +15,12 @@
 // starts another document; fk_hold keeps a view's loads from finishing until
 // released, fk_commit commits a held load without finishing it; a finished
 // page posts "appglassShown" when its view registered that handler, unless
-// fk_nopaint holds it back until fk_paint), fk_report prints one line of the
+// fk_nopaint holds it back until fk_paint), fk_remove takes a widget out of
+// its parent (unmapped first; gtk_widget_destroy of a child does that) and
+// fk_add puts it into another (mapped with it when it is mapped), both
+// emitting hierarchy-changed on it and its descendants with the previous
+// toplevel; fk_related makes a view use another view's user content manager
+// (webkit_web_view_new_with_related_view), fk_report prints one line of the
 // window and the view.
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +41,7 @@ typedef struct W {
                                          //     ran; a document committed once; its loads held; the
                                          //     load in progress committed
     int handler, nopaint;                //     appglassShown registered; its post held back
+    struct W *ucm;                       //     its content manager (itself unless related)
 } W;
 static W *loads[16]; static int nloads;
 static void load(W *v) { v->loading = 1; v->committed = 0; if (nloads < 16) loads[nloads++] = v; }
@@ -95,7 +101,7 @@ void fk_idle(void) {
         W *v = loads[i];
         if (v->held) { loads[kept++] = v; continue; }
         if (!v->loading) continue;
-        v->loading = 0; v->page = v->scripts; v->shown = 1;
+        v->loading = 0; v->page = (v->ucm ? v->ucm : v)->scripts; v->shown = 1;
         if (!v->committed) load_changed(v, 2);   // WEBKIT_LOAD_COMMITTED
         v->committed = 0;
         load_changed(v, 3);                      // WEBKIT_LOAD_FINISHED
@@ -175,7 +181,8 @@ void webkit_web_view_set_background_color(void *v, const GdkRGBA *c) { ((W *)v)-
 void webkit_web_view_load_html(void *v, const char *html, const char *base) { (void)html; (void)base; load(v); }
 int webkit_web_view_is_loading(void *v) { return ((W *)v)->loading; }
 const char *webkit_web_view_get_uri(void *v) { return ((W *)v)->shown || ((W *)v)->loading ? "about:blank" : NULL; }
-void *webkit_web_view_get_user_content_manager(void *v) { return v; }   // the view counts its items
+// the view counts its items (a related view: the first view's)
+void *webkit_web_view_get_user_content_manager(void *v) { return ((W *)v)->ucm ? ((W *)v)->ucm : v; }
 void *webkit_web_view_get_settings(void *v) { return v; }
 void webkit_settings_set_enable_write_console_messages_to_stdout(void *s, int on) { (void)s; (void)on; }
 static int item;
@@ -220,10 +227,32 @@ void fk_hold(void *v, int on) { ((W *)v)->held = on; }
 void fk_nopaint(void *v, int on) { ((W *)v)->nopaint = on; }
 void fk_paint(void *v) { post_shown(v); }
 void fk_commit(void *v) { W *x = v; if (x->loading && !x->committed) { x->committed = 1; load_changed(x, 2); } }
+static void hierarchy(W *w, W *prev) {
+    for (H *h = w->handlers; h; h = h->next)
+        if (!strcmp(h->sig, "hierarchy-changed")) ((void (*)(void *, void *, void *))h->fn)(w, prev, h->data);
+    for (int i = 0; i < w->nkids; i++) hierarchy(w->kids[i], prev);
+}
+void fk_remove(void *w) {
+    W *x = w, *p = x->parent; if (!p) return;
+    W *prev = gtk_widget_get_toplevel(x);
+    if (x->mapped) unmap_tree(x);
+    int j = 0;
+    for (int i = 0; i < p->nkids; i++) if (p->kids[i] != x) p->kids[j++] = p->kids[i];
+    p->nkids = j; x->parent = NULL;
+    hierarchy(x, prev->top ? prev : NULL);
+}
+void fk_add(void *w, void *parent) {
+    W *x = w, *p = parent; if (x->parent) return;
+    x->parent = p; p->kids[p->nkids++] = x;
+    hierarchy(x, NULL);
+    if (p->mapped && x->visible) map_tree(x);
+}
+void fk_related(void *v, void *other) { ((W *)v)->ucm = other; }
 void fk_titlebar(void *win, void *w) { ((W *)win)->titlebar = w; }
 void fk_frame(void *w, unsigned border, int margin) { ((W *)w)->border = border; ((W *)w)->margin = margin; }
 void fk_report(const char *step, void *top, void *view) {
     W *t = top, *v = view;
+    W *u = webkit_web_view_get_user_content_manager(v);
     printf("%s paintable=%d bg_alpha=%g sheets=%d scripts=%d page=%d\n", step, t->paintable, v->bg.a,
-           v->sheets, v->scripts, v->page);
+           u->sheets, u->scripts, v->page);
 }

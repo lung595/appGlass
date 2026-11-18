@@ -12,7 +12,8 @@
 //      any other custom titlebar counts, a plain box is clear in a CSD window).
 //      Looked at, for every view of the window (a stack of views: the one shown can fill it),
 //      when the toplevel maps, whenever a widget in it maps or unmaps (an emission hook, once
-//      the main loop is idle) and at a view's first document: native chrome around a WebView (a mail
+//      the main loop is idle), when a view goes into or out of it (destroyed, or moved: a window
+//      left with no view is opaque again) and at a view's first document: native chrome around a WebView (a mail
 //      client's folder list, a sidebar shown later) would be holes on the bare blur, so the view
 //      gets its background back, the stylesheet comes out and the window is opaque; when the
 //      chrome is gone again, the glass comes back. The scripts stay in all along: they only mark
@@ -244,7 +245,9 @@ static void *view_at(void *top, Views *vs, int i) {
 
 // the window app-paintable while one of its views is glass and shows its first document (before,
 // the clear view would show the bare blur): at most one view fills the window at a time (another
-// view mapped is a widget beside it). Left alone until a view of it is decided.
+// view mapped is a widget beside it). Left alone until a view of it is decided; once glassed, a
+// window left with no view of its own (destroyed, or moved to another window: native widgets in
+// its place would be holes on the bare blur) is opaque again.
 static void set_window(void *top) {
     void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
     void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
@@ -260,15 +263,17 @@ static void set_window(void *top) {
         if (st == 1) { if (obj_get(v, "appglass-shown")) on = 1; else wait = 1; }
         if (unref) unref(v);
     }
-    if (!decided) return;
+    long paint = (long)obj_get(top, "appglass-paint");
+    if (!decided && paint != 1) return;
     if (vs->many) on = 0;
     long want = on ? 1 : 2;
-    if ((long)obj_get(top, "appglass-paint") == want) return;
+    if (paint == want) return;
     obj_set(top, "appglass-paint", (void *)want, NULL);
     if (set_paintable) set_paintable(top, on);
     if (queue_draw) queue_draw(top);
     if (on) LOG("toplevel %p: app-paintable (the view fills it)", top);
     else if (wait) LOG("toplevel %p: the view fills it, app-paintable at the first document", top);
+    else if (!decided) LOG("toplevel %p: no view left in it, opaque", top);
     else LOG("toplevel %p: native widgets beside the view, left opaque", top);
 }
 
@@ -373,10 +378,12 @@ static int glass_toplevel(void *view) {
     return 1;
 }
 
+// the view (or an ancestor) put into or taken out of a window: the window it left is decided
+// again (a view destroyed or moved leaves it), the one it is in now tracks it
 static void on_hierarchy(void *view, void *prev, void *data) {
-    (void)prev; (void)data;
-    if (obj_get(view, "appglass-top")) return;
-    if (glass_toplevel(view)) obj_set(view, "appglass-top", (void *)1, NULL);
+    (void)data;
+    if (prev && obj_get(prev, "appglass-views")) redecide_later(prev);
+    glass_toplevel(view);
 }
 
 // the stylesheet and scripts added to the view's content manager, kept on the view (its data owns a
@@ -491,9 +498,9 @@ static void glassify(void *view) {
     if (!connect || !is_loading || !get_uri || (!is_loading(view) && get_uri(view)))
         obj_set(view, "appglass-shown", (void *)1, NULL);
     inject(view);
-    if (!glass_toplevel(view)) {  // not in a window yet (wry builds the view first): when it is
-        if (connect) connect(view, "hierarchy-changed", (void *)on_hierarchy, NULL, NULL, 0);
-    }
+    // in a window now, or when it is (wry builds the view first), and in each window it moves to
+    glass_toplevel(view);
+    if (connect) connect(view, "hierarchy-changed", (void *)on_hierarchy, NULL, NULL, 0);
 }
 
 void webkit_web_view_load_uri(void *view, const char *uri) {

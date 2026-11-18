@@ -557,6 +557,7 @@ void *fk_widget(const char *, void *, int); void fk_map(void *); void fk_show(vo
 void fk_hide(void *); void fk_idle(void); void fk_report(const char *, void *, void *);
 void fk_navigate(void *); void fk_frame(void *, unsigned, int); void fk_titlebar(void *, void *);
 void fk_hold(void *, int); void fk_commit(void *); void fk_nopaint(void *, int); void fk_paint(void *);
+void fk_remove(void *); void fk_add(void *, void *); void fk_related(void *, void *);
 void webkit_web_view_load_html(void *, const char *, const char *);
 // box[sidebar (hidden), stack[A (hidden page, loaded), B (shown, its page slow)]]; reported: B,
 // then A on its page and B again
@@ -577,9 +578,52 @@ static int twoview(void) {
     fk_show(side); fk_idle(); fk_report("again", win, b);
     return 0;
 }
+// win[box[view]], glass; then the view out of it (destroyed, or moved to win2) and a native
+// label column packed in its place
+static int swap(int move) {
+    void *win = fk_widget("window", 0, 1), *box = fk_widget("box", win, 0);
+    void *view = fk_widget("view", box, 0), *win2 = fk_widget("window2", 0, 1);
+    webkit_web_view_load_html(view, "<p>page</p>", 0);
+    fk_map(win); fk_map(win2); fk_idle(); fk_report("glass", win, view);
+    fk_remove(view);
+    void *labels = fk_widget("labels", 0, 0); fk_widget("label", labels, 0); fk_add(labels, box);
+    if (move) fk_add(view, win2);
+    fk_idle(); fk_report("swapped", win, view);
+    if (move) fk_report("moved", win2, view);
+    return 0;
+}
+// win[view] alone, glass; then the view hidden (nothing left in the window) and shown again
+static int viewhide(void) {
+    void *win = fk_widget("window", 0, 1), *view = fk_widget("view", win, 0);
+    webkit_web_view_load_html(view, "<p>page</p>", 0);
+    fk_map(win); fk_idle(); fk_report("glass", win, view);
+    fk_hide(view); fk_idle(); fk_report("hidden", win, view);
+    fk_show(view); fk_idle(); fk_report("shown", win, view);
+    return 0;
+}
+// win1[view1] glass; then win2 with view2 on view1's content manager (a related view): beside a
+// sidebar ("related"), or alone ("relglass"); then the sidebar hidden, and view2 taken out
+static int related(int side) {
+    void *win = fk_widget("window", 0, 1), *v1 = fk_widget("view", win, 0);
+    webkit_web_view_load_html(v1, "<p>one</p>", 0);
+    fk_map(win); fk_idle(); fk_report("first", win, v1);
+    void *win2 = fk_widget("window2", 0, 1), *box = fk_widget("box", win2, 0);
+    void *sb = fk_widget("sidebar", box, 0), *v2 = fk_widget("view2", box, 0);
+    fk_widget("label", sb, 0);
+    if (!side) fk_hide(sb);
+    fk_related(v2, v1); webkit_web_view_load_html(v2, "<p>two</p>", 0);
+    fk_map(win2); fk_idle(); fk_report("one", win, v1); fk_report("two", win2, v2);
+    fk_hide(sb); fk_idle(); fk_report("one-nosb", win, v1); fk_report("two-nosb", win2, v2);
+    fk_show(sb); fk_idle(); fk_report("one-sb", win, v1);
+    fk_remove(v2); fk_idle(); fk_report("one-alone", win, v1);
+    return 0;
+}
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
     if (!strcmp(mode, "twoview")) return twoview();
+    if (!strcmp(mode, "swap") || !strcmp(mode, "move")) return swap(mode[0] == 'm');
+    if (!strcmp(mode, "viewhide")) return viewhide();
+    if (!strcmp(mode, "related") || !strcmp(mode, "relglass")) return related(mode[3] == 'a');
     if (!strcmp(mode, "commit")) {   // committed, not yet painted, then finished
         void *win = fk_widget("window", 0, 1), *view = fk_widget("view", win, 0);
         fk_hold(view, 1); webkit_web_view_load_html(view, "<p>page</p>", 0);
@@ -731,6 +775,18 @@ class ShimDecision(unittest.TestCase):
         r = self.run_driver("titlebox")
         self.assertEqual(r["mapped"], self.OPAQUE)
         self.assertEqual(r["hidden"], self.OPAQUE)
+
+    def test_a_view_replaced_by_native_widgets_makes_it_opaque(self):
+        """The view destroyed (or moved to another window) and native widgets
+        packed in its place: no view is left to fill the window, so it is
+        not app-paintable any more (the widgets would be holes on the bare
+        blur); a view moved into another window is decided there."""
+        r = self.run_driver("swap")
+        self.assertEqual(r["glass"], self.GLASS)
+        self.assertTrue(r["swapped"].startswith("paintable=0 "), r["swapped"])
+        r = self.run_driver("move")
+        self.assertTrue(r["swapped"].startswith("paintable=0 "), r["swapped"])
+        self.assertEqual(r["moved"], self.GLASS)
 
 
 if __name__ == "__main__":
