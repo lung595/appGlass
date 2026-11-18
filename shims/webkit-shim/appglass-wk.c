@@ -174,8 +174,8 @@ static void *header_bar(void *top) {
     return t && is_a(t, hb_type()) ? t : NULL;
 }
 
-// 1 when nothing but the view is drawn in the toplevel: no other child of the view's ancestors is
-// mapped (at the toplevel's map, after its children), and no margin or border-width leaves a frame
+// 1 when nothing but the view is drawn in the toplevel: the view is mapped (hidden, it leaves the
+// window empty and bare), no other child of the view's ancestors is mapped (at the toplevel's map, after its children), and no margin or border-width leaves a frame
 // round it. GTK3 lists a custom titlebar among the window's children: a GtkHeaderBar does not count
 // (it paints itself), any other titlebar does.
 static int fills(void *view, void *top) {
@@ -186,6 +186,7 @@ static int fills(void *view, void *top) {
     const char *(*name)(void *) = sym("gtk_widget_get_name");
     if (!get_parent || !mapped || !children || !list_free) return 1;
     typedef struct L { void *data; struct L *next, *prev; } L;
+    if (!mapped(view)) { LOG("view %p not shown", view); return 0; }
     void *hb = header_bar(top);
     for (void *w = view; w && w != top; ) {
         void *p = get_parent(w); if (!p) return 0;

@@ -789,5 +789,14 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r["moved"], self.GLASS)
 
 
+    def test_a_hidden_view_does_not_fill_the_window(self):
+        """The view hidden with nothing else in the window: an empty bare
+        window otherwise; opaque, and glass again once it is shown."""
+        r = self.run_driver("viewhide")
+        self.assertEqual(r["glass"], self.GLASS)
+        self.assertEqual(r["hidden"], self.OPAQUE)
+        self.assertEqual(r["shown"], self.GLASS)
+
+
 if __name__ == "__main__":
     unittest.main()
