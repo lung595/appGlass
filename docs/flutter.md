@@ -1,6 +1,8 @@
 # Flutter (Linux GTK embedder)
 
-No Flutter app gets real glass without changing the app itself. LocalSend (the only one installed) stays on the global niri `opacity 0.60` fallback, where text fades along with the background.
+> **Research notes.** This page records what was tried before appglass shipped its routes, and the findings behind them. What appglass does today for each app is in [routes.md](routes.md); where the two disagree, routes.md is current.
+
+No Flutter app gets real glass from Flutter itself. appglass gives LocalSend glass from outside, with its colour-key shim ([routes.md](routes.md#localsend-and-artcraft-colour-key-shim)). The rows below are from before that shim: without it, LocalSend stays on the global niri `opacity 0.60` fallback, where text fades along with the background.
 You can still tint it with the DMS/matugen accent and force its dark theme, so the faded window keeps readable text and logos.
 
 ## Apps

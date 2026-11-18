@@ -1,6 +1,8 @@
 # Terminals
 
-Terminals are the easiest category. Each one draws its own translucent background and keeps glyphs opaque, so the niri rule can be set to `opacity 1.0` and the text stops fading. Alacritty was tested in a nested niri session and works. Every other terminal here is documented only. No terminal needs the global niri opacity fallback, but Konsole and Ptyxis only make the terminal area glass, while their toolkit chrome stays opaque.
+> **Research notes.** This page records what was tried before appglass shipped its routes, and the findings behind them. What appglass does today for each app is in [routes.md](routes.md); where the two disagree, routes.md is current.
+
+Terminals are the easiest category. Each one draws its own translucent background and keeps glyphs opaque, so the niri rule can be set to `opacity 1.0` and the text stops fading. Alacritty was tested in a nested niri session and works. The rows below marked documented were written before appglass shipped its terminal writers; foot and Konsole (flatpak) are measured since ([routes.md](routes.md#kitty-foot-ghostty-wezterm-konsole)). No terminal needs the global niri opacity fallback, but Konsole and Ptyxis only make the terminal area glass, while their toolkit chrome stays opaque.
 
 ## Overview
 

@@ -1,6 +1,8 @@
 # Tauri / WebKitGTK
 
-No installed WebKitGTK app can paint glass without a rebuild. Lian Li Linux keeps the global niri opacity as a fallback. GNOME Web gets glass chrome from the GTK4 `gtk.css` and an `opacity 1.0` rule, and its page stays opaque.
+> **Research notes.** This page records what was tried before appglass shipped its routes, and the findings behind them. What appglass does today for each app is in [routes.md](routes.md); where the two disagree, routes.md is current.
+
+No installed WebKitGTK app can paint glass from its own settings. appglass gives Lian Li Linux glass from outside, with its WebKitGTK shim ([routes.md](routes.md#lian-li-webkitgtk-shim)); the Lian Li row below is from before it, when Lian Li kept the global niri opacity as a fallback. GNOME Web gets glass chrome from the GTK4 `gtk.css` and an `opacity 1.0` rule, and its page stays opaque.
 A Tauri/wry app that is *built* with `"transparent": true` and rgba page CSS reaches all three levels (0.60 / 0.65 / 1.0, tested with a demo that makes the same calls as wry). It needs a niri `opacity 1.0` rule, and it breaks under the usual NVIDIA WebKit env workarounds.
 
 ## Overview

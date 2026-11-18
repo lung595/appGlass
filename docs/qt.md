@@ -1,6 +1,8 @@
 # Qt (Qt Widgets / Qt Quick apps)
 
-Qt Widgets apps (VLC, Jellyfin Desktop, KDE apps, KeePassXC, OBS, ...) cannot become glass on this machine without installing a style: palette alpha is always painted onto an opaque buffer, so they keep the global niri `opacity 0.60` fallback.
+> **Research notes.** This page records what was tried before appglass shipped its routes, and the findings behind them. What appglass does today for each app is in [routes.md](routes.md); where the two disagree, routes.md is current.
+
+Qt Widgets apps (VLC, KDE apps, KeePassXC, OBS, ...) cannot become glass from their palette alone: palette alpha is always painted onto an opaque buffer. appglass now ships its own Qt style plugin (VLC, Kate, Konsole and the Qt 6 Widgets apps it finds) and a Qt Quick shim for Jellyfin Desktop ([routes.md](routes.md#qt-widgets-vlc-kate-konsole), [routes.md](routes.md#jellyfin-qt-quick-shim)). The rows below are from before them: without them these apps keep the global niri `opacity 0.60` fallback.
 The mechanism itself works under niri: a Qt Quick window colour with alpha reaches all three levels (0.60 / 0.65 / 1.0) with opaque text, and a Qt Widgets window with `WA_TranslucentBackground` reaches one level (0.60), which is what Kvantum would do after an install.
 
 Quickshell / Qt Quick apps that ship their own glass settings (Dux Files, Dux Calendar, DMS windows) are covered in [qtquick.md](qtquick.md).

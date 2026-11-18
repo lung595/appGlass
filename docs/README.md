@@ -237,6 +237,9 @@ IPC: `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> 
 - [engine.md](engine.md): how appGlass picks a route, what it never touches, what you see when it cannot glass an app
 - [routes.md](routes.md): what each route does to each app, with the measured result
 - [plugin.md](plugin.md): the DMS settings page, search, bar pill and IPC calls
+
+Research notes per toolkit, from before the shipped routes (what was tried and why; [routes.md](routes.md) is what appglass does today):
+
 - [terminal.md](terminal.md): Alacritty, kitty, foot, Ghostty, WezTerm, Konsole, Ptyxis
 - [gtk4.md](gtk4.md): GTK4 / libadwaita (Nautilus, GNOME Software, portal, Zenity, Flatseal)
 - [gtk3.md](gtk3.md): GTK3 (Solaar, nvidia-settings, Timeshift, Thunar, Inkscape, GIMP, LibreOffice)

@@ -1,7 +1,9 @@
 # Electron / Chromium
 
+> **Research notes.** This page records what was tried before appglass shipped its routes, and the findings behind them. What appglass does today for each app is in [routes.md](routes.md); where the two disagree, routes.md is current.
+
 Obsidian gets real glass with three levels (content 0.60, bars 0.65, menus 1.0) from a vault CSS snippet and one niri rule. Text stays opaque, and the snippet needs the `--text-faint` fix below.
-VSCodium (flatpak) gets glass through the electron hook (opt-in `vscodium` family, wrapper `appglass-vscodium`, see [apps.md](apps.md)). Every other Electron/Chromium/CEF app here (Discord, Feishin, Chrome, Steam, VS Code, Element, Signal, Slack, Spotify) keeps the global niri `opacity 0.60` fallback, because the app's own code never clears its window background. Vesktop/Vencord might work, but that is documented only.
+appglass now also glasses Discord (through Vencord) and Feishin and VSCodium (through the Electron inspector hook), both on by default once their hidden check passes ([routes.md](routes.md#discord-vencord), [routes.md](routes.md#feishin-and-vscodium-electron-inspector-hook)). The Discord and Feishin rows below are from before those routes. Every other Electron/Chromium/CEF app here (Chrome, Steam, VS Code, Element, Signal, Slack, Spotify) keeps the global niri `opacity 0.60` fallback, because the app's own code never clears its window background.
 
 ## Apps
 

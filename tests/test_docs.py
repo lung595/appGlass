@@ -527,6 +527,27 @@ class DocsRound2Minors(unittest.TestCase):
             self.assertIn("off` while the plugin is installed and enabled (", text, name)
 
 
+class ResearchNotes(unittest.TestCase):
+    """The toolkit pages predate the routes: each says so at the top and
+    points at routes.md, and none keeps a headline the routes contradict."""
+    STALE = {
+        "flutter.md": "LocalSend (the only one installed) stays on",
+        "qt.md": "cannot become glass on this machine without installing a style",
+        "webkit.md": "No installed WebKitGTK app can paint glass without a rebuild",
+        "electron.md": "(Discord, Feishin, Chrome",
+        "gtk4.md": "Flatpak GTK4 apps need a filesystem override",
+        "terminal.md": "Every other terminal here is documented only",
+    }
+
+    def test_each_toolkit_page_points_at_the_routes(self):
+        for name, stale in self.STALE.items():
+            top = doc(name).split("\n## ", 1)[0]
+            self.assertIn("**Research notes.**", top, name)
+            self.assertIn("[routes.md](routes.md)", top, name)
+            self.assertNotIn(stale, doc(name), name)
+        self.assertRegex(doc("README.md"), r"Research notes per toolkit[^\n]*routes\.md")
+
+
 class FadeRecorded(unittest.TestCase):
     """Each fading route says what its recorded fade did, or why none was
     recorded (a frame-by-frame capture in a headless niri session)."""
