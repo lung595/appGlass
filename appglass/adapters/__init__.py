@@ -245,6 +245,19 @@ NO_ROUTE = {
 STATES = ("glass", "waiting", "stale", "opaque", "off", "excluded")
 
 
+PLAIN_GTK4 = ("GTK4 without libadwaita: the Default theme does not read the glass "
+              "colours (it stays opaque), the fallback look")
+
+
+def _plain_gtk4(rec):
+    """A host binary that links GTK4 but not libadwaita (the libraries it
+    links, not a script or a flatpak runtime guess)."""
+    ev = rec.get("evidence") or ()
+    return (rec.get("toolkit") == "gtk4" and not rec.get("flatpak")
+            and any(e.startswith("links libgtk-4") for e in ev)
+            and not any(e.endswith("-> gtk4-adw") for e in ev))
+
+
 def _strong(rec):
     """Strong static evidence for the record's toolkit (a SONAME, a dir
     marker, a flatpak base, a runtime map), not only a guess."""
@@ -308,6 +321,8 @@ def resolve(rec, families, settings=None, gate=None):
                 return out(a.NAME, OPAQUE, "weak evidence (%s): opaque until its first window "
                            "is learned" % ((rec.get("evidence") or ["?"])[0]),
                            state="opaque")
+            if a.FAMILY == "gtk4" and _plain_gtk4(rec):
+                return out("niri-fallback", FALLBACK, PLAIN_GTK4)
             fam, generic = a.FAMILY, True
     if fam:
         a = next((x for x in CATALOGUE if fam in x.FAMILIES), None)

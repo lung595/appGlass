@@ -18,7 +18,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 | Route | Badge | Family | Apps | Default |
 |---|---|---|---|---|
 | [Terminal opacity key](#terminals) | Native | `alacritty`, `kitty`, `foot`, `ghostty`, `wezterm`, `konsole` | Alacritty, kitty, foot, Ghostty, WezTerm, Konsole | on |
-| [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only); flatpaks: GNOME Text Editor, Mission Center, Resources; any other GTK4 app that uses libadwaita (a plain GTK4 app stays opaque) | on |
+| [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only); flatpaks: GNOME Text Editor, Mission Center, Resources; any other GTK4 app that uses libadwaita (a plain GTK4 app, with no libadwaita, gets the fallback) | on |
 | [GTK3 theme](#gtk3) | Native | `gtk3` | Solaar, nvidia-settings, any other host GTK3 app | on |
 | [Qt style plugin](#qt-widgets-vlc-kate-konsole) | Native | `qtstyle` | VLC, Kate and Konsole (flatpak), any other host Qt 6 Widgets app (not one that also links Qt Quick/QML: that one keeps the fallback) | on |
 | [App config](#kate-mpv-gimp-zed) | Native | `kate`, `mpv`, `gimp`, `zed` | Kate (editor theme), mpv, GIMP 3, Zed | on |

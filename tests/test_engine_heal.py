@@ -398,6 +398,18 @@ class Spawners(unittest.TestCase):
         self.assertIn(recs["sdlgtk"]["app_ids"][0], games)
         self.assertNotIn(recs["sdlgtk"]["app_ids"][0], glass)
 
+    def test_a_plain_gtk4_app_gets_the_fallback(self):
+        # w2 r3: GTK4 with no libadwaita draws the Default theme, which does
+        # not read the glass colours (measured 255): not Glass, the fallback
+        self.w.exe("plaingtk4", elf(["libgtk-4.so.1", "libc.so.6"]))
+        self.w.app("org.example.Plain.desktop", "P4", "plaingtk4", Categories="Utility;")
+        self.w.exe("adwgtk4", elf(["libgtk-4.so.1", "libadwaita-1.so.0", "libc.so.6"]))
+        self.w.app("org.example.Adw.desktop", "A4", "adwgtk4", Categories="Utility;")
+        r = self.route("org.example.Plain")
+        self.assertEqual(r["effective"], "fallback")
+        self.assertIn("without libadwaita", r["reason"])
+        self.assertEqual(self.route("org.example.Adw")["effective"], "glass")
+
     def test_a_gtk4_game_is_in_the_glass_block_in_every_mode(self):
         # w2 r3: out of every block, value and off mode left it under the
         # global opacity on top of the glass CSS (double alpha, text at 0.60)
