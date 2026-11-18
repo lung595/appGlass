@@ -86,8 +86,9 @@ def verify_mask(rec):
     reaches under /run (a daemon or container engine socket its binary
     names, /run/<its name>): a throwaway HOME does not make a throwaway
     daemon (Kiri drives the real container engine by /run/kiri/docker.sock),
-    and from the system manager (the system bus and systemd's private
-    socket: a Tauri app may start units, as Lian Li's GUI does) and the real
+    and from the system manager (the system bus and all of /run/systemd,
+    resolved's DNS socket with it: a Tauri app may start units, as Lian
+    Li's GUI does) and the real
     session bus socket (the check runs its own bus)."""
     from .. import verify
     keys = [rec["key"]] + [n for n in rec.get("names") or () if "/" not in n]

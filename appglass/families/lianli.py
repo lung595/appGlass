@@ -37,8 +37,8 @@ def verify_mask(rec):
     """The hidden check keeps the app away from its daemon (/run/lianli:
     the fans and lights of the real machine), from the system manager (the
     GUI runs systemctl start lianli-control-recovery.service, a root unit
-    its polkit rule allows: the system bus and systemd's private socket
-    hidden), from the real session bus and its session locks
+    its polkit rule allows: the system bus and all of /run/systemd
+    hidden, resolved's DNS socket with it), from the real session bus and its session locks
     ($XDG_RUNTIME_DIR/bus, lianli-session-*.lock) and off the network."""
     from .. import verify
     return {"hide": verify.run_paths(rec, keys=("lianli",)) + verify.system_paths()

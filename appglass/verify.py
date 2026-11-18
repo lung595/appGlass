@@ -436,8 +436,10 @@ def mask_argv(env, hide=(), nonet=False):
                 argv += ["--ro-bind", "/dev/null", p]
                 probe.append('test -c "$%d"' % (len(args) + 1))
             args.append(p)
-        if nonet:
+        if nonet:   # no network: no device but lo, and no name resolves (resolved's varlink
+            # socket under /run/systemd answers DNS from out of the namespace)
             probe.append('test "$(grep -c : /proc/net/dev)" = 1')
+            probe.append('{ ! command -v getent >/dev/null || ! getent hosts example.com; }')
         argv.append("--")
         try:
             r = subprocess.run(argv + ["/bin/sh", "-c", " && ".join(probe), "sh"] + args,
@@ -488,13 +490,16 @@ def run_paths(rec, keys=(), run="/run"):
 
 
 # the system manager's doors: the system bus (systemctl as a user, polkit)
-# and systemd's private socket. A WebKitGTK family hides them (Lian Li's GUI
-# starts a root unit, lianli-control-recovery, over the system bus).
-SYSTEM_SOCKETS = ("dbus/system_bus_socket", "systemd/private")
+# and all of /run/systemd (its private socket, its varlink sockets, and
+# resolved's io.systemd.Resolve, which answers DNS from out of a network
+# namespace). A WebKitGTK family hides them (Lian Li's GUI starts a root
+# unit, lianli-control-recovery, over the system bus).
+SYSTEM_SOCKETS = ("dbus/system_bus_socket", "systemd")
 
 
 def system_paths(run="/run"):
-    """The SYSTEM_SOCKETS under run that exist, for a verify_mask hide."""
+    """The SYSTEM_SOCKETS under run that exist, for a verify_mask hide (the
+    systemd dir becomes an empty tmpfs)."""
     return [os.path.join(run, p) for p in SYSTEM_SOCKETS if os.path.lexists(os.path.join(run, p))]
 
 

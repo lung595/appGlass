@@ -155,16 +155,19 @@ class VerifyMask(unittest.TestCase):
         """Lian Li's GUI starts a root unit (systemctl start
         lianli-control-recovery.service, allowed by its polkit rule) over the
         system bus: the check of a WebKitGTK app hides the system bus socket
-        and systemd's private socket."""
+        and all of /run/systemd (the manager's private socket, its varlink
+        sockets under io.systemd.*, and resolved's io.systemd.Resolve, DNS
+        out of the namespace without a network)."""
         from appglass.families import lianli
         d = tempfile.mkdtemp()
         try:
-            for rel in ("dbus/system_bus_socket", "systemd/private"):
+            for rel in ("dbus/system_bus_socket", "systemd/private", "systemd/io.systemd.Manager",
+                        "systemd/resolve/io.systemd.Resolve"):
                 os.makedirs(os.path.join(d, os.path.dirname(rel)), exist_ok=True)
                 open(os.path.join(d, rel), "w").close()
             self.assertEqual(verify.system_paths(run=d),
-                             [d + "/dbus/system_bus_socket", d + "/systemd/private"])
-            os.unlink(os.path.join(d, "systemd/private"))
+                             [d + "/dbus/system_bus_socket", d + "/systemd"])
+            shutil.rmtree(os.path.join(d, "systemd"))
             self.assertEqual(verify.system_paths(run=d), [d + "/dbus/system_bus_socket"])
         finally:
             shutil.rmtree(d)

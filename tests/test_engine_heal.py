@@ -1024,16 +1024,40 @@ class HiddenScope(unittest.TestCase):
         with open(f, "w") as fh:
             fh.write("held")
         verify._MASK.clear()
-        argv = verify.mask_argv(env, hide=[d, f], nonet=True)
+        # the system paths too: resolved's varlink socket would answer DNS
+        argv = verify.mask_argv(env, hide=[d, f] + verify.system_paths(), nonet=True)
         if argv is None:
             self.skipTest("bwrap cannot make a mount namespace here")
         self.assertIn("--unshare-net", argv)
         r = subprocess.run(argv + ["sh", "-c", 'test -z "$(ls -A "$1")" && test -c "$2" && '
-                                   'test "$(grep -c : /proc/net/dev)" = 1', "sh", d, f],
+                                   'test "$(grep -c : /proc/net/dev)" = 1 && '
+                                   '{ ! command -v getent || ! getent hosts example.com; } && '
+                                   '! find /run/systemd -type s 2>/dev/null | grep -q .',
+                                   "sh", d, f],
                            env={"PATH": "/usr/bin:/bin"}, capture_output=True, timeout=20)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(os.path.exists(os.path.join(d, "daemon.sock")))   # outside: kept
         self.assertIsNot(verify.mask_argv(env), argv)                    # cached per mask
+
+    def test_the_mask_probe_proves_dns_is_cut(self):
+        """Without a network the probe also proves a host name does not
+        resolve (resolved answers over a varlink socket in /run/systemd, out of
+        any network namespace): a mask that still resolves is refused."""
+        from unittest import mock
+        env = core.App(self.sb.env, quiet=True).env
+        os.symlink("/bin/true", os.path.join(self.bin, "bwrap"))
+        seen = []
+
+        def run(argv, **k):
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0 if "getent" not in argv[argv.index("-c") + 1] else 1)
+        verify._MASK.clear()
+        with mock.patch.object(verify.subprocess, "run", run):
+            self.assertIsNone(verify.mask_argv(env, hide=(), nonet=True))
+            self.assertIn("! getent hosts", seen[-1][seen[-1].index("-c") + 1])
+            verify._MASK.clear()
+            self.assertIsNotNone(verify.mask_argv(env, hide=(), nonet=False))   # no network cut: no DNS probe
+        verify._MASK.clear()
 
     def test_xdg_dirs_out_of_home_are_staged(self):
         """The hidden session's XDG dirs are the defaults under the throwaway
