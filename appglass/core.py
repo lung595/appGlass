@@ -460,10 +460,61 @@ class State:
         d.setdefault("owners", {})
         d.setdefault("state_parents", [])
         self.data = d
+        self.settle()
         self.dry = False      # a dry run put records in memory: never saved
         self.save_guard = None  # raises before a save over a lost state
         self.event_guard = None  # raises in an event run (App.no_event)
         self.saved = self.records()  # what the last save (or the load) held
+
+    def settle(self):
+        """A record saved as pending (Engine.commit records a file before it
+        writes it) whose write a kill cut: the disk says how far it got. The
+        new bytes: the write is done. The old ones: the record as it was
+        before (none for a file appglass made or newly backed up: its
+        original is on the disk). Anything else (a write cut half way, a
+        change since): the record stands, remove works from its backup."""
+        for o in self.owners.values():
+            files = o.get("files") if isinstance(o, dict) else None
+            if not isinstance(files, dict):
+                continue
+            for p, r in list(files.items()):
+                pend = r.get("pending") if isinstance(r, dict) else None
+                if not isinstance(pend, dict):
+                    continue
+                try:
+                    if os.path.isfile(p):
+                        now = sha(_read(p))
+                    elif os.path.lexists(p):
+                        now = ""
+                    else:
+                        now = None
+                except OSError:
+                    continue
+                del r["pending"]
+                b = r.get("backup")
+                if pend.get("prev") is None and isinstance(b, str):
+                    try:
+                        bb = _read(os.path.join(self.env.state_dir, b))
+                    except OSError:
+                        bb = None
+                    if (bb is None or sha(bb) != r.get("orig_sha256")) \
+                            and now == r.get("orig_sha256"):
+                        # cut before its original was copied whole: the
+                        # original is still the file itself
+                        del files[p]
+                        continue
+                if now == pend.get("new"):
+                    continue
+                if now == pend.get("old"):
+                    prev = pend.get("prev")
+                    if isinstance(prev, dict):
+                        files[p] = prev
+                    elif now is None and not os.path.lexists(_tmp_name(p)):
+                        # (with its new bytes left beside it, the record
+                        # stays: remove takes them out)
+                        del files[p]
+                    else:
+                        r["sha256"] = now
 
     # what remove needs to give a file back: an event save never changes it
     OWED = ("kind", "how", "backup", "orig_sha256", "adopted")
@@ -757,10 +808,15 @@ def _fsync_dir(d):
         os.close(fd)
 
 
+def _tmp_name(path):
+    """Where _atomic_write puts path's new bytes before the replace."""
+    return os.path.join(os.path.dirname(path), ".%s.appglass-tmp" % os.path.basename(path))
+
+
 def _atomic_write(path, data):
     """Replace path whole: a power loss leaves the old bytes or the new
     ones, never an empty file (state.json, the ring manifest)."""
-    tmp = os.path.join(os.path.dirname(path), ".%s.appglass-tmp" % os.path.basename(path))
+    tmp = _tmp_name(path)
     _write_durable(tmp, data)
     try:
         st = os.stat(path)
@@ -1388,8 +1444,10 @@ class App:
                                 "--list shows the ring)" % self.env.tilde(p))
         return b
 
-    def backup(self, p, cur):
-        """Save cur (p's bytes) in the state backup dir: {"backup", "orig_sha256"}."""
+    def backup(self, p, cur, before_write=None):
+        """Save cur (p's bytes) in the state backup dir: {"backup", "orig_sha256"}.
+        before_write(that) runs once the checks passed, before the copy is
+        written (commit records the file first)."""
         env, st = self.env, self.state
         bname = hashlib.sha1(p.encode()).hexdigest()[:16] + ".orig"
         bpath = os.path.join(self.backup_dir(), bname)
@@ -1414,13 +1472,16 @@ class App:
         if not os.path.isdir(self.backup_dir()):
             st.save()  # creates the state dir (records created parents)
             os.makedirs(self.backup_dir(), exist_ok=True)
+        out = {"backup": os.path.join("backup", bname), "orig_sha256": sha(cur)}
+        if before_write is not None:
+            before_write(out)
         if old != cur:
             self.snapshot(bpath)    # a restore of this run's entry takes it out again
             _write_durable(bpath, cur)
         u = st.data.get("untrusted")
         if old is None and isinstance(u, dict) and u.pop(bname, None) is not None and not u:
             del st.data["untrusted"]    # a new copy where an untrusted one was set aside
-        return {"backup": os.path.join("backup", bname), "orig_sha256": sha(cur)}
+        return dict(out)
 
     # ---- the backup ring
     def snapshot(self, p):
@@ -1531,6 +1592,10 @@ class App:
             return changed
         if st.save_guard is not None:
             st.save_guard()     # before the first byte, not at the first save
+        if not os.path.lexists(st.path):
+            # state.json before the ring's first entry: a kill after that
+            # entry is no lost state (nothing of the user's is written yet)
+            st.save()
         if not self.event:
             # a file the owner no longer writes goes back, on a command the
             # user typed only
@@ -1558,12 +1623,27 @@ class App:
         for p in ctx.order:
             op = ctx.ops[p]
             rec = owner["files"].get(p)
+            # recorded before it is written: a kill between the two leaves
+            # a record State.settle reads against the disk
+            prev = json.loads(json.dumps(rec)) if rec is not None else None
             if op.kind == "retire":
                 # adopted and taken over: deleted, the backup kept for remove
-                if self._retire_file(p, rec):
-                    changed.append(p)
-                rec["retired"] = True
-                rec["sha256"] = None
+                cur = _read(p) if os.path.isfile(p) else None
+                if rec is not None:
+                    rec["retired"] = True
+                    rec["sha256"] = None
+                    rec["pending"] = {"old": sha(cur) if cur is not None else None,
+                                      "new": None, "prev": prev}
+                    owner["files"][p] = rec
+                    st.save()
+                try:
+                    if self._retire_file(p, rec):
+                        changed.append(p)
+                except Exception:
+                    if rec is not None:
+                        self._unpend(ctx.owner, p, rec, prev, False)
+                    raise
+                rec.pop("pending", None)
                 owner["files"][p] = rec
                 st.save()
                 continue
@@ -1573,16 +1653,34 @@ class App:
             cur = _read(p)
             if cur != op.data or (op.mode is not None and _mode(p) != op.mode):
                 self.snapshot(p)
-            for d in _missing_dirs(os.path.dirname(p)):
+            new_dirs = _missing_dirs(os.path.dirname(p))
+            if new_dirs:
+                # recorded before they are made (a kill between: remove
+                # skips one that is not there)
+                owner.setdefault("dirs", []).extend(new_dirs)
+                st.save()
+            for d in new_dirs:
                 os.mkdir(d)
-                owner.setdefault("dirs", []).append(d)
+            backed = False
             if rec is None:
                 if cur is None:
                     rec = {"kind": "created", "how": "owned" if op.kind == "owned" else op.kind}
                 else:
                     if op.kind == "owned":
                         raise Conflict("%s appeared during apply" % p)
-                    rec = dict(self.backup(p, cur), kind="modified", how=op.kind)
+                    had = os.path.isfile(os.path.join(self.backup_dir(), _bname(p)))
+
+                    def pend(info, p=p, op=op, cur=cur):
+                        # recorded before its original is copied: a kill
+                        # leaves no original that no record names
+                        if cur != op.data:
+                            owner["files"][p] = dict(
+                                info, kind="modified", how=op.kind, sha256=sha(op.data),
+                                pending={"old": sha(cur), "new": sha(op.data), "prev": None})
+                            st.save()
+                    rec = dict(self.backup(p, cur, before_write=pend), kind="modified",
+                               how=op.kind)
+                    backed = not had
             elif (rec.get("how") in ("json", "edit") and cur is not None
                   and sha(cur) != rec.get("sha256")):
                 # the app or the user rewrote the file since the last apply:
@@ -1605,10 +1703,22 @@ class App:
                 else:
                     rec["pristine_sha256"] = pristine
             if cur != op.data:
-                if op.kind == "owned":
-                    _atomic_write(p, op.data)
-                else:
-                    _inplace_write(p, op.data)
+                rec["sha256"] = sha(op.data)
+                rec["pending"] = {"old": sha(cur) if cur is not None else None,
+                                  "new": rec["sha256"], "prev": prev}
+                owner["files"][p] = rec
+                st.save()
+                try:
+                    if op.kind == "owned":
+                        _atomic_write(p, op.data)
+                    else:
+                        _inplace_write(p, op.data)
+                except Exception:
+                    # not written (a read-only file): the record as before,
+                    # and no original left that no record names
+                    self._unpend(ctx.owner, p, rec, prev, backed)
+                    raise
+                rec.pop("pending", None)
                 changed.append(p)
             if op.mode is not None and _mode(p) != op.mode:
                 os.chmod(p, op.mode)
@@ -1621,6 +1731,35 @@ class App:
         for p in changed:
             self._note(p)
         return changed
+
+    def _unpend(self, name, p, rec, prev, backed):
+        """A write of p that failed (a read-only file): when p still holds
+        its old bytes, the record goes back to what it was (none, for a
+        record this run made), and an original this run backed up goes
+        with it, so no original is left that no record names."""
+        st = self.state
+        files = st.owners[name]["files"]
+        pend = rec.pop("pending", None) or {}
+        try:
+            now = sha(_read(p)) if os.path.isfile(p) else (
+                "" if os.path.lexists(p) else None)
+        except OSError:
+            now = ""
+        if now == pend.get("old"):
+            if prev is not None:
+                files[p] = prev
+            else:
+                files.pop(p, None)
+                st.saved.pop((name, p), None)    # made by this run: not forgotten
+                b = os.path.join(self.env.state_dir, rec.get("backup") or "")
+                if backed and rec.get("backup") and os.path.isfile(b) \
+                        and now is not None and sha(_read(b)) == now:
+                    os.remove(b)
+                    try:
+                        os.rmdir(self.backup_dir())
+                    except OSError:
+                        pass
+        st.save()
 
     def _revert_stale(self, owner_name, owner, stale):
         """The files owner no longer plans go back (a command the user typed,
@@ -1696,6 +1835,9 @@ class App:
         env = self.env
         env.guard(p)
         self.snapshot(p)
+        tmp = _tmp_name(p)
+        if os.path.isfile(tmp) and not os.path.islink(tmp):
+            os.remove(tmp)     # the new bytes of a write a kill cut before its replace
         if os.path.lexists(p) and not os.path.isfile(p):
             self.warn("%s is no longer a regular file; left as is" % p)
             return
@@ -4421,6 +4563,11 @@ def doctor_drift(app):
                 out.append((_kept_text(env, st, n) + (
                     "" if n.endswith(SET_ASIDE) else
                     " (not recorded: remove cannot put it back)"), None))
+        else:
+            # a run stopped after it backed a file up, before it recorded it
+            out.append(("%s holds an original no record names (a run stopped half way): "
+                        "remove keeps the state folder for it (appglass restore --list "
+                        "shows the ring)" % tilde(bp), None))
     for p, h in sorted((st.data.get("linked") or {}).items()):
         if os.path.isfile(p) and sha(_read(p)) == h:
             out.append(("%s still holds appglass's lines but is reached through a symlink "

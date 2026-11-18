@@ -1593,6 +1593,108 @@ class InterruptedRemove(Base):
         self.assertFalse(os.path.exists(self.state_dir))
 
 
+class InterruptedApply(Base):
+    """An apply stopped just before or just after any write of a user file
+    or folder, or after a backup (a SIGTERM at logout, a unit stop: no handler, so it
+    is a kill): every file it touches is recorded first, so the next remove
+    gives the tree back byte for byte, and so does an apply then a remove."""
+
+    ASSUME = "alacritty,dux"
+    WRITES = ("_inplace_write", "_atomic_write", "_write_durable")
+
+    def cut(self, k, base, then):
+        shutil.rmtree(self.sb.root)
+        shutil.copytree(base, self.sb.root, symlinks=True)
+        n = [0]
+
+        def wrap(fn, where=core):
+            real = getattr(where, fn)
+
+            def wrapped(path, *a, **kw):
+                state = path.startswith(self.state_dir + os.sep)
+                if state and not (fn == "_write_durable" and path.endswith(".orig")):
+                    return real(path, *a, **kw)
+                if not state:
+                    n[0] += 1
+                    if n[0] == k:
+                        raise Stop()   # before the write
+                r = real(path, *a, **kw)
+                n[0] += 1
+                if n[0] == k:
+                    raise Stop()       # after it
+                return r
+            return unittest.mock.patch.object(where, fn, wrapped)
+        hit = False
+        with wrap(self.WRITES[0]), wrap(self.WRITES[1]), wrap(self.WRITES[2]), \
+                wrap("mkdir", core.os):
+            try:
+                self.sb.run("apply", "--only", self.ASSUME, assume=self.ASSUME)
+            except Stop:
+                hit = True
+        if hit:
+            for argv in then:
+                code, out, err = self.sb.run(*argv, assume=self.ASSUME)
+                self.assertEqual(code, 0, "%s: %s" % (argv, out + err))
+        return hit
+
+    def every_cut(self, then):
+        before = self.sb.tree_hash()
+        base = self.sb.root.rstrip(os.sep) + ".base"
+        shutil.copytree(self.sb.root, base, symlinks=True)
+        self.addCleanup(shutil.rmtree, base, True)
+        k = 1
+        while True:
+            with self.subTest(k=k):
+                hit = self.cut(k, base, then)
+                if hit:
+                    self.assertEqual(self.sb.tree_hash(), before)
+            if not hit:
+                break
+            k += 1
+        self.assertGreater(k, 8)
+
+    def test_an_apply_cut_at_any_write_is_undone_by_remove(self):
+        # (doctor names what the cut left half done: not checked here)
+        self.every_cut([("remove",)])
+
+    def test_an_apply_cut_at_any_write_is_finished_by_the_next(self):
+        self.every_cut([("apply", "--only", self.ASSUME), ("doctor",), ("remove",)])
+
+    def test_a_write_that_fails_leaves_no_backup(self):
+        """A read-only config: apply fails on it, and leaves no original in
+        backup/ that no record names (it would block the next apply and
+        keep the state folder after remove)."""
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        text = self.sb.readb(main)
+        before = self.sb.tree_hash()
+        os.chmod(main, 0o444)
+        code, out, err = self.sb.run("apply", "--only", "alacritty", assume="alacritty")
+        self.assertNotEqual(code, 0)
+        os.chmod(main, 0o644)
+        with open(main, "ab") as f:
+            f.write(b"# mine\n")
+        code, out, err = self.sb.run("doctor", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        code, out, err = self.sb.run("apply", "--only", "alacritty", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.readb(main), text + b"# mine\n")
+        self.assertFalse(os.path.exists(self.state_dir))
+        with open(main, "wb") as f:
+            f.write(text)
+        self.assertEqual(self.sb.tree_hash(), before)
+
+    def test_doctor_names_an_original_no_record_names(self):
+        self.apply()
+        b = os.path.join(self.state_dir, "backup", "0123456789abcdef.orig")
+        with open(b, "wb") as f:
+            f.write(b"some original\n")
+        code, out, err = self.sb.run("doctor", assume="alacritty")
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(self.env.tilde(b), out + err)
+
+
 class UninstalledSinceApply(Base):
     """An app uninstalled after apply, then the state lost: its marked
     files still count (the refusal, doctor and adopt --rescue find them),
