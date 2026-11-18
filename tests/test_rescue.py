@@ -414,5 +414,33 @@ class DamagedOriginal(RescueBase):
         self.assertIn("does not match", out)
 
 
+OBS_MINE = '{\n    "theme": "obsidian",\n    "cssTheme": "Mine"\n}\n'
+
+
+class ObsidianStateJsonLost(RescueBase):
+    """w2 m2: with only state.json lost, the original in backup/ (when the
+    file still holds what appglass made of it) and the ring's dir records
+    are used: the file comes back byte for byte, the user's empty snippets
+    folder stays."""
+
+    def test_backup_and_ring_dirs(self):
+        sb = self.sb
+        vault = os.path.join(sb.home, "Notes")
+        os.makedirs(os.path.join(vault, ".obsidian", "snippets"))
+        ap = os.path.join(vault, ".obsidian", "appearance.json")
+        with open(ap, "w") as f:
+            f.write(OBS_MINE)
+        sb.write("obsidian/obsidian.json", '{"vaults": {"a": {"path": "%s", "ts": 1, '
+                 '"open": true}}}' % vault)
+        fams = "obsidian"
+        self.ok("apply", "--only", fams, fams=fams)
+        self.assertNotEqual(sb.read(ap), OBS_MINE)
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        out = self.ok("adopt", "--rescue", fams=fams)
+        out += self.ok("remove", fams=fams)
+        self.assertEqual(sb.read(ap), OBS_MINE, out)
+        self.assertTrue(os.path.isdir(os.path.join(vault, ".obsidian", "snippets")), out)
+
+
 if __name__ == "__main__":
     unittest.main()

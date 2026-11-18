@@ -3324,6 +3324,14 @@ def _rescue_claims(app, backups=()):
     return out, doubts, names
 
 
+def _makes(fn, orig, data):
+    """fn (an edit's) turns the original bytes into data."""
+    try:
+        return fn(orig.decode("utf-8")) == data.decode("utf-8")
+    except Exception:
+        return False
+
+
 def _ring_original(env, p, name):
     """What the ring says of backup/name, the original of p: (record,
     bytes). record: p's record in the newest ring entry's state.json (the
@@ -3375,18 +3383,20 @@ def _json_owner(app, p):
 
 def _rescue_dirs(app, records, history):
     """The dirs appglass made for the files it created (records): the ones
-    the ring saw missing before the first write, and the parents that hold
-    nothing but such files (up to a base dir). With no ring, a best guess
-    (docs/README.md, Lost state.json): an empty dir of the app's own that
-    appglass wrote into is counted, ~/.local/bin never is."""
+    the ring saw missing before the run that made the file (its newest
+    record of the file absent), and only those when the ring has a record of
+    the file. With no ring record, a best guess (docs/README.md, Lost
+    state.json): the parents that hold nothing but such files (up to a base
+    dir), so an empty dir of the app's own that appglass wrote into is
+    counted; ~/.local/bin never is."""
     env = app.env
     created = {p for p, r in records.items() if r.get("kind") == "created"}
     out = set()
     for p in created:
-        for rec in (history.get(p) or [])[:1]:
-            for d in rec.get("dirs") or []:
-                if os.path.isdir(d):
-                    out.add(d)
+        made = [r for r in history.get(p) or [] if r.get("absent")]
+        for d in (made[-1].get("dirs") or []) if made else []:
+            if os.path.isdir(d):
+                out.add(d)
     bases = {os.path.abspath(x) for x in (env.home, env.config_home, env.data_home,
                                           env.state_home, env.cache_home)}
     bases |= {os.path.dirname(x) for x in bases if x.startswith(env.home + os.sep)}
@@ -3414,6 +3424,8 @@ def _rescue_dirs(app, records, history):
     def inside(d):
         return any(d.startswith(b + os.sep) for b in roots)
     for p in sorted(created, key=len, reverse=True):
+        if history.get(p):
+            continue        # the ring knows which dirs were there
         d = os.path.dirname(p)
         while inside(d) and d not in bases and only_ours(d):
             out.add(d)
@@ -3452,6 +3464,8 @@ def cmd_rescue(app, dry_run=False):
         app.warn("adopt --rescue: %s" % d)
 
     def what(c):
+        if c["kind"] == "edit" and c.get("from_backup"):
+            return "edited: remove puts the original back"
         if c["kind"] == "edit":
             return "edited: its original is the file without appglass's lines"
         if c["kind"] == "retired":
@@ -3561,6 +3575,14 @@ def cmd_rescue(app, dry_run=False):
             if keys:
                 app.warn("adopt --rescue: %s: recorded %s as appglass's keys"
                          % (t(p), ", ".join(sorted(keys))))
+        elif b and orig is not None and c["fn"] is not None and _makes(c["fn"], orig, data) \
+                and (ring_rec is None or ring_rec.get("sha256") in (None, sha(data))):
+            # the file still holds what appglass makes of the original in
+            # backup/: that original goes back byte for byte (its layout too)
+            rec = {"kind": "modified", "how": "edit", "sha256": sha(data),
+                   "backup": os.path.join("backup", b), "orig_sha256": sha(orig)}
+            used.add(b)
+            c["from_backup"] = True
         else:
             text = c["undo"](data.decode("utf-8"))
             orig = text.encode("utf-8")
