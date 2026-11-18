@@ -1228,5 +1228,16 @@ class FallbackOrOpaque(unittest.TestCase):
         self.assertNotIn("Opaque by design", doc("engine.md"))
 
 
+class ContentLevelSetting(unittest.TestCase):
+    """Levels.from_env: settings.json levels.content wins over the DMS rule."""
+
+    def test_the_readme_names_the_override(self):
+        self.assertIn('lv.get("content") is not None', read("appglass", "core.py"))
+        self.assertIn("levels", settings.DEFAULTS)
+        p = next(l for l in read("README.md").splitlines() if l.startswith("**The glass level**"))
+        self.assertIn("`levels.content`", p)
+        self.assertRegex(p, r"`levels\.content`[^\n]*overrides the rule")
+
+
 if __name__ == "__main__":
     unittest.main()
