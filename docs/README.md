@@ -21,7 +21,7 @@ Alphas stack. A bar drawn on top of the 0.60 content needs `a = (0.65 - 0.60) / 
 
 1. **Alpha in the colour files.** Background roles get an alpha by level; text roles never do. DMS already writes colour files with matugen (`dank-colors.css`, `dank-theme.toml`, ...). appGlass adds user matugen templates (or static files that reference the DMS colour names) next to them, so the glass follows the wallpaper. No daemon, no patching, no polling.
 2. **Per-app switch**, where the toolkit needs one: Alacritty `window.opacity`, an Obsidian CSS snippet, Dux `ui-settings.json` keys, a Herdr layout, `GTK_THEME` for GTK3 apps.
-3. **niri `opacity 1.0` per glass app**, matched on its app-id, in a file included after the global "Glass blur" rule (`dms/windowrules.kdl`). Later rules win, and blur stays on from the global rule:
+3. **niri `opacity 1.0` per glass app** (0.999 for the few whose window says it is opaque, below), matched on its app-id, in a file included after the global "Glass blur" rule (`dms/windowrules.kdl`). Later rules win, and blur stays on from the global rule:
 
    ```kdl
    // ~/.config/niri/config.kdl, after: include "dms/windowrules.kdl"
@@ -41,7 +41,15 @@ Alphas stack. A bar drawn on top of the 0.60 content needs `a = (0.65 - 0.60) / 
        match app-id=r#"^herdr-app$"#
        opacity 1.0
    }
+
+   // glass apps whose window says it is opaque: niri blends them
+   window-rule {
+       match app-id=r#"^md\.obsidian\.Obsidian$"#
+       opacity 0.999
+   }
    ```
+
+   The families whose window declares a whole opaque region while the app paints it with alpha (Feishin and VSCodium through the Electron hook, Obsidian, the WebKit shim apps such as Kiri, Lian Li) get a second block at `opacity 0.999`, after the glass block. At 1.0 niri believes the opaque region and skips what is behind the window (black, or a background that flickers); below 1.0 it blends it ([routes.md](routes.md)). Only the installed apps of those families are listed.
 
    GNOME Web is in the rule: the global `gtk-4.0/gtk.css` already makes its chrome glass, so without the rule the chrome would get both alphas. The page stays opaque; see [webkit.md](webkit.md).
 
