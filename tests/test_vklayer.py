@@ -748,8 +748,9 @@ class Wrapper(unittest.TestCase):
     @unittest.skipUnless(GCC, "no gcc")
     def test_probe_fails_cpu_route(self):
         """no device, only lavapipe or a crash (a damaged layer: SIGBUS): the CPU route, not a
-        launcher without a window"""
-        for code in ("exit 2", "kill -BUS $$", "echo 'gpu x'; kill -SEGV $$"):
+        launcher without a window (SIGKILL stands in for the crash: a death by signal that
+        leaves no core dump record)"""
+        for code in ("exit 2", "kill -KILL $$", "echo 'gpu x'; kill -KILL $$"):
             parent, child = self.run_wrapped(probe=code)
             self.assertIn("WGPU_BACKEND=gl\n", parent, code)
         parent, child = self.run_wrapped(gpu=False)

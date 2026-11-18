@@ -182,8 +182,9 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.assertEqual((fam["render"], fam["render_why"]),
                          ("cpu", "no Vulkan GPU, only llvmpipe (LLVM 99)"))
         self.assertIn("render: artcraft on the CPU (no Vulkan GPU, only llvmpipe (LLVM 99))\n", dout)
-        # no driver answers, or the probe crashes (a broken driver or a damaged layer)
-        for code in ("exit 2", "kill -BUS $$"):
+        # no driver answers, or the probe crashes (a broken driver or a damaged layer;
+        # SIGKILL stands in for SIGBUS: a death by signal that leaves no core dump record)
+        for code in ("exit 2", "kill -KILL $$"):
             with self.device(code=code):
                 fam = self.status()["families"]["artcraft"]
             self.assertEqual(fam["render"], "cpu", code)
@@ -308,7 +309,7 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.assertEqual(self.wrapped(env={"APPGLASS_ARTCRAFT": "cpu"}), "cpu")
         self.assertEqual(self.wrapped(gpu=False), "cpu")
         self.assertEqual(self.wrapped(code="exit 2"), "cpu")
-        self.assertEqual(self.wrapped(code="kill -BUS $$"), "cpu")
+        self.assertEqual(self.wrapped(code="kill -KILL $$"), "cpu")     # a crash, no core
         self.assertEqual(self.wrapped(gpu=False, mesa=False), "plain")
         self.assertEqual(self.wrapped(env={"APPGLASS_ARTCRAFT": "off"}), "plain")
         self.assertEqual(self.wrapped(scheme="prefer-light"), "plain")
