@@ -9,7 +9,7 @@ import subprocess
 import unittest
 
 from fixtures.sandbox import Sandbox, REPO
-from appglass import core, settings
+from appglass import core, niri, settings
 
 DOCS = os.path.join(REPO, "docs")
 NEW = ("guide.md", "engine.md", "routes.md", "plugin.md", "issue-dms.md")
@@ -543,11 +543,13 @@ class FadeRecorded(unittest.TestCase):
         self.assertRegex(d, r"\*\*Fade, not recorded:\*\*[^\n]*signed-in")
         self.assertIn("html:not(.app-focused)", d)
 
-    def test_the_feishin_opaque_region_issue_is_written_down(self):
+    def test_the_feishin_opaque_region_rule_is_written_down(self):
         f = section(doc("routes.md"), "Feishin and VSCodium")
         self.assertIn("set_opaque_region", f)
-        self.assertRegex(f, r"opacity 0\.999")
-        self.assertRegex(f, r"TODO\(engine\)[^\n]*opaque")
+        # the 0.999 rule the fade was recorded under is the one shipped
+        self.assertRegex(f, r"appglass\.kdl[^\n]*opacity 0\.999[^\n]*Feishin and VSCodium")
+        self.assertNotRegex(f, r"TODO\(engine\)[^\n]*opaque")
+        self.assertEqual(niri.BLEND_FAMILIES, ("feishin", "vscodium"))
 
 
 def uninstall_block():

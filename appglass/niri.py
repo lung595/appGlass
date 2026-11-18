@@ -6,6 +6,9 @@ $XDG_CONFIG_HOME/niri/appglass.kdl holds up to five window-rules, in order:
                     the glass block: windows appglass cannot glass stay sharp
   glass             a match line per applied app, ``opacity 1.0``: the app
                     paints its own translucency over the blur
+  blend             the Electron hook apps (BLEND_FAMILIES) at ``opacity
+                    0.999``: their window says it is opaque, and at 1.0 niri
+                    believes it and can draw black behind it
   fallback "value"  the detected fallback apps at ``opacity <value>``
   inactive          glass apps that are not focused, ``opacity <inactive>``:
                     fallback.inactive (every glass app), else with
@@ -56,6 +59,10 @@ BROWSERGLASS_IDS = (
 BROWSERGLASS_RE = "^(%s)$" % "|".join(a.replace(".", "\\.") for a in BROWSERGLASS_IDS)
 GAME_IDS = (r"^steam_app_\d+$", r"^gamescope$")
 FALLBACK_MODES = ("opaque", "value", "off")
+# Chromium marks these windows opaque (wl_surface.set_opaque_region) while
+# the hook paints them with alpha: below 1.0 niri blends them (docs/routes.md)
+BLEND_FAMILIES = ("feishin", "vscodium")
+BLEND_OPACITY = "0.999"
 
 
 def delegated(app_id_re):
@@ -80,10 +87,11 @@ def _num(v):
 
 
 def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, inactive=None,
-           inactive_ids=None):
+           inactive_ids=None, blend_ids=()):
     """The rules file. With the defaults only the glass block (the old file);
     games=() writes the games block with the default game app-ids;
-    inactive_ids limits the inactive block to those glass app-ids."""
+    inactive_ids limits the inactive block to those glass app-ids; blend_ids
+    (glass app-ids) get opacity 0.999, before the inactive block."""
     if fallback not in FALLBACK_MODES:
         raise ValueError("fallback mode %r" % fallback)
     glass = _ids(app_ids)
@@ -105,6 +113,12 @@ def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, ina
         lines += ["", "// glass: apps that paint their own glass", "window-rule {"]
         lines += ["    match app-id=%s" % _kdl_string(a) for a in glass]
         lines += ["    opacity 1.0", "}"]
+    blend = [a for a in _ids(blend_ids) if a in glass]
+    if blend:
+        lines += ["", "// glass apps whose window says it is opaque: niri blends them",
+                  "window-rule {"]
+        lines += ["    match app-id=%s" % _kdl_string(a) for a in blend]
+        lines += ["    opacity %s" % BLEND_OPACITY, "}"]
     fb = _ids(fallback_ids, skip=glass)
     if fallback == "value" and fb:
         lines += ["", "// fallback: whole-window opacity (text fades too)", "window-rule {"]
@@ -240,11 +254,15 @@ def rule_inputs(app):
     if game_ids is None:
         game_ids = rec.get("game_ids", [])
     dim, dim_ids = instant_inactive(app)
+    blend = []
+    for name in BLEND_FAMILIES:
+        blend += [a for a in app.state.owners.get(name, {}).get("app_ids", []) if a not in blend]
     return {
         "fallback": fb.get("mode", "opaque"),
         "value": fb.get("value", 0.70),
         "inactive": dim,
         "inactive_ids": dim_ids,
+        "blend_ids": blend,
         "fallback_ids": list(fallback_ids),
         "games": list(game_ids),
         "_wanted": os.path.isfile(_settings.path(app.env))

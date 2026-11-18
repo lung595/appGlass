@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import types
 import unittest
 
 from fixtures.sandbox import Sandbox, fixture
@@ -61,6 +62,34 @@ class Render(unittest.TestCase):
         with self.assertRaises(ValueError):
             niri.render([], fallback="0.70")
 
+    def test_electron_hook_apps_are_blended(self):
+        # Chromium says the window is opaque: at 1.0 niri can draw black
+        # behind it (docs/routes.md, Feishin); 0.999 makes niri blend it
+        t = niri.render([r"^Alacritty$", r"^feishin$"], inactive=0.72,
+                        blend_ids=[r"^feishin$", r"^code$"])
+        blk = t[t.index("says it is opaque"):]
+        blk = blk[:blk.index("}")]
+        self.assertIn('match app-id=r#"^feishin$"#', blk)
+        self.assertIn("opacity 0.999", blk)
+        # only glass apps, never one that is not applied
+        self.assertNotIn("^code$", t)
+        self.assertNotIn("^Alacritty$", blk)
+        # before the inactive block, so an unfocused window still fades
+        self.assertLess(t.index("opacity 0.999"), t.index("is-active=false"))
+        self.assertNotIn("0.999", niri.render([r"^Alacritty$"], blend_ids=[r"^feishin$"]))
+
+    def test_rule_inputs_blend_the_hook_families(self):
+        owners = {"feishin": {"app_ids": [r"^feishin$"]},
+                  "vscodium": {"app_ids": [r"^com\.vscodium\.codium$", r"^code$"]},
+                  "alacritty": {"app_ids": [r"^Alacritty$"]}}
+        st = types.SimpleNamespace(owners=owners, families=lambda: sorted(owners))
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        app = types.SimpleNamespace(settings={}, state=st, env=core.Env(sb.env),
+                                    levels=types.SimpleNamespace(content=0.8))
+        kw = niri.rule_inputs(app)
+        self.assertEqual(kw["blend_ids"], [r"^feishin$", r"^com\.vscodium\.codium$", r"^code$"])
+
     def test_old_single_block_by_default(self):
         t = niri.render([r"^Alacritty$"])
         self.assertEqual(t.count("window-rule {"), 1)
@@ -69,7 +98,8 @@ class Render(unittest.TestCase):
     def test_niri_validates_rendered(self):
         d = tempfile.mkdtemp(prefix="appglass-kdl-")
         try:
-            for name, kw in (("full", FULL), ("value", VALUE)):
+            blend = dict(FULL, app_ids=FULL["app_ids"] + [r"^feishin$"], blend_ids=[r"^feishin$"])
+            for name, kw in (("full", FULL), ("value", VALUE), ("blend", blend)):
                 with open(os.path.join(d, "appglass.kdl"), "w") as f:
                     f.write(niri.render(**kw))
                 cfg = os.path.join(d, "config.kdl")
