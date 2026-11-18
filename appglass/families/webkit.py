@@ -93,8 +93,8 @@ def apply(ctx):
     w = shims.wrapper(ctx, ADAPTER, WRAPPER)
     paths.append(w)
     # held opaque by the engine (S7): a launcher written before goes back to
-    # the system text until the next fingerprint
-    for rec in ctx.records(plain=True):
+    # the system text until the next fingerprint; one you switched off too
+    for rec in ctx.records(plain=True) + ctx.switched_off():
         did = rec["desktop_id"]
         if ctx.owns(ctx.data_path("applications", did)):
             p = ctx.desktop_override(did, lambda t: t)

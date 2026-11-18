@@ -720,6 +720,21 @@ class Ctx:
                 out.append(r)
         return out
 
+    def switched_off(self):
+        """The records of this family you switched off (apps.<key>.enabled
+        false) whose launcher it still owns: the next apply takes it out."""
+        from . import adapters, engine
+        g = engine.Gate(self.app)
+        out = []
+        for r in engine.records(self.app):
+            if not r.get("installed") or not r.get("desktop_id"):
+                continue
+            route = adapters.resolve(r, self.app.families, self.app.settings, gate=g)
+            if route.get("family") == self.owner and route.get("state") == "off" \
+                    and self.owns(self.data_path("applications", r["desktop_id"])):
+                out.append(r)
+        return out
+
     def owns(self, path):
         """This owner wrote path at an earlier apply."""
         return self._record(os.path.abspath(path)) is not None
@@ -1180,10 +1195,13 @@ class App:
             if fam.installed(self.env):
                 return True
             # a generic family: installed when the engine routes an app to it
-            # (a plain one too: its launchers are still ours, S7)
+            # (a plain one too: its launchers are still ours, S7; one you
+            # switched off too: its launcher goes back to the plain app)
+            ctx = self.ctx(fam.NAME)
             return bool(getattr(fam, "GENERIC", False)
-                        and (self.ctx(fam.NAME).records(generic_only=True)
-                             or self.ctx(fam.NAME).records(generic_only=True, plain=True)))
+                        and (ctx.records(generic_only=True)
+                             or ctx.records(generic_only=True, plain=True)
+                             or ctx.switched_off()))
         except Exception as ex:  # detection must never break apply
             self.warn("%s: install check failed: %s" % (fam.NAME, ex))
             return False

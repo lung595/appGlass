@@ -147,6 +147,20 @@ class Route(unittest.TestCase):
         self.assertFalse("appglass-webkit" in (self.sb.read(self.launcher())
                                                 if os.path.exists(self.launcher()) else ""))
 
+    def test_switched_off_in_the_plugin_gets_the_plain_launcher_back(self):
+        """The plugin's sync (an event) with the app switched off: the
+        launcher no longer starts the wrapper (no preload left behind)."""
+        self.enable(True)
+        self.run_ok("apply")
+        self.assertIn("appglass-webkit", self.sb.read(self.launcher()))
+        f = self.sb.write("plugin.json.tmp", json.dumps({"apps": {KEY: {"enabled": False}}}),
+                          base=self.sb.root)
+        out = self.run_ok("sync", "--settings-file", f)
+        self.assertNotIn("not installed, left as is", out)
+        self.assertFalse("appglass-webkit" in (self.sb.read(self.launcher())
+                                                if os.path.exists(self.launcher()) else ""))
+        self.assertEqual(self.route()["state"], "off")
+
     def test_gtk4_webkit_stays_opaque(self):
         _w(self.exe, elf(WK6), 0o755)
         self.run_ok("apply")
