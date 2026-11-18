@@ -8,6 +8,8 @@ CategoryPage {
     id: page
 
     category: "fade"
+    // uninstalled: nothing here is synced
+    enabled: !page.host.gone
 
     // The fade's own settings show while it is on (a search shows them all)
     function shownIf(id) {

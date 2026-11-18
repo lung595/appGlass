@@ -8,6 +8,8 @@ CategoryPage {
     id: page
 
     category: "fallback"
+    // uninstalled: nothing here is synced
+    enabled: !page.host.gone
 
     SelectionSetting {
         id: mode

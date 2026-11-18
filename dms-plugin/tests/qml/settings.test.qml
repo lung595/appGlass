@@ -607,6 +607,15 @@ Item {
                     t.press(root.find(p, "rail-apps"));
                     const toggles = root.findAll(p, "appToggle-", []).filter(x => x.visible);
                     t.ok("the app switches are off limits", toggles.length > 0 && toggles.every(x => !x.enabled));
+                    // the fade and the fallback too: a save there would be
+                    // lost to the next Set up again, or never synced
+                    t.press(root.find(p, "rail-fade"));
+                    t.check("no fade setting", root.fadeIds.map(id => root.find(p, id).enabled), root.fadeIds.map(id => false));
+                    t.press(root.find(p, "rail-fallback"));
+                    t.check("no fallback setting", ["fallbackMode", "fallbackValue"].map(id => root.find(p, id).enabled), [false, false]);
+                    const before = root.saved("inactiveDurationMs");
+                    root.find(p, "page-fade").saveValue("inactiveDurationMs", 333);
+                    t.check("a save while uninstalled is dropped", root.saved("inactiveDurationMs"), before);
                     // set up again: the user's click asks the daemon
                     t.press(root.find(p, "rail-advanced"));
                     t.check("set up again offered", root.shown("reinstallButton"), true);

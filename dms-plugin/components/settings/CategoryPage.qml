@@ -31,7 +31,9 @@ Column {
     // CLI) sets the value it was given and saves it back: the same value
     // is not written twice
     function saveValue(key, value) {
-        if (!page.host || !page.host.ready)
+        // uninstalled: no sync takes a change, and Set up again keeps
+        // what was stored before
+        if (!page.host || !page.host.ready || page.host.gone)
             return;
         if (JSON.stringify(page.loadValue(key, undefined)) === JSON.stringify(value))
             return;

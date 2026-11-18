@@ -33,6 +33,7 @@ PluginSettings {
     // "interrupted": a reload cut the uninstall short (Uninstall again)
     readonly property string uninstallState: root.vars.uninstallState || ""
     // uninstalled: the daemon syncs nothing, so nothing here offers a change
+    // (the Fade and Fallback pages are disabled, CategoryPage drops a save)
     readonly property bool gone: root.uninstallState !== ""
     // why the last Uninstall failed (kept after the sync that followed)
     readonly property string uninstallError: root.vars.uninstallError || ""

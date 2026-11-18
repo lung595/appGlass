@@ -100,7 +100,8 @@ CategoryPage {
         wrapMode: Text.WordWrap
     }
     // Uninstalled: only the user's own click brings the glass back (the
-    // daemon seeds from `appglass get` and syncs, as on a first start)
+    // daemon syncs the stored settings, `appglass get` filling only what
+    // was never stored)
     DButton {
         objectName: "reinstallButton"
         visible: page.view.shown("uninstallButton") && page.host.gone
