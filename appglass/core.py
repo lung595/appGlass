@@ -3079,9 +3079,15 @@ def _rescue_dirs(app, records, history):
             elif q not in created:
                 return False
         return True
+    # climb inside HOME or inside an XDG base dir (they may be outside HOME),
+    # never up to or past one
+    roots = [b for b in bases | {env.home} if b != "/"]
+
+    def inside(d):
+        return any(d.startswith(b + os.sep) for b in roots)
     for p in sorted(created, key=len, reverse=True):
         d = os.path.dirname(p)
-        while d.startswith(env.home + os.sep) and d not in bases and only_ours(d):
+        while inside(d) and d not in bases and only_ours(d):
             out.add(d)
             d = os.path.dirname(d)
     return sorted(out)

@@ -1166,6 +1166,43 @@ class EventGuard(Base):
                 self.assertEqual(code, 0, err)
 
 
+class RescueXdgOutsideHome(Base):
+    """The XDG dirs outside HOME (a test session, a custom layout): the
+    dirs appglass made there go with remove after a rescue too."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        xdg = os.path.join(self.sb.root, "xdg")
+        for attr, var in (("config", "XDG_CONFIG_HOME"), ("data", "XDG_DATA_HOME"),
+                          ("state", "XDG_STATE_HOME"), ("cache", "XDG_CACHE_HOME")):
+            d = os.path.join(xdg, attr)
+            os.makedirs(d)
+            setattr(self.sb, attr, d)
+            self.sb.env[var] = d
+        self.sb.seed_dms()
+        self.sb.seed_niri()
+        self.sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+        self.sb.seed("alacritty/dank-theme.toml", "alacritty/dank-theme.toml")
+        self.env = core.Env(self.sb.env)
+        self.state_dir = os.path.join(self.sb.state, "appglass")
+
+    def test_rescue_then_remove_leaves_no_dir_appglass_made(self):
+        units = os.path.join(self.sb.config, "systemd")
+        self.assertFalse(os.path.exists(units))
+        self.apply()
+        code, out, err = self.sb.run("hook", "install")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.isdir(units))
+        shutil.rmtree(self.state_dir)
+        code, out, err = self.sb.run("adopt", "--rescue", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(units), os.listdir(self.sb.config))
+        # the base dirs themselves stay
+        self.assertTrue(os.path.isdir(self.sb.config))
+
+
 class Rescue(Base):
     """adopt --rescue: state.json and the ring both gone, the appglass files
     still on disk. It saves them into a new ring entry, then records them
