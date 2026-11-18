@@ -132,7 +132,7 @@ nested_sock() {
         [ -S "$s" ] || continue
         pid=${s##*/$prefix-}; pid=${pid%.sock}
         [[ $pid =~ ^[0-9]+$ ]] || continue
-        tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -qx "WAYLAND_DISPLAY=$WL" \
+        tr '\0' '\n' 2>/dev/null < "/proc/$pid/environ" | grep -qx "WAYLAND_DISPLAY=$WL" \
             && { echo "$s"; return 0; }
     done
     return 1
@@ -173,6 +173,43 @@ PY
 }
 RT0=$(runtime_snapshot)
 printf '%s\n' "$RT0" > "$AG_OUT/runtime-before-$RUN.txt"
+
+# the Quickshell copies our instances unpacked ($RT/<app>-shell/<id>, read-only
+# dirs): those not there before the run and that no live process runs from
+# (qs -p <dir>) are ours, and go; a shell parent made by the run goes once empty
+# shell_in_use <dir>: a live process names it in its command line (the dir
+# goes through the environment: an argument would name it in our own)
+shell_in_use() {
+    AG_SHELL_DIR=$1 python3 -I -c '
+import glob, os, sys
+d = os.environ["AG_SHELL_DIR"].encode()
+for p in glob.glob("/proc/[0-9]*/cmdline"):
+    try:
+        args = open(p, "rb").read().split(b"\0")
+    except OSError:
+        continue
+    if any(a == d or a.startswith(d + b"/") for a in args):
+        sys.exit(0)
+sys.exit(1)'
+}
+drop_own_shells() {
+    local app d id
+    for app in dfiles dankcal; do
+        [ -d "$RT/$app-shell" ] && [ ! -L "$RT/$app-shell" ] || continue
+        for d in "$RT/$app-shell"/*/; do
+            d=${d%/}; id=${d##*/}
+            [ -d "$d" ] && [ ! -L "$d" ] || continue
+            printf '%s\n' "$RT0" | grep -qxF "D $app-shell/$id" && continue
+            if shell_in_use "$d"; then
+                ag_log "runtime: $d in use, kept"
+                continue
+            fi
+            chmod -R u+w -- "$d" && rm -rf -- "$d" && ag_log "runtime: removed our $app-shell/$id"
+        done
+        printf '%s\n' "$RT0" | grep -qxF "D $app-shell" \
+            || rmdir -- "$RT/$app-shell" 2>/dev/null || true
+    done
+}
 
 # dimmed out-of-month day digits of dcal (on_surface at 0.38 on the pane):
 # their glyph cores sit at one alpha between the pane and 255; their
@@ -323,6 +360,7 @@ fi
 dux_cleanup() {
     local rc=$?
     stop_dfiles || true
+    drop_own_shells || true
     if [ -n "$DPATH_SAVE" ] && [ ! -e "$DPATH" ]; then
         cp -p -- "$DPATH_SAVE" "$DPATH" && ag_log "restored $DPATH" || true
     fi
@@ -387,13 +425,17 @@ if [ -n "$DPATH_SAVE" ] && ! cmp -s "$DPATH_SAVE" "$DPATH"; then
     FAILS+=("dfiles.path of the user's instance changed or deleted (restored)")
     [ -e "$DPATH" ] || cp -p -- "$DPATH_SAVE" "$DPATH"
 fi
+drop_own_shells
 RT1=$(runtime_snapshot)
 printf '%s\n' "$RT1" > "$AG_OUT/runtime-after-$RUN.txt"
 RT_LOST=$(comm -23 <(printf '%s\n' "$RT0" | sort) <(printf '%s\n' "$RT1" | sort) | grep -v '^$' || true)
-RT_NEW=$(comm -13 <(printf '%s\n' "$RT0" | sort) <(printf '%s\n' "$RT1" | sort) \
-    | grep -v '^$' | grep -v '^D \|^F dankcal-shell/\|^F dfiles-shell/' || true)
+RT_NEW=$(comm -13 <(printf '%s\n' "$RT0" | sort) <(printf '%s\n' "$RT1" | sort) | grep -v '^$' || true)
 [ -z "$RT_LOST" ] || FAILS+=("runtime files of other instances changed: $(echo $RT_LOST)")
-[ -z "$RT_NEW" ] && ag_log "runtime: nothing left behind" || ag_log "runtime: left behind: $(echo $RT_NEW)"
+if [ -z "$RT_NEW" ]; then
+    ag_log "runtime: nothing left behind"
+else
+    FAILS+=("runtime: left behind: $(printf '%s\n' "$RT_NEW" | head -n 5 | tr '\n' ' ')($(printf '%s\n' "$RT_NEW" | wc -l) entries)")
+fi
 
 for tag in dfiles dcal; do
     f=$AG_OUT/measure-$tag-$RUN.json
