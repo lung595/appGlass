@@ -3,8 +3,10 @@
 import io
 import json
 import os
+import shutil
 import socket
 import stat
+import tempfile
 import threading
 import unittest
 
@@ -180,10 +182,12 @@ class Listener:
 class SenderTest(unittest.TestCase):
     def setUp(self):
         self.sb = Sandbox()
-        self.rt = self.sb.path("run")
-        os.makedirs(self.rt)
+        # a short runtime dir: an AF_UNIX path holds at most 107 bytes, and
+        # the sandbox under a long TMPDIR goes past it
+        self.rt = tempfile.mkdtemp(prefix="agv", dir="/tmp")
 
     def tearDown(self):
+        shutil.rmtree(self.rt, ignore_errors=True)
         self.sb.cleanup()
 
     def test_message_format(self):
