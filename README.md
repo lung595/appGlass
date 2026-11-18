@@ -59,7 +59,7 @@ The rest of this page writes `appglass` for short.
 <summary>Updating</summary>
 
 ```sh
-git -C ~/.local/share/appglass pull
+cd ~/.local/share/appglass && git pull
 appglass doctor --fix   # the hook and units, as the new version writes them
 appglass apply --all    # the glass files, as the new version writes them
 dms restart             # reload the plugin's code; your settings are kept

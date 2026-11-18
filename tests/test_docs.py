@@ -709,7 +709,7 @@ class Updating(unittest.TestCase):
         cmds = [l.split("#")[0].strip() for l in block.splitlines()]
         cmds = [c for c in cmds if c.startswith("appglass ")]
         self.assertEqual(cmds, ["appglass doctor --fix", "appglass apply --all"])
-        self.assertIn("git -C ~/.local/share/appglass pull", block)
+        self.assertIn("cd ~/.local/share/appglass && git pull", block)
         self.assertIn("dms restart", block)
         sb = Sandbox()
         try:
