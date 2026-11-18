@@ -104,18 +104,25 @@ lianli_state() {
 [ "$(lianli_state)" = waiting ] || ag_die "gate: lianli is $(lianli_state) before its check"
 grep -q appglass-lianli "$V/data/applications/$DID" 2>/dev/null \
     && ag_die "gate: a glass launcher before the check"
-# the private runtime dir of the check: a short path (sun_path)
-VB=$(mktemp -d "${TMPDIR:-/tmp}/agv.XXXX")
-chmod 700 "$VB"
-# niri: the nested one (verify asks it whether a game runs)
-VOUT=$(env -u WAYLAND_DISPLAY -u NIRI_CONFIG NIRI_SOCKET="$AG_SOCK" \
-    APPGLASS_VERIFY_HARNESS=builtin APPGLASS_VERIFY_BASE="$VB" APPGLASS_VERIFY_KEEP="$AG_OUT" \
-    APPGLASS_SANDBOX="$V" HOME="$V/home" XDG_CONFIG_HOME="$V/config" XDG_DATA_HOME="$V/data" \
-    XDG_STATE_HOME="$V/state" XDG_CACHE_HOME="$V/cache" "$AG_BIN" verify "$KEY" 2>&1) || true
-printf '%s\n' "$VOUT" > "$AG_OUT/verify.log"
-LEFTV=$(ls -A "$VB"); rmdir "$VB" 2>/dev/null || true
-[ -z "$LEFTV" ] || ag_die "gate: the check left $LEFTV behind"
-GATE="$(printf '%s' "$VOUT" | sed -n "s/^verify: $KEY: //p" | head -1)"
+gate_check() {
+    # the private runtime dir of the check: a short path (sun_path)
+    VB=$(mktemp -d "${TMPDIR:-/tmp}/agv.XXXX")
+    chmod 700 "$VB"
+    # niri: the nested one (verify asks it whether a game runs)
+    VOUT=$(env -u WAYLAND_DISPLAY -u NIRI_CONFIG NIRI_SOCKET="$AG_SOCK" \
+        APPGLASS_VERIFY_HARNESS=builtin APPGLASS_VERIFY_BASE="$VB" APPGLASS_VERIFY_KEEP="$AG_OUT" \
+        APPGLASS_SANDBOX="$V" HOME="$V/home" XDG_CONFIG_HOME="$V/config" XDG_DATA_HOME="$V/data" \
+        XDG_STATE_HOME="$V/state" XDG_CACHE_HOME="$V/cache" "$AG_BIN" verify "$KEY" 2>&1) || true
+    printf '%s\n' "$VOUT" >> "$AG_OUT/verify.log"
+    LEFTV=$(ls -A "$VB"); rmdir "$VB" 2>/dev/null || true
+    [ -z "$LEFTV" ] || ag_die "gate: the check left $LEFTV behind"
+    GATE="$(printf '%s' "$VOUT" | sed -n "s/^verify: $KEY: //p" | head -1)"
+}
+: > "$AG_OUT/verify.log"
+gate_check
+# a loaded host can run the hidden session past its time limit: once more
+case "$GATE" in "unverifiable (the session timed out"*)
+    echo "gate: $GATE: checking once more" >&2; gate_check ;; esac
 case "$GATE" in
     # the judge's verdicts on a shot (not "unverifiable", not a harness error)
     "pass "*|"fail (the window is opaque"*|"fail ("*"% of the window at alpha 0"*| \

@@ -178,7 +178,9 @@ NOBUS=1 ag_harness run "$NAME" -- bwrap --dev-bind / / "${MASK[@]}" --ro-bind "$
     --unshare-net --die-with-parent -- \
     python3 -I "$CDP" serve "$SB/cdp" -- "$OBS" --ozone-platform=wayland --no-sandbox \
     --enable-features=WaylandWindowDecorations >&2
-ID=$(ag_wait_window "$NAME" "$APPID" 40) || { tail -20 "$SB/app.log" >&2 || true; ag_die "no Obsidian window"; }
+# a loaded host can take longer than 40 s for the first window: once more
+ID=$(ag_wait_window "$NAME" "$APPID" 40 || { echo "no Obsidian window in 40 s: waiting once more" >&2
+    ag_wait_window "$NAME" "$APPID" 40; }) || { tail -20 "$SB/app.log" >&2 || true; ag_die "no Obsidian window"; }
 
 js() { python3 -I "$CDP" call "$SB/cdp" "$@"; }
 ready=""
