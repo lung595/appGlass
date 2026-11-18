@@ -1385,6 +1385,26 @@ class Harness(unittest.TestCase):
         finally:
             sb.cleanup()
 
+    def test_the_hidden_session_has_the_users_colour_scheme(self):
+        """The glass keys are made for the DMS mode: the hidden session says
+        the same scheme (a GSettings keyfile the settings portal of the
+        private bus reads too), else the apps draw light over dark keys."""
+        sb = Sandbox()
+        try:
+            app = core.App(sb.env, quiet=True)
+            e = verify.session_env(app.env, sb.path("h"), sb.path("run"))
+            self.assertEqual(e["GSETTINGS_BACKEND"], "keyfile")
+            for mode, scheme in (("dark", "prefer-dark"), ("light", "prefer-light")):
+                app.palette.mode = mode
+                home = sb.path("h-" + mode)
+                os.makedirs(home)
+                self.assertEqual(verify.seed_scheme(app, home), scheme)
+                with open(os.path.join(home, ".config/glib-2.0/settings/keyfile")) as f:
+                    self.assertEqual(f.read(), "[org/gnome/desktop/interface]\n"
+                                     "color-scheme='%s'\n" % scheme)
+        finally:
+            sb.cleanup()
+
     def test_a_hidden_session_at_another_level_is_unverifiable(self):
         """The judge wants the user's level (0.80 here): a throwaway HOME
         whose level sources give another one would run the app at that

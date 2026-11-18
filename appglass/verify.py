@@ -298,6 +298,20 @@ def stage(app, rec, run):
     return home
 
 
+def seed_scheme(app, home):
+    """The user's colour scheme (the DMS mode the glass keys are made for)
+    in the throwaway HOME: a GSettings keyfile (session_env picks the
+    keyfile backend), read by the apps and by the settings portal the
+    private bus starts. Without it the portal says "no preference" and the
+    apps draw light over keys made for dark (an opaque window)."""
+    scheme = "prefer-light" if app.palette.mode == "light" else "prefer-dark"
+    p = os.path.join(home, ".config", "glib-2.0", "settings", "keyfile")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w") as f:
+        f.write("[org/gnome/desktop/interface]\ncolor-scheme='%s'\n" % scheme)
+    return scheme
+
+
 def staged_level(home):
     """The content level the hidden session reads in the throwaway HOME."""
     from . import core, settings as _s
@@ -412,6 +426,8 @@ def session_env(env, home, run, fp=None):
          "TMPDIR": os.path.join(run, "tmp"),
          "XDG_DATA_DIRS": env.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
          "XDG_CONFIG_DIRS": "/etc/xdg", "GTK_USE_PORTAL": "0",
+         # GSettings from a keyfile in the throwaway HOME (seed_scheme), not dconf
+         "GSETTINGS_BACKEND": "keyfile",
          # no gvfsd (its wsdd and smb backends reach the LAN)
          "GIO_USE_VFS": "local",
          # the hidden session is a niri Wayland session
@@ -695,6 +711,7 @@ def run_harness(app, rec, level):
             return {"result": "unverifiable",
                     "reason": "the hidden session would run at level %.2f, not %.2f"
                               % (lv, level)}
+        seed_scheme(app, home)
         why = seed(app, rec, home)
         if why:
             return {"result": "unverifiable", "reason": why}
