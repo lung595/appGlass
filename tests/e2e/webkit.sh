@@ -11,7 +11,12 @@
 #
 # 1. scratch sandbox: apply/remove round trip (whole tree back to the same
 #    sha256), the rule file for the nested niri
-# 2. harness sandbox: apps.kiri.enabled (the user's own on: no hidden-session
+# 2. the gate: a sandbox with the default settings (Kiri not switched on):
+#    apply leaves Kiri waiting for its check, the real `appglass verify kiri`
+#    (the hidden session: headless gamescope, its own niri, Kiri's language
+#    step seeded, no network, /run/kiri hidden) passes, the next apply puts
+#    the glass launcher in place
+# 2b. harness sandbox: apps.kiri.enabled (the user's own on: no hidden-session
 #    check needed), appglass apply (+ idempotency): the launcher override
 #    starts Kiri through appglass-webkit
 # 3. Kiri with its language step done (~/.kiri/ui.json): shoot, measure the
@@ -64,8 +69,37 @@ printf '%s\n' "$KDL" > "$AG_OUT/extra.kdl"
 ag_appglass "$PRE" remove >/dev/null || ag_die "pre-remove failed"
 [ "$(ag_tree_hash "$PRE")" = "$P0" ] || ag_die "scratch round trip: tree differs after remove"
 
-# 2. the harness sandbox
 ag_start "$NAME" "$KDL"
+
+# 2. the gate, then glass after the check
+V=$(mktemp -d "$AG_OUT/gate.XXXX")
+ag_mkroot "$V"; ag_seed_dms "$V"; ag_seed_niri "$V"
+ag_appglass "$V" apply --only webkit --quiet || ag_die "gate: apply failed"
+kiri_state() {
+    ag_appglass "$V" status --json | jq -r '.apps[] | select(.key == "kiri") | .state'
+}
+[ "$(kiri_state)" = waiting ] || ag_die "gate: kiri is $(kiri_state) before its check"
+grep -q appglass-webkit "$V/data/applications/kiri.desktop" 2>/dev/null \
+    && ag_die "gate: a glass launcher before the check"
+# the private runtime dir of the check: a short path (sun_path)
+VB=$(mktemp -d "${TMPDIR:-/tmp}/agv.XXXX")
+chmod 700 "$VB"
+# niri: the nested one (verify asks it whether a game runs)
+VOUT=$(env -u WAYLAND_DISPLAY -u NIRI_CONFIG NIRI_SOCKET="$AG_SOCK" \
+    APPGLASS_VERIFY_HARNESS=builtin APPGLASS_VERIFY_BASE="$VB" APPGLASS_VERIFY_KEEP="$AG_OUT" \
+    APPGLASS_SANDBOX="$V" HOME="$V/home" XDG_CONFIG_HOME="$V/config" XDG_DATA_HOME="$V/data" \
+    XDG_STATE_HOME="$V/state" XDG_CACHE_HOME="$V/cache" "$AG_BIN" verify kiri 2>&1) || true
+printf '%s\n' "$VOUT" > "$AG_OUT/verify.log"
+LEFTV=$(ls -A "$VB"); rmdir "$VB" 2>/dev/null || true
+[ -z "$LEFTV" ] || ag_die "gate: the check left $LEFTV behind"
+printf '%s\n' "$VOUT" | grep -q '^verify: kiri: pass ' || ag_die "gate: verify: $VOUT"
+ag_appglass "$V" apply --only webkit --quiet || ag_die "gate: apply after the check failed"
+[ "$(kiri_state)" = glass ] || ag_die "gate: kiri is $(kiri_state) after its check"
+grep -q "^Exec=$V/home/.local/bin/appglass-webkit kiri " "$V/data/applications/kiri.desktop" \
+    || ag_die "gate: no glass launcher after the check"
+GATE="$(printf '%s' "$VOUT" | sed -n 's/^verify: kiri: //p' | head -1)"
+
+# 2b. the harness sandbox
 SB=$AG_TMP
 seed "$SB"
 H0=$(ag_tree_hash "$SB")
@@ -205,7 +239,7 @@ REAL_OK=1
 [ "$REAL_FP0" = "$(real_fp)" ] || REAL_OK=0
 
 python3 - "$AG_OUT/measure.json" "$AG_OUT/measure-unfocused.json" "$AG_OUT/popup.json" \
-    "$REAL_OK" <<'PY'
+    "$REAL_OK" "$GATE" <<'PY'
 import json, os, sys
 m = json.load(open(sys.argv[1]))
 u = json.load(open(sys.argv[2])) if os.path.exists(sys.argv[2]) else {}
@@ -213,13 +247,13 @@ p = json.load(open(sys.argv[3])) if os.path.exists(sys.argv[3]) else {}
 t = m.get("text", {})
 print("content alpha mode %s (expected %s, share %.2f); bar px at %s: %s; glyph px min %s; "
       "min contrast %s; unfocused content mode %s (expected %s); dialog opaque rows %s/%s; "
-      "real Kiri untouched: %s"
+      "real Kiri untouched: %s; gate: %s"
       % (m["content"]["alpha_mode"], m["content"]["expected"], m["content"]["share_within_tol"],
          m.get("bar", {}).get("expected"), m.get("bar", {}).get("px"),
          min(v["glyph_alpha255_px"] for v in t.values()) if t else None,
          m.get("min_text_contrast"), u.get("content", {}).get("alpha_mode"),
          u.get("content", {}).get("expected"), p.get("opaque_rows_dialog"), p.get("height"),
-         sys.argv[4] == "1"))
+         sys.argv[4] == "1", sys.argv[5]))
 for f in m["fails"] + u.get("fails", []):
     print("  fail: " + f)
 PY

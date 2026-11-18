@@ -115,7 +115,8 @@ ag_extra_kdl() {
     cat "$r/config/niri/appglass.kdl"
 }
 
-# ag_start <name> <extra_kdl>: sets AG_TMP (harness TMP) and AG_WL (nested display)
+# ag_start <name> <extra_kdl>: sets AG_TMP (harness TMP), AG_WL (nested display)
+# and AG_SOCK (its niri socket)
 # The harness finds the nested wayland-N socket by diffing the runtime dir; a
 # stale socket of the same name hides it and the session gets no display. Such
 # a session is stopped and started once more under the same name; a second
@@ -127,6 +128,7 @@ ag_start() {
         AG_SESSIONS+=("$n")
         AG_TMP=$(printf '%s\n' "$out" | sed -n 's/^TMP=//p')
         AG_WL=$(printf '%s\n' "$out" | sed -n 's/^WL=//p')
+        AG_SOCK=$(printf '%s\n' "$out" | sed -n 's/^SOCK=//p')
         [ -n "$AG_TMP" ] && [ -d "$AG_TMP" ] || ag_die "no TMP from harness start: $out"
         if [ -n "$AG_WL" ]; then
             ag_log "started $n (WL=$AG_WL TMP=$AG_TMP)"
