@@ -82,6 +82,22 @@ def flatpak_id(rec):
     return None
 
 
+# where a linked library is looked up (the ld.so defaults of the distros)
+LIB_DIRS = ("/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib",
+            "/lib64", "/lib")
+_WEBKIT_SO = re.compile(r"^links (libwebkit2gtk-4\.[01]\.so\S*) -> webkitgtk")
+
+
+def _library(soname):
+    """The file a soname resolves to in LIB_DIRS, with its signature, or ''."""
+    for d in LIB_DIRS:
+        p = os.path.join(d, soname)
+        if os.path.exists(p):
+            real = os.path.realpath(p)
+            return "%s %s" % (real, _sig(real))
+    return ""
+
+
 def extras(env, rec):
     """The update markers detect does not read: [str]."""
     out = []
@@ -112,6 +128,15 @@ def extras(env, rec):
         hit = _newest(os.path.join(env.config_home, "discord"), r"^app-")
         if hit:
             out.append("discord " + hit.split(":")[0])
+    if rec.get("toolkit") == "webkitgtk":
+        # the webkit shim works inside WebKitGTK: its update is a new version
+        # of the app for the check, though the app's own files do not change
+        for ev in rec.get("evidence") or ():
+            m = _WEBKIT_SO.match(ev)
+            hit = _library(m.group(1)) if m else ""
+            if hit:
+                out.append("webkitgtk " + hit)
+                break
     if "steam" in names or key == "steam" or rec.get("toolkit") == "cef":
         for d in (os.path.join(env.data_home, "Steam", "package"),
                   os.path.join(env.home, ".steam", "steam", "package")):

@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 from fixtures.sandbox import Sandbox, fixture  # noqa: F401  (sets sys.path)
 from fixtures.apps import elf, desktop, _w
@@ -162,6 +163,48 @@ class VerifyMask(unittest.TestCase):
         if not os.path.isfile(b) or not os.path.isdir("/run/kiri"):
             self.skipTest("no Kiri here")
         self.assertIn("/run/kiri", verify.run_paths({"exec": b, "seen": [b]}, keys=("kiri",)))
+
+
+class Fingerprint(unittest.TestCase):
+    """The check is per app and version: a WebKitGTK update (the library the
+    shim works inside, not in the app's package) is a new version too."""
+
+    def setUp(self):
+        self.lib = tempfile.mkdtemp(prefix="agl-lib-")
+        self.addCleanup(shutil.rmtree, self.lib)
+        self.so = os.path.join(self.lib, "libwebkit2gtk-4.1.so.0")
+        self.real("2.50.1")
+        self.env = core.Env({"HOME": self.lib, "PATH": "/usr/bin"})
+
+    def real(self, ver):
+        t = os.path.join(self.lib, "libwebkit2gtk-4.1.so.0.%s" % ver)
+        with open(t, "w") as f:
+            f.write(ver)
+        if os.path.lexists(self.so):
+            os.unlink(self.so)
+        os.symlink(os.path.basename(t), self.so)
+        return t
+
+    def extras(self, r):
+        with unittest.mock.patch.object(engine, "LIB_DIRS", (self.lib,)):
+            return engine.extras(self.env, r)
+
+    def test_the_library_counts(self):
+        x = self.extras(rec())
+        hit = [e for e in x if e.startswith("webkitgtk ")]
+        self.assertEqual(len(hit), 1, x)
+        self.assertIn("libwebkit2gtk-4.1.so.0.2.50.1", hit[0])
+        new = self.real("2.52.0")
+        self.assertNotEqual(self.extras(rec()), x)
+        self.assertIn(new, " ".join(self.extras(rec())))
+
+    def test_only_for_webkitgtk(self):
+        r = rec(toolkit="gtk3", evidence=["links libgtk-3.so.0 -> gtk3"])
+        self.assertEqual([e for e in self.extras(r) if e.startswith("webkitgtk ")], [])
+
+    def test_no_library_found(self):
+        os.unlink(self.so)
+        self.assertEqual([e for e in self.extras(rec()) if e.startswith("webkitgtk ")], [])
 
 
 class Route(unittest.TestCase):
