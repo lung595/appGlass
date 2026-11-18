@@ -184,23 +184,37 @@ ag_hide_args() {
         fi
     done
 }
-# the system manager's doors (verify.SYSTEM_SOCKETS): the system bus and
-# systemd's private socket
-AG_SYSTEM_SOCKETS=(/run/dbus/system_bus_socket /run/systemd/private)
+# the system manager's doors (verify.SYSTEM_SOCKETS): the system bus and all
+# of /run/systemd (its private and varlink sockets, resolved's
+# io.systemd.Resolve: DNS from out of a network namespace)
+AG_SYSTEM_SOCKETS=(/run/dbus/system_bus_socket /run/systemd)
 # the real session's: the user manager (sd-bus `systemctl --user` goes
 # straight to $XDG_RUNTIME_DIR/systemd/private, whatever the bus address
 # says) and the session bus socket (for anything that ignores NOBUS's address)
 AG_SESSION_SOCKETS=("${XDG_RUNTIME_DIR:-/nonexistent}/systemd" "${XDG_RUNTIME_DIR:-/nonexistent}/bus")
 
-# ag_out_of_reach <bwrap hide args>... -> dies unless, under that mask, no
-# socket is left at the doors of the systemd user manager, the session bus or
-# the system manager. Only looks at paths: nothing real is asked anything.
+# ag_out_of_reach <bwrap hide args>... -> dies unless, under that mask, the
+# session bus and the system bus are no sockets and no socket at all is left
+# under the dirs of the systemd user manager and the system manager. Only
+# looks at paths: nothing real is asked anything.
 ag_out_of_reach() {
-    local rt=${XDG_RUNTIME_DIR:-/nonexistent} d
-    for d in "$rt/systemd/private" "$rt/bus" /run/systemd/private /run/dbus/system_bus_socket; do
+    local rt=${XDG_RUNTIME_DIR:-/nonexistent} d s
+    for d in "$rt/bus" /run/dbus/system_bus_socket; do
         ! bwrap --dev-bind / / "$@" --die-with-parent -- test -S "$d" \
-            || ag_die "$d is still a socket under the app's mask (systemd user manager or a bus in reach)"
+            || ag_die "$d is still a socket under the app's mask (a bus in reach)"
     done
+    for d in "$rt/systemd" /run/systemd; do
+        s=$(bwrap --dev-bind / / "$@" --die-with-parent -- find "$d" -type s -print -quit 2>/dev/null) || true
+        [ -z "$s" ] || ag_die "$s is still a socket under the app's mask (a systemd manager in reach)"
+    done
+}
+
+# ag_no_dns <command prefix>... -> dies when a host name resolves under it
+# (the app's mask and network namespace); nothing to prove without getent
+ag_no_dns() {
+    command -v getent >/dev/null || return 0
+    ! "$@" getent hosts example.com >/dev/null 2>&1 \
+        || ag_die "a host name resolves under the app's mask (DNS in reach)"
 }
 
 # ag_journal_mark -> a cursor of the system journal now ("" when unreadable)

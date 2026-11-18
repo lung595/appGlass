@@ -9,10 +9,12 @@
 # engine), the other engine sockets it names hidden too where they exist
 # (/run/podman, $XDG_RUNTIME_DIR/podman and docker.sock, ~/.docker/run) with
 # DOCKER_HOST unset, both systemd managers out of reach ($XDG_RUNTIME_DIR/systemd
-# an empty tmpfs: sd-bus `systemctl --user` goes there whatever the bus address
-# says; $XDG_RUNTIME_DIR/bus, the system bus and systemd's private socket
-# /dev/null; a read-only question to each under the same mask must go
-# unanswered before Kiri starts), and no network (unshare -n when available).
+# and /run/systemd empty tmpfs: sd-bus `systemctl --user` goes to the first
+# whatever the bus address says; $XDG_RUNTIME_DIR/bus and the system bus
+# /dev/null; before Kiri starts the e2e looks, under the same mask, that no
+# bus path is a socket and no socket is left under either systemd dir: nothing
+# real is asked), and no network (unshare -n when available; under it no host
+# name may resolve: resolved's varlink socket is in /run/systemd).
 # The zenity that takes the focus runs under the same mask. The user's Kiri
 # data (~/.kiri, ~/.local/share/kiri) is only listed, before and after.
 #
@@ -131,6 +133,7 @@ mapfile -t HIDE < <(ag_hide_args /run/kiri /run/podman "$RT/podman" "$RT/docker.
     "$HOME/.docker/run" "${AG_SESSION_SOCKETS[@]}" "${AG_SYSTEM_SOCKETS[@]}")
 printf '%s\n' "${HIDE[@]}" | grep -qx /run/kiri || ag_die "no /run/kiri to hide"
 ag_out_of_reach "${HIDE[@]}"
+[ "${#NONET[@]}" = 0 ] || ag_no_dns bwrap --dev-bind / / "${HIDE[@]}" --die-with-parent "${NONET[@]}"
 kiri_up() {
     NOBUS=1 ag_harness run "$NAME" -- env -u DOCKER_HOST bwrap --dev-bind / / "${HIDE[@]}" \
         --die-with-parent "${NONET[@]}" "${EXEC[@]}" >&2
