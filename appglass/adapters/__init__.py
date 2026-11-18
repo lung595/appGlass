@@ -20,6 +20,7 @@ it today ("effective": glass, fallback, opaque, delegated, excluded).
 """
 
 import functools
+import os
 import re
 
 from .. import niri
@@ -80,8 +81,9 @@ CATALOGUE = (
     Adapter("electron-hook", FORCED, "medium", ["electron"], ("feishin", "vscodium"),
             "a main-process hook (NODE_OPTIONS when the fuse allows it) plus CSS",
             "may break on app updates"),
-    Adapter("webkit-shim", FORCED, "medium", ["webkitgtk"], "lianli",
-            "a preload that makes the WebKit view transparent, plus page CSS"),
+    Adapter("webkit-shim", FORCED, "medium", ["webkitgtk"], ("webkit", "lianli"),
+            "a preload that makes the WebKit view transparent, plus page CSS/JS (any "
+            "GTK3 WebKitGTK app; Lian Li its own CSS)"),
     Adapter("qtquick-shim", FORCED, "medium-high", ["qt-webengine", "qt-quick"], "jellyfin",
             "a preload that sets the QML window alpha (Jellyfin)",
             "video playback breaks until the shim re-shows mpv"),
@@ -200,8 +202,13 @@ def hand_family(adapter, rel, families):
     fams = [f for f in adapter.FAMILIES if f in families]
     if len(adapter.FAMILIES) <= 1:
         return fams[0] if fams else None
-    return next((f for f in fams if re.search(r"(^|[/._-])%s([/._-]|$)" % re.escape(f), rel)),
-                None)
+    hit = next((f for f in fams if re.search(r"(^|[/._-])%s([/._-]|$)" % re.escape(f), rel)),
+               None)
+    if hit is None and rel.endswith(".desktop"):
+        # a launcher: the family that lists its app id (com.sgtaziz.lianlilinux)
+        app_id = os.path.basename(rel)[:-len(".desktop")]
+        hit = next((f for f in fams if _any(getattr(families[f], "APP_IDS", ()), [app_id])), None)
+    return hit
 
 
 def family_for(rec, families):
@@ -227,9 +234,20 @@ def routes(rec, families):
         out.append(a.NAME)
     out += [ad for rx, ad in APP_ROUTES if _any([rx], names)]
     # a toolkit adapter that serves families only works for an app its
-    # families list (resolve gives the others the fallback)
-    out += [x.NAME for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
-            and x.TIER in (NATIVE, FORCED, MOD) and (not x.FAMILIES or fam in x.FAMILIES)]
+    # families list (resolve gives the others the fallback), or one its
+    # generic family takes (not a root app, not one it refuses)
+    taken = None
+    for x in CATALOGUE:
+        if rec.get("toolkit") not in x.TOOLKITS or x.TIER not in (NATIVE, FORCED, MOD):
+            continue
+        if x.FAMILIES and fam not in x.FAMILIES:
+            if not getattr(families.get(x.FAMILY), "GENERIC", False):
+                continue
+            if taken is None:
+                taken = resolve(rec, families).get("family")
+            if taken != x.FAMILY:
+                continue
+        out.append(x.NAME)
     seen = set()
     return [n for n in out if not (n in seen or seen.add(n))]
 
@@ -264,6 +282,22 @@ def _strong(rec):
     if "strong" in rec:
         return bool(rec["strong"])
     return True
+
+
+def switch(own, mine, generic=False):
+    """An injected app's switch: True (on by you), False (off) or None (on,
+    gated by its check). own: the family's apps.<family>, mine: the app's
+    apps.<key>. A family that lists its apps: the family's switch wins. A
+    generic family (it takes apps nobody listed, future ones too): the app's
+    own switch wins, and the family's on only allows the route, it is no
+    check passed for every app it may route later."""
+    own = own if isinstance(own, dict) else {}
+    mine = mine if isinstance(mine, dict) else {}
+    if not generic:
+        return own.get("enabled") if "enabled" in own else mine.get("enabled")
+    if "enabled" in mine:
+        return mine["enabled"]
+    return False if own.get("enabled") is False else None
 
 
 def resolve(rec, families, settings=None, gate=None):
@@ -348,7 +382,7 @@ def resolve(rec, families, settings=None, gate=None):
         if injected:
             # the gate in place of OPT_IN: on unless switched off, live
             # only with a check for this fingerprint (or the user's own on)
-            exp = own.get("enabled") if "enabled" in own else mine.get("enabled")
+            exp = switch(own, mine, getattr(families[fam], "GENERIC", False))
             on = exp is not False
             state, why = gate(rec, True, exp is True) if on else ("off", "off in settings")
         else:

@@ -29,7 +29,8 @@ ag_require() {
     trap ag_cleanup EXIT
 }
 
-ag_harness() { "$APPGLASS_HARNESS" "$@"; }
+# the e2e's own variables stay out of the harness and what it runs
+ag_harness() { env -u APPGLASS_HARNESS -u APPGLASS_E2E_OUT "$APPGLASS_HARNESS" "$@"; }
 
 # real (read-only) inputs; fixtures when missing
 ag_real_config() { echo "${XDG_CONFIG_HOME:-$HOME/.config}"; }
@@ -137,7 +138,8 @@ ag_extra_kdl() {
     cat "$r/config/niri/appglass.kdl"
 }
 
-# ag_start <name> <extra_kdl>: sets AG_TMP (harness TMP) and AG_WL (nested display)
+# ag_start <name> <extra_kdl>: sets AG_TMP (harness TMP), AG_WL (nested display)
+# and AG_SOCK (its niri socket)
 # The harness finds the nested wayland-N socket by diffing the runtime dir; a
 # stale socket of the same name hides it and the session gets no display. Such
 # a session is stopped and started once more under the same name; a second
@@ -149,6 +151,7 @@ ag_start() {
         AG_SESSIONS+=("$n")
         AG_TMP=$(printf '%s\n' "$out" | sed -n 's/^TMP=//p')
         AG_WL=$(printf '%s\n' "$out" | sed -n 's/^WL=//p')
+        AG_SOCK=$(printf '%s\n' "$out" | sed -n 's/^SOCK=//p')
         [ -n "$AG_TMP" ] && [ -d "$AG_TMP" ] || ag_die "no TMP from harness start: $out"
         if [ -n "$AG_WL" ]; then
             ag_log "started $n (WL=$AG_WL TMP=$AG_TMP)"
@@ -192,3 +195,84 @@ ag_wait_window() {
 }
 
 ag_measure() { python3 "$AG_E2E/measure.py" "$@"; }
+
+# ag_hide_args <path>... -> the bwrap args hiding those that exist (a dir an
+# empty tmpfs, a file /dev/null), one per line (read with mapfile). A missing
+# path is left alone: bwrap would create its mount point on the real disk.
+ag_hide_args() {
+    local p
+    for p in "$@"; do
+        if [ -d "$p" ]; then printf '%s\n' --tmpfs "$p"
+        elif [ -e "$p" ] || [ -L "$p" ]; then printf '%s\n' --ro-bind /dev/null "$p"
+        fi
+    done
+}
+# the system manager's doors (verify.SYSTEM_SOCKETS): the system bus and all
+# of /run/systemd (its private and varlink sockets, resolved's
+# io.systemd.Resolve: DNS from out of a network namespace)
+AG_SYSTEM_SOCKETS=(/run/dbus/system_bus_socket /run/systemd)
+# the real session's: the user manager (sd-bus `systemctl --user` goes
+# straight to $XDG_RUNTIME_DIR/systemd/private, whatever the bus address
+# says) and the session bus socket (for anything that ignores NOBUS's address)
+AG_SESSION_SOCKETS=("${XDG_RUNTIME_DIR:-/nonexistent}/systemd" "${XDG_RUNTIME_DIR:-/nonexistent}/bus")
+
+# ag_out_of_reach <bwrap hide args>... -> dies unless, under that mask, the
+# session bus and the system bus are no sockets and no socket at all is left
+# under the dirs of the systemd user manager and the system manager. Only
+# looks at paths: nothing real is asked anything.
+ag_out_of_reach() {
+    local rt=${XDG_RUNTIME_DIR:-/nonexistent} d s
+    for d in "$rt/bus" /run/dbus/system_bus_socket; do
+        ! bwrap --dev-bind / / "$@" --die-with-parent -- test -S "$d" \
+            || ag_die "$d is still a socket under the app's mask (a bus in reach)"
+    done
+    for d in "$rt/systemd" /run/systemd; do
+        s=$(bwrap --dev-bind / / "$@" --die-with-parent -- find "$d" -type s -print -quit 2>/dev/null) || true
+        [ -z "$s" ] || ag_die "$s is still a socket under the app's mask (a systemd manager in reach)"
+    done
+}
+
+# ag_no_dns <command prefix>... -> dies when a host name resolves under it
+# (the app's mask and network namespace); nothing to prove without getent
+ag_no_dns() {
+    command -v getent >/dev/null || return 0
+    ! "$@" getent hosts example.com >/dev/null 2>&1 \
+        || ag_die "a host name resolves under the app's mask (DNS in reach)"
+}
+
+# ag_journal_mark -> a cursor of the system journal now ("" when unreadable)
+ag_journal_mark() {
+    journalctl -q -n 0 --show-cursor --no-pager 2>/dev/null | sed -n 's/^-- cursor: //p'
+}
+# ag_journal_select <field> <unit glob>... -> "<unit>: <message>" for each
+# journal entry (JSON lines on stdin) of the manager whose <field> names one
+# of those units: _PID 1 (UNIT) or a user manager (_COMM systemd, USER_UNIT).
+# A unit's own log (the real daemon at work) is not a manager's job line.
+ag_journal_select() {
+    local f=$1 u re=; shift
+    for u in "$@"; do
+        u=$(printf '%s' "$u" | sed 's/[.^$+(){}|\\[]/\\&/g; s/\*/.*/g; s/?/./g')
+        re="${re:+$re|}^($u)\$"
+    done
+    jq -r --arg f "$f" --arg re "$re" 'select(
+        (if $f == "UNIT" then ._PID == "1" else ._COMM == "systemd" end)
+        and (.[$f] | type == "string") and (.[$f] | test($re))) | "\(.[$f]): \(.MESSAGE)"' 2>/dev/null || true
+}
+# ag_journal_since <cursor> <unit glob>... -> the system manager's lines
+# about those units after it
+ag_journal_since() {
+    local c=$1; shift
+    [ -n "$c" ] || return 0
+    journalctl -q --no-pager --after-cursor="$c" -o json _PID=1 2>/dev/null | ag_journal_select UNIT "$@"
+}
+# ag_user_journal_mark / ag_user_journal_since <cursor> <unit glob>...: the
+# same in the user journal (the user manager's lines about its units)
+ag_user_journal_mark() {
+    journalctl --user -q -n 0 --show-cursor --no-pager 2>/dev/null | sed -n 's/^-- cursor: //p'
+}
+ag_user_journal_since() {
+    local c=$1; shift
+    [ -n "$c" ] || return 0
+    journalctl --user -q --no-pager --after-cursor="$c" -o json _COMM=systemd 2>/dev/null \
+        | ag_journal_select USER_UNIT "$@"
+}

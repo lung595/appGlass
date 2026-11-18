@@ -720,7 +720,8 @@ class Writes(unittest.TestCase):
         fams = core.discover()
         self.assertIn("alacritty", fams)
         for f in fams.values():
-            self.assertTrue(f.APP_IDS)
+            # a generic family (webkit) routes by toolkit, with no list
+            self.assertTrue(f.APP_IDS or getattr(f, "GENERIC", False), f.NAME)
 
 
 if __name__ == "__main__":

@@ -84,7 +84,8 @@ class Override(unittest.TestCase):
         self.sb.write("applications/foo.desktop", hand, base=self.sb.data)
         with self.assertRaises(core.Conflict) as cm:
             self.apply()
-        self.assertIn("appglass adopt", str(cm.exception))
+        # not a file appglass knows (appglass adopt <path> refuses it): move it away
+        self.assertIn("move ~/.local/share/applications/foo.desktop away", str(cm.exception))
         self.assertEqual(self.sb.read(self.dest), hand)
         app = core.App(self.sb.env)
         core.adopt_path(app, self.dest, "testfam")

@@ -369,16 +369,53 @@ class VkLayer(Tmp):
 
 @unittest.skipUnless(GCC, "no gcc")
 class WebkitShim(Tmp):
-    def test_children_lose_the_shim(self):
+    def build(self):
         so = os.path.join(self.dir, "appglass-wk.so")
         subprocess.run([GCC, "-shared", "-fPIC", "-O2", "-o", so, shim("webkit-shim", "appglass-wk.c"),
                         "-ldl"], check=True, capture_output=True, timeout=120)
-        env = self.base_env(LD_PRELOAD=so, APPGLASS_CSS="/x/glass.css", APPGLASS_JS="/x/end.js")
-        r = subprocess.run(["sh", "-c", "exec env"], env=env, capture_output=True, text=True,
-                           timeout=60, check=True)
-        e = parse_env(r.stdout)
+        return so
+
+    def given(self, argv, **kw):
+        """What a child of argv was given at exec (/proc/self/environ: the
+        child's own copy of the shim cannot rewrite it)."""
+        so = self.build()
+        env = self.base_env(LD_PRELOAD=so, APPGLASS_CSS="/x/glass.css", APPGLASS_JS="/x/end.js",
+                            APPGLASS_DEBUG="1", **kw)
+        r = subprocess.run(argv, env=env, capture_output=True, timeout=60, check=True)
+        return dict(l.split("=", 1) for l in r.stdout.decode().split("\0") if "=" in l)
+
+    def test_children_lose_the_shim(self):
+        e = self.given(["sh", "-c", "exec cat /proc/self/environ"])
         self.assertEqual(leaks(e), [])
         self.assertEqual(e.get("KEEP"), "1")
+
+    def test_a_shell_parent_passes_nothing_on(self):
+        # bash exports its own getenv/setenv/unsetenv: an unsetenv in its
+        # constructor never reaches the environ it builds its children from.
+        # A launcher script stays alive (it runs the app, then more) and
+        # spawns a child: that child starts plain.
+        for sh in ("sh", "bash"):
+            if not shutil.which(sh):
+                continue
+            e = self.given([sh, "-c", "cat /proc/self/environ; true"])
+            self.assertEqual(leaks(e), [], sh)
+            self.assertEqual(e.get("KEEP"), "1", sh)
+            self.assertEqual(e.get("PATH"), os.environ.get("PATH", os.defpath), sh)
+
+    def test_other_preloads_stay(self):
+        other = os.path.join(self.dir, "other.so")
+        src = os.path.join(self.dir, "other.c")
+        with open(src, "w") as f:
+            f.write("int agl_other;\n")
+        subprocess.run([GCC, "-shared", "-fPIC", "-o", other, src], check=True, capture_output=True,
+                       timeout=120)
+        so = self.build()
+        env = self.base_env(LD_PRELOAD=so + ":" + other, APPGLASS_CSS="/x/glass.css")
+        r = subprocess.run(["bash", "-c", "cat /proc/self/environ; true"], env=env,
+                           capture_output=True, timeout=60, check=True)
+        e = dict(l.split("=", 1) for l in r.stdout.decode().split("\0") if "=" in l)
+        self.assertEqual(e.get("LD_PRELOAD"), other)   # (the temp dir's name holds "appglass")
+        self.assertNotIn("APPGLASS_CSS", e)
 
 
 # ------------------------------------------------------------------ qtquick-shim

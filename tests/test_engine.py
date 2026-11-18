@@ -15,6 +15,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -529,10 +530,9 @@ class Routing(unittest.TestCase):
         with open(os.path.join(home, os.path.relpath(colours, self.sb.home))) as f:
             self.assertIn("window_bg_color", f.read())
 
-    def test_glass_files_outside_home_make_the_check_unverifiable(self):
-        """XDG_DATA_HOME outside HOME: the throwaway HOME cannot hold the
-        theme, so the check would shoot the plain app. It says it cannot
-        check instead of failing the route."""
+    def test_xdg_data_home_outside_home_is_staged_under_the_throwaway_home(self):
+        """XDG_DATA_HOME outside HOME: the theme goes to the default data dir
+        under the throwaway HOME, where the hidden session looks for it."""
         outside = self.sb.path("outside-data")
         os.makedirs(outside)
         self.sb.env["XDG_DATA_HOME"] = outside
@@ -541,6 +541,25 @@ class Routing(unittest.TestCase):
         self.run_ok("apply", "--only", "gtk3")
         app = core.App(self.sb.env, quiet=True)
         self.assertFalse(app.env.data_home.startswith(app.env.home + os.sep))
+        run = self.sb.path("stage-run")
+        os.makedirs(run)
+        home = verify.stage(app, engine.record_for(app, "gtkapp"), run)
+        self.assertTrue(os.path.isfile(
+            os.path.join(home, ".local/share/themes/AppGlass/gtk-3.0/gtk.css")))
+
+    def test_glass_files_outside_home_and_xdg_make_the_check_unverifiable(self):
+        """A glass file outside HOME and every XDG dir: the throwaway HOME
+        cannot hold it, so the check would shoot the plain app. It says it
+        cannot check instead of failing the route."""
+        g = bin_elf(self.w, "gtkapp", GTK3)
+        self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
+        self.run_ok("apply", "--only", "gtk3")
+        app = core.App(self.sb.env, quiet=True)
+        stray = os.path.join(self.sb.root, "elsewhere", "glass.css")
+        os.makedirs(os.path.dirname(stray))
+        with open(stray, "w") as f:
+            f.write("x")
+        app.state.owners["gtk3"]["files"][stray] = {}
         run = self.sb.path("stage-run")
         os.makedirs(run)
         with self.assertRaises(verify.Unstageable) as cm:
@@ -1211,6 +1230,92 @@ class Judge(unittest.TestCase):
     def test_glass_only_in_a_corner(self):
         r = self.j({204: 1000, 120: 900, 255: 8000})
         self.assertEqual(r["result"], "fail")
+
+    def test_bare_holes_fail(self):
+        """Native chrome around one glassed WebView: the chrome is alpha 0
+        (labels on the bare blur), the view alone at the level."""
+        r = self.j({0: 1210915, 153: 838972, 255: 46323}, level=0.60)
+        self.assertEqual(r["result"], "fail")
+        self.assertIn("alpha 0", r["reason"])
+        self.assertEqual(r["bare"], 0.578)
+        # the rounded corners and CSD margins of a normal window pass
+        self.assertEqual(self.j({0: 117192, 153: 1863983, 255: 8919}, level=0.60)["result"],
+                         "pass")
+
+    @staticmethod
+    def plane(w, h, bare=(), opaque=(), margin=0):
+        """An alpha plane: content 153, the boxes (x0, y0, x1, y1) in bare at
+        alpha 0 and those in opaque at 255, a margin of alpha 0 all round."""
+        rows = []
+        for y in range(h):
+            r = bytearray([153]) * w
+            for x0, y0, x1, y1 in bare:
+                if y0 <= y < y1:
+                    r[x0:x1] = bytes(x1 - x0)
+            for x0, y0, x1, y1 in opaque:
+                if y0 <= y < y1:
+                    r[x0:x1] = b"\xff" * (x1 - x0)
+            if y < margin or y >= h - margin:
+                r = bytearray(w)
+            else:
+                r[:margin] = bytes(margin)
+                r[w - margin:] = bytes(margin)
+            rows.append(bytes(r))
+        return w, h, b"".join(rows)
+
+    def jp(self, plane, level=0.60):
+        return verify.judge(None, None, level, plane=plane)
+
+    def test_a_native_sidebar_shown_after_the_map_is_a_hole(self):
+        """A WebView glassed at map, then a native sidebar shown: the sidebar
+        is alpha 0 with its labels at 255, a fifth of the window (under the
+        quarter of BARE), and the check must still fail."""
+        labels = [(30, 10 + 37 * i, 100, 26 + 37 * i) for i in range(7)]
+        text = [(160, 40 + 30 * i, 500, 52 + 30 * i) for i in range(4)]
+        r = self.jp(self.plane(640, 800, bare=[(0, 0, 130, 800)], opaque=labels + text))
+        self.assertEqual(r["result"], "fail")
+        self.assertIn("hole", r["reason"])
+        self.assertLess(r["bare"], verify.BARE)
+        self.assertGreater(r["hole"], 0.10)
+        # a narrower one, inside a CSD margin, too
+        r = self.jp(self.plane(955, 1200, bare=[(20, 20, 90, 1180)], opaque=text, margin=20))
+        self.assertEqual(r["result"], "fail")
+        self.assertIn("hole", r["reason"])
+
+    def test_margins_corners_and_thin_gaps_are_not_holes(self):
+        text = [(160, 140 + 30 * i, 500, 152 + 30 * i) for i in range(4)]
+        corners = [(20, 20, 32, 32), (608, 20, 620, 32), (20, 768, 32, 780), (608, 768, 620, 780)]
+        for margin in (20, 40):     # GTK4's CSD shadow margin, at scale 1 and 2
+            r = self.jp(self.plane(640, 800, bare=corners, opaque=text, margin=margin))
+            self.assertEqual(r["result"], "pass", (margin, r))
+            self.assertEqual(r["hole"], 0)
+        # a small CSD dialog (GIMP's measured 17.6 %): its margin is a big
+        # share, still under BARE, and no hole
+        r = self.jp(self.plane(581, 321, opaque=[(60, 60, 400, 80)], margin=20))
+        self.assertEqual(r["result"], "pass", r)
+        self.assertGreater(r["bare"], 0.15)
+        # Qt's window background between the widgets: 10 px gaps
+        gaps = [(200, 0, 210, 800), (0, 60, 640, 70), (0, 700, 640, 710)]
+        r = self.jp(self.plane(640, 800, bare=gaps, opaque=text))
+        self.assertEqual(r["result"], "pass", r)
+        self.assertEqual(r["hole"], 0)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "no ffmpeg")
+    def test_the_shot_is_read_whole(self):
+        """judge(png): the plane decoded (width, height, alpha), holes found."""
+        w, h, a = self.plane(320, 200, bare=[(0, 0, 90, 200)], opaque=[(120, 20, 300, 40)])
+        d = tempfile.mkdtemp()
+        try:
+            png = os.path.join(d, "w.png")
+            rgba = b"".join(b"\x40\x40\x40" + bytes([v]) for v in a)
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba",
+                            "-s", "%dx%d" % (w, h), "-i", "-", png], input=rgba, check=True)
+            self.assertEqual(verify.alpha_plane(None, png), (w, h, a))
+            r = verify.judge(None, png, 0.60)
+            self.assertEqual(r["result"], "fail")
+            self.assertIn("hole", r["reason"])
+        finally:
+            shutil.rmtree(d)
 
 
 class Harness(unittest.TestCase):

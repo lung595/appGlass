@@ -15,7 +15,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def gated():
-    """[(family, wrapper source, its key)] for every OPT_IN family with a WRAPPER."""
+    """[(family, wrapper source, its key)] for every OPT_IN family with a WRAPPER
+    (a generic family's wrapper takes its key as the first argument: "$1")."""
     out = []
     for p in sorted(glob.glob(os.path.join(REPO, "appglass", "families", "*.py"))):
         name = os.path.basename(p)[:-3]
@@ -23,13 +24,13 @@ def gated():
             continue
         m = importlib.import_module("appglass.families." + name)
         if getattr(m, "OPT_IN", False) and getattr(m, "WRAPPER", None):
-            out.append((name, os.path.join(REPO, "shims", m.ADAPTER, m.WRAPPER), m.KEYS[0]))
+            out.append((name, os.path.join(REPO, "shims", m.ADAPTER, m.WRAPPER), m.KEYS[0] if m.KEYS else "$1"))
     return out
 
 
 def key_of(text):
     """The wrapper's AGKEY, with a "$ID" resolved."""
-    v = re.search(r'^AGKEY="?([^"\n]+)"?$', text, re.M).group(1)
+    v = re.search(r'^AGKEY="?([^"\n;]+)"?(?:; shift)?$', text, re.M).group(1)
     if v == "$ID":
         v = re.search(r'^ID=(\S+)$', text, re.M).group(1)
     return v

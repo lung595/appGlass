@@ -547,7 +547,8 @@ class DefaultOn(unittest.TestCase):
     def test_no_doc_or_docstring_says_opt_in(self):
         import importlib
         rx = re.compile(r"opt-in|off until", re.I)
-        for name in ("artcraft", "feishin", "jellyfin", "lianli", "localsend", "vencord", "vscodium"):
+        for name in ("artcraft", "feishin", "jellyfin", "lianli", "localsend", "vencord", "vscodium",
+                     "webkit"):
             m = importlib.import_module("appglass.families." + name)
             self.assertNotRegex(m.__doc__ or "", rx, name)
         for row in json.loads(doc("apps.json"))["apps"]:

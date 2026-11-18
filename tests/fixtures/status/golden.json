@@ -178,13 +178,14 @@
     },
     {
       "families": [
+        "webkit",
         "lianli"
       ],
-      "family": "lianli",
+      "family": "webkit",
       "implemented": true,
       "name": "webkit-shim",
       "risk": "medium",
-      "summary": "a preload that makes the WebKit view transparent, plus page CSS",
+      "summary": "a preload that makes the WebKit view transparent, plus page CSS/JS (any GTK3 WebKitGTK app; Lian Li its own CSS)",
       "tier": "forced",
       "toolkits": [
         "webkitgtk"
@@ -745,6 +746,11 @@
       "installed": true
     },
     "vscodium": {
+      "applied": [],
+      "enabled": true,
+      "installed": false
+    },
+    "webkit": {
       "applied": [],
       "enabled": true,
       "installed": false

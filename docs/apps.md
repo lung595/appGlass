@@ -12,7 +12,7 @@ exists but was not verified on this app (the probe's or the expected result is i
 glass, partial or opaque only for rows tested here (a glass row needs a PASS) or earlier;
 **glass (popups unverified)** = a PASS that opened no popup on a toolkit that has popups.
 
-51 rows (a row can name several apps): 14 tested here, 12 earlier, 22 probe, 3 documented. 17 glass (2 with popups unverified), 5 partial, 0 opaque, 4 untested, 25 needs adapter.
+52 rows (a row can name several apps): 14 tested here, 13 earlier, 22 probe, 3 documented. 18 glass (2 with popups unverified), 5 partial, 0 opaque, 4 untested, 25 needs adapter.
 
 | App | Toolkit | Family | Route | Tested | Result | Measured / reason | Evidence |
 |---|---|---|---|---|---|---|---|
@@ -37,7 +37,8 @@ glass, partial or opaque only for rows tested here (a glass row needs a PASS) or
 | Feishin (flatpak) | Electron | feishin | electron-hook main-process hook; on by default, live after its check | earlier | glass |  | docs/routes.md#feishin-and-vscodium-electron-inspector-hook, docs/issue-dms.md#screenshots |
 | Jellyfin Desktop 2.0.0 (flatpak) | Qt Quick + WebEngine | jellyfin | qtquick-shim libjfglass.so; on by default, live after its check | earlier | glass |  | docs/routes.md#jellyfin-qt-quick-shim |
 | LocalSend 1.18.2 (flatpak) | Flutter | localsend | ck-shim colour keys; on by default, live after its check | earlier | glass |  | docs/routes.md#localsend-and-artcraft-colour-key-shim, docs/issue-dms.md#screenshots |
-| Lian Li Linux (lianli-gui) | Tauri / WebKitGTK | lianli | webkit-shim appglass-wk.so; on by default, live after its check | earlier | glass |  | docs/routes.md#lian-li-webkitgtk-shim, docs/issue-dms.md#screenshots |
+| Lian Li Linux (lianli-gui) | Tauri / WebKitGTK | lianli | webkit-shim appglass-wk.so; on by default, live after its check. e2e in a nested niri with its daemon hidden: content 153, bars 166 | earlier | glass |  | docs/routes.md#lian-li-webkitgtk-shim, docs/issue-dms.md#screenshots, tests/e2e/lianli.sh, commit 84ce964 |
+| Kiri 0.2.1 (kiri-window) | Tauri / WebKitGTK | webkit | webkit-shim appglass-wk.so + page CSS/JS from the page's own colours, found by toolkit (any host GTK3 WebKitGTK 4.x app whose window is the WebView); on by default, live after its check. e2e in a nested niri, measured on its setup screen (no engine in the harness): content 153 (94% within 6), bars 166, language dialog 255; its hidden check passes (background 153, opaque text) and then applies the glass | earlier | glass |  | tests/e2e/webkit.sh, commit 7e67ea2 |
 | Discord + Vencord | Electron (client mod) | vencord | Vencord transparent window + DMS theme with alpha; on by default, live after its check | no | untested | expected: partial. not measured: Discord's web app needs a signed-in account, and a test session must not reuse yours; the theme and the settings merge are unit-tested (tests/test_vencord.py). Needs the Vencord client mod; the official client alone has no route | docs/routes.md#discord-vencord |
 | kitty | own (OpenGL) | kitty | `background_opacity` + DMS theme include | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |
 | Ghostty | own (OpenGL/GTK4) | ghostty | `background-opacity` (+ cells) + DMS theme | no | untested | expected: glass. expected; not on flathub, not installed: the writer is unit-tested only | - |

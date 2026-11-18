@@ -28,6 +28,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 | [Vencord theme](#discord-vencord) | Mod | `vencord` | Discord with Vencord | on, after its check |
 | [Electron inspector hook](#feishin-and-vscodium-electron-inspector-hook) | Forced | `feishin`, `vscodium` | Feishin, VSCodium | on, after its check |
 | [WebKit shim](#lian-li-webkitgtk-shim) | Forced | `lianli` | Lian Li Linux | on, after its check |
+| [WebKit shim, generic](#any-webkitgtk-app-generic-webkit-shim) | Forced | `webkit` | Kiri, any other host GTK3 WebKitGTK 4.x app | on, after its check |
 | [Qt Quick shim](#jellyfin-qt-quick-shim) | Forced | `jellyfin` | Jellyfin Desktop | on, after its check |
 | [Colour-key shim](#localsend-and-artcraft-colour-key-shim) | Forced | `localsend`, `artcraft` | LocalSend, ArtCraft Launcher (GPU route through a Vulkan layer, else CPU route) | on, after its check |
 | [Opaque](#opaque) | | | Steam, Chrome, games, everything else | |
@@ -142,11 +143,21 @@ TODO(engine): a `NODE_OPTIONS=--require` route needs no port and ranks first whe
 ## Lian Li (WebKitGTK shim)
 
 - **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/lianli/`, the page CSS, the wrapper `~/.local/bin/appglass-lianli` and a launcher override. The shim is preloaded for that one launch: it clears the WebView background, gives the window an alpha visual and adds the CSS.
-- **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)).
+- **Measured:** on the real desktop at 0.80, background 204, text 255 (see the [issue draft](issue-dms.md#screenshots)); in a nested niri with its daemon hidden (`tests/e2e/lianli.sh`), content 153 and bars 166.
 - **Fade, not recorded for this version:** the shim sets `html.agl-inactive` on the page when the window loses focus, and the CSS lowers the background with a transition; the rule and the shim's focus hook are unit-tested (`tests/test_fade.py`). An earlier build was recorded at 0.80 (nested niri, three runs, `shots/fade/lianli.fade.txt` in the probe notes): 0.80 to 0.72 in about 115 ms, back in 67 to 151 ms.
 - **Limit:** the NVIDIA WebKit workarounds (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`) make a transparent WebView nearly invisible (alpha about 0). See [webkit.md](webkit.md).
-- **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps.
+- **Default:** on, live once its hidden check passes, but today the check does not pass: the check hides the daemon (as it must), so Lian Li lays its "Check your installation / Waiting for daemon" dialog and a scrim over the page, and the shot fails (background about 194 for 153, `tests/e2e/lianli.sh`). Lian Li stays opaque until you switch it on yourself in Settings > Apps (`apps.lianli.enabled` in `settings.json`); then it is glass at once.
 - **Undo:** `appglass remove --only lianli`.
+
+## Any WebKitGTK app (generic WebKit shim)
+
+- **Who:** found by its toolkit: a host app whose binary links `libwebkit2gtk-4.x` and `libgtk-3` (Kiri, the Tauri / wry apps). The shim glasses the window only while the WebView is all it draws, looked at again whenever a widget maps or unmaps: with native widgets beside the view (a mail client's folder list, even one shown after the window maps) the window is opaque and the check fails it. A launcher whose command is a script is refused (the preload would not reach the app). Lian Li keeps its own family. Not a flatpak (the host-built preload does not load in its runtime), not WebKitGTK 6 / GTK4 (the shim's window code is GTK3): those keep the fallback, and `appglass status` says why.
+- **Writes:** `appglass-wk.so` built with `gcc` in `~/.local/lib/appglass/webkit/`, `webkit-glass.css` (the levels, rendered at every start) and `webkit-glass.js`, the wrapper `~/.local/bin/appglass-webkit` and one launcher override per app (`Exec=appglass-webkit <key> <its Exec>`).
+- **How:** the same shim as Lian Li; the page script reads the page's own colours: the page colour at the content level, large boxes of another colour (sidebars, headers, status bars, cards) at the bar level, popups (dialogs, menus, listboxes, tooltips, floating boxes) left opaque, text never touched. See [webkit.md](webkit.md#the-generic-route-family-webkit).
+- **Measured:** Kiri 0.2.1 in a nested niri, measured on its setup screen (no engine in the harness): content 153, bars 166, text 255, its language dialog 255; at 0.80, 204 focused and 184 unfocused.
+- **Check:** with no network and the `/run` entries its binaries name hidden. Kiri's passes in `tests/e2e/webkit.sh` (it waits at default settings, `appglass verify kiri` passes, the next apply gives it the glass); no other WebKitGTK app was checked.
+- **Default:** on, live per app once its hidden check passes (or at once when you switch the app on). Switch an app off in Settings > Apps.
+- **Undo:** `appglass remove --only webkit`. The next launch is the plain app.
 
 ## Jellyfin (Qt Quick shim)
 

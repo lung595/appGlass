@@ -13,7 +13,8 @@ verify <key> | --queue
     child (shims/verify/agv-pick.py), else one whose app-id matches a name
     of its launcher, and the app-id seen is kept (engine.seen_ids). The
     shot (niri screenshot-window, premultiplied alpha) must show the
-    background within 0.05 of the content level and opaque text. PASS
+    background within 0.05 of the content level and opaque text, with no
+    more than a quarter of it and no hole inside it at alpha 0. PASS
     lets an injected route go live for this app version (fingerprint);
     FAIL makes it run plain with one notification. A window that does not
     show within 10 s is "unverifiable": an injected route stays off, a
@@ -64,6 +65,23 @@ STALE_RUN = 15 * 60    # an agv.* dir older than this is a killed run's
 WINDOW_WAIT = 10
 LAUNCH_WAIT = 20
 TOL = 0.05
+# a window more than this share bare (alpha 0: the blur with no colour at
+# all) has holes, not glass: native chrome around one glassed WebView. The
+# rounded corners and CSD margins of a normal window stay under 0.10.
+BARE = 0.25
+# ... and a window with one bare region inside it, away from those margins,
+# has a hole even when the rest is glass: a native sidebar shown after a
+# glassed WebView mapped, its labels on the bare blur. A hole is a region of
+# alpha 0 at least HOLE_EDGE px in from the window's edge that holds a solid
+# square of HOLE_CORE blocks of HOLE_BLOCK px (40 x 40) and covers more than
+# HOLE of the window. CSD shadow margins (20 px at scale 1, 40 at scale 2),
+# rounded corners and the thin gaps between widgets never hold that square.
+# The price: a clear strip along an edge less than HOLE_EDGE + 40 px deep
+# (a transparent custom header) is not a hole; only BARE catches it.
+HOLE = 0.01
+HOLE_EDGE = 16
+HOLE_BLOCK = 8
+HOLE_CORE = 5
 NO_MASK = ("no bwrap mount namespace: a flatpak would leave the check's limits "
            "(systemd scope)")
 
@@ -157,10 +175,10 @@ def launcher_exec(app, rec, home):
     $HOME rewritten to the throwaway one; None without a launcher."""
     from . import detect
     did = rec.get("desktop_id") or ""
-    rel = os.path.relpath(os.path.join(app.env.data_home, "applications", did), app.env.home)
     # the staged launcher (a family waiting for its first check has none on
     # disk), else the one on disk, else the app's own
-    p = os.path.join(home, rel) if did and not rel.startswith("..") else ""
+    p = (staged_path(app.env, home, os.path.join(app.env.data_home, "applications", did))
+         if did else None) or ""
     if not os.path.isfile(p):
         p = os.path.join(app.env.data_home, "applications", did)
     if not did or not os.path.isfile(p):
@@ -172,14 +190,17 @@ def launcher_exec(app, rec, home):
     return ex.replace(app.env.home, home)
 
 
-def candidate(app, owner):
+def candidate(app, owner, key=None):
     """{path: (bytes, mode)}: the files the family would write now (its
-    plan, never committed). A family waiting for its first check has none
-    on disk yet; a stale one may plan new ones for the update."""
+    plan, never committed), with the app key under check routed as if it
+    passed (the others as the engine has them). A family waiting for its
+    first check has none on disk yet; a stale one may plan new ones for the
+    update."""
     fam = app.families.get(owner)
     if fam is None:
         return {}
     ctx = app.ctx(owner)
+    ctx.candidate = key
     try:
         fam.apply(ctx)
     except Exception:
@@ -190,6 +211,18 @@ def candidate(app, owner):
 
 class Unstageable(Exception):
     """The glass files cannot be put in the throwaway HOME."""
+
+
+def staged_path(env, home, p):
+    """Where a file of the user's goes in the throwaway home (the hidden
+    session's XDG dirs are the defaults under it, wherever the user's are),
+    or None for a file outside HOME and the XDG dirs."""
+    for real, rel in ((env.config_home, ".config"), (env.data_home, ".local/share"),
+                      (env.state_home, ".local/state"), (env.cache_home, ".cache"),
+                      (env.home, "")):
+        if p.startswith(real + os.sep):
+            return os.path.join(home, rel, os.path.relpath(p, real))
+    return None
 
 
 def stage(app, rec, run):
@@ -210,7 +243,7 @@ def stage(app, rec, run):
         if os.path.isfile(p):
             with open(p, "rb") as f:
                 staged[p] = (f.read(), stat.S_IMODE(os.stat(p).st_mode))
-    staged.update(candidate(app, owner) if owner else {})
+    staged.update(candidate(app, owner, rec.get("key")) if owner else {})
     # what those files import by file:// URL (the AppGlass themes import
     # ~/.config/gtk-3.0/dank-colors.css): without it their colours are undefined
     rx = re.compile(r"file://(%s/[^\s\"')]+)" % re.escape(env.home))
@@ -233,14 +266,14 @@ def stage(app, rec, run):
             if n.endswith(".json") and os.path.isfile(os.path.join(kd, n)):
                 with open(os.path.join(kd, n), "rb") as f:
                     staged[os.path.join(kd, n)] = (f.read(), 0o644)
-    # the throwaway HOME holds only what is under $HOME: a file outside it
-    # (XDG dirs moved out of HOME) would leave the check with the plain app
-    out = sorted(p for p in staged if not p.startswith(env.home + os.sep))
+    # the throwaway HOME holds what is under $HOME and the XDG dirs (moved
+    # under it): a file outside both would leave the check with the plain app
+    out = sorted(p for p in staged if staged_path(env, home, p) is None)
     if out:
-        raise Unstageable("the glass files are outside HOME (%s): the check cannot "
-                          "stage them" % os.path.dirname(out[0]))
+        raise Unstageable("the glass files are outside HOME and the XDG dirs (%s): "
+                          "the check cannot stage them" % os.path.dirname(out[0]))
     for p, (data, mode) in sorted(staged.items()):
-        dst = os.path.join(home, os.path.relpath(p, env.home))
+        dst = staged_path(env, home, p)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         try:
             data = _rehome(env, home, data.decode("utf-8")).encode("utf-8")
@@ -255,14 +288,19 @@ def stage(app, rec, run):
 def seed(app, rec, home):
     """The app's own first-run state in the throwaway home (its family's
     verify_seed: {path under HOME: bytes}), so no first-run dialog covers
-    the window the check shoots. Returns why it cannot be seeded, or None."""
+    the window the check shoots. A generic family's hook takes the record
+    too (verify_seed(env, rec)): it seeds the apps it knows, the others
+    start as they are. Returns why it cannot be seeded, or None."""
     fam = app.families.get(route_of(app, rec).get("family") or "")
     fn = getattr(fam, "verify_seed", None)
     if fn is None:
         return None
-    files = fn(app.env)
-    if not files:
-        return "cannot seed the first run of %s (its version is not known)" % fam.NAME
+    if getattr(fam, "GENERIC", False):
+        files = fn(app.env, rec) or {}
+    else:
+        files = fn(app.env)
+        if not files:
+            return "cannot seed the first run of %s (its version is not known)" % fam.NAME
     for rel, data in files.items():
         dst = os.path.join(home, rel)
         os.makedirs(os.path.dirname(dst), mode=0o700, exist_ok=True)
@@ -272,8 +310,8 @@ def seed(app, rec, home):
 
 
 def _rehome(env, home, text):
-    """A staged text file with the real $HOME rewritten to the throwaway
-    one, except the appglass repo: a wrapper calls bin/appglass as
+    """A staged text file with the real $HOME (and an XDG dir out of it)
+    rewritten to the throwaway one, except the appglass repo: a wrapper calls bin/appglass as
     "$HOME/<repo>" when the repo is under HOME, and the throwaway HOME holds
     no repo (every check would start the plain app and fail)."""
     from . import shims
@@ -282,6 +320,10 @@ def _rehome(env, home, text):
     text = text.replace(repo, hold)
     if repo.startswith(env.home + os.sep):
         text = text.replace("$HOME" + repo[len(env.home):], hold)
+    for real, rel in ((env.config_home, ".config"), (env.data_home, ".local/share"),
+                      (env.state_home, ".local/state"), (env.cache_home, ".cache")):
+        if not real.startswith(env.home + os.sep):          # an XDG dir out of HOME
+            text = text.replace(real, os.path.join(home, rel))
     return text.replace(env.home, home).replace(hold, repo)
 
 
@@ -345,8 +387,8 @@ def session_env(env, home, run, fp=None):
          "USER": env.environ.get("USER", ""), "LANG": env.environ.get("LANG", "C.UTF-8"),
          "TERM": "dumb", "XDG_RUNTIME_DIR": os.path.join(run, "rt"),
          # the app's temp files and its path sockets stay in the private dir
-         # (abstract sockets and the network are shared: mask_argv makes a
-         # mount namespace only, docs/engine.md)
+         # (abstract sockets and the network are shared, unless the family
+         # asks mask_argv for its own network namespace, docs/engine.md)
          "TMPDIR": os.path.join(run, "tmp"),
          "XDG_DATA_DIRS": env.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
          "XDG_CONFIG_DIRS": "/etc/xdg", "GTK_USE_PORTAL": "0",
@@ -368,36 +410,134 @@ def session_env(env, home, run, fp=None):
 _MASK = {}
 
 
-def mask_argv(env):
+def mask_argv(env, hide=(), nonet=False):
     """The bwrap argv (ending in --) the hidden session runs under: its own
     mount namespace with the systemd user manager's dir empty (flatpak run
     reaches the manager by the hard-coded /run/user/UID/systemd/private and
     would put the app in an app-flatpak-*.scope, out of the check's cgroup
     and its limits; without it flatpak runs the app in its own process
     tree) and an empty /tmp/.X11-unix (the hidden X server's socket is not
-    next to the user's). None when bwrap cannot do it here (not installed,
-    no user namespaces): proven once per bwrap with a probe."""
+    next to the user's). hide: more paths out of reach (a family's
+    verify_mask: a dir becomes an empty tmpfs, a file /dev/null); nonet: its
+    own network namespace (no network, no abstract socket of the session).
+    None when bwrap cannot do it here (not installed, no user namespaces):
+    proven once per bwrap and mask with a probe."""
     bw = env.which("bwrap")
     if not bw:
         return None
-    if bw not in _MASK:
+    hide = tuple(hide)
+    k = (bw, hide, bool(nonet))
+    if k not in _MASK:
         sd = "/run/user/%d/systemd" % os.getuid()
         argv = [bw, "--dev-bind", "/", "/", "--die-with-parent"]
+        if nonet:
+            argv.append("--unshare-net")
         if os.path.isdir(sd):
             argv += ["--tmpfs", sd]
         if os.path.isdir("/tmp/.X11-unix"):
             argv += ["--perms", "1777", "--tmpfs", "/tmp/.X11-unix"]
+        probe = ['test ! -e "$1/private"']
+        args = [sd]
+        for p in hide:
+            if os.path.isdir(p):
+                argv += ["--tmpfs", p]
+                probe.append('test -z "$(ls -A "$%d")"' % (len(args) + 1))
+            else:
+                argv += ["--ro-bind", "/dev/null", p]
+                probe.append('test -c "$%d"' % (len(args) + 1))
+            args.append(p)
+        if nonet:   # no network: no device but lo, and no name resolves (resolved's varlink
+            # socket under /run/systemd answers DNS from out of the namespace)
+            probe.append('test "$(grep -c : /proc/net/dev)" = 1')
+            probe.append('{ ! command -v getent >/dev/null || ! getent hosts example.com; }')
         argv.append("--")
         try:
-            r = subprocess.run(argv + ["/bin/sh", "-c", 'test ! -e "$1/private"', "sh", sd],
+            r = subprocess.run(argv + ["/bin/sh", "-c", " && ".join(probe), "sh"] + args,
                                env={"PATH": "/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=20)
             ok = r.returncode == 0
         except (OSError, subprocess.SubprocessError):
             ok = False
-        _MASK[bw] = argv if ok else None
-    return _MASK[bw]
+        _MASK[k] = argv if ok else None
+    return _MASK[k]
+
+
+# what the hidden session never masks under /run: the private runtime dir
+# is under /run/user, the bus and systemd's sockets serve the session itself
+RUN_KEEP = frozenset(("user", "dbus", "systemd"))
+
+
+def run_paths(rec, keys=(), run="/run"):
+    """The entries under /run a host app reaches by a path its binaries
+    name (a daemon's socket, a container engine's), and /run/<key> for each
+    key: those that exist, as the mask hides them (a link resolved, a
+    socket in a dir of its own gives the dir). [] for a flatpak (its
+    sandbox has its own /run)."""
+    if rec.get("flatpak"):
+        return []
+    rx = re.compile(re.escape(run.encode()) + rb"/([A-Za-z0-9][A-Za-z0-9._-]*)")
+    names = set(keys)
+    for b in [rec.get("exec")] + list(rec.get("seen") or ()):
+        if not b:
+            continue
+        try:
+            with open(b, "rb") as f:
+                names.update(m.decode("ascii") for m in rx.findall(f.read()))
+        except OSError:
+            continue
+    out = set()
+    for n in names:
+        p = os.path.join(run, n)
+        if n in RUN_KEEP or not os.path.lexists(p):
+            continue
+        real = os.path.realpath(p)
+        rel = os.path.relpath(real, os.path.realpath(run)).split(os.sep)
+        if rel[0] in (os.pardir, ".") or rel[0] in RUN_KEEP:
+            continue
+        out.add(os.path.join(run, rel[0]))
+    return sorted(out)
+
+
+# the system manager's doors: the system bus (systemctl as a user, polkit)
+# and all of /run/systemd (its private socket, its varlink sockets, and
+# resolved's io.systemd.Resolve, which answers DNS from out of a network
+# namespace). A WebKitGTK family hides them (Lian Li's GUI starts a root
+# unit, lianli-control-recovery, over the system bus).
+SYSTEM_SOCKETS = ("dbus/system_bus_socket", "systemd")
+
+
+def system_paths(run="/run"):
+    """The SYSTEM_SOCKETS under run that exist, for a verify_mask hide (the
+    systemd dir becomes an empty tmpfs)."""
+    return [os.path.join(run, p) for p in SYSTEM_SOCKETS if os.path.lexists(os.path.join(run, p))]
+
+
+def session_paths(rt=None, prefix=None):
+    """The real session's bus socket ($XDG_RUNTIME_DIR/bus: the check runs
+    its own bus) and, with prefix, the files in $XDG_RUNTIME_DIR whose name
+    starts with it (Lian Li's session locks), for a verify_mask hide."""
+    rt = os.environ.get("XDG_RUNTIME_DIR") if rt is None else rt
+    if not rt or not os.path.isdir(rt):
+        return []
+    out = [os.path.join(rt, "bus")] if os.path.lexists(os.path.join(rt, "bus")) else []
+    if prefix:
+        try:
+            names = sorted(os.listdir(rt))
+        except OSError:
+            names = []
+        out += [os.path.join(rt, n) for n in names
+                if n.startswith(prefix) and not os.path.isdir(os.path.join(rt, n))]
+    return out
+
+
+def verify_mask(app, rec):
+    """The app's family's verify_mask(rec): {"hide": [paths], "nonet": bool},
+    or nothing more than the base mask."""
+    fam = app.families.get(route_of(app, rec).get("family") or "")
+    fn = getattr(fam, "verify_mask", None)
+    m = fn(rec) if fn else None
+    return {"hide": list((m or {}).get("hide") or ()), "nonet": bool((m or {}).get("nonet"))}
 
 
 def is_flatpak(rec, cmd=""):
@@ -512,7 +652,12 @@ def run_harness(app, rec, level):
     for tool in ("gamescope", "niri", "dbus-run-session", "ffmpeg"):
         if not env.which(tool):
             return {"result": "unverifiable", "reason": "%s not installed" % tool}
-    mask = mask_argv(env)
+    want = verify_mask(app, rec)
+    mask = mask_argv(env, want["hide"], want["nonet"])
+    if mask is None and (want["hide"] or want["nonet"]):
+        return {"result": "unverifiable",
+                "reason": "no bwrap mount namespace: the app would reach %s"
+                          % (", ".join(want["hide"]) or "the network")}
     if mask is None and is_flatpak(rec):
         return {"result": "unverifiable", "reason": NO_MASK}
     base = private_base(env)
@@ -595,16 +740,75 @@ def _scrub(run):
                    stderr=subprocess.DEVNULL)
 
 
-def alpha_hist(env, png):
-    """Counter of the alpha values of a PNG (ffmpeg decodes it)."""
-    data = subprocess.check_output(["ffmpeg", "-loglevel", "error", "-i", png, "-f", "rawvideo",
-                                    "-pix_fmt", "rgba", "-"], timeout=30)
-    return collections.Counter(data[3::4])
+def alpha_plane(env, png):
+    """(width, height, alpha bytes) of a PNG (ffmpeg decodes it, as PAM)."""
+    data = subprocess.check_output(["ffmpeg", "-loglevel", "error", "-i", png, "-frames:v", "1",
+                                    "-f", "image2pipe", "-c:v", "pam", "-pix_fmt", "rgba", "-"],
+                                   timeout=30)
+    end = data.index(b"ENDHDR\n")
+    head = dict(ln.split(" ", 1) for ln in data[:end].decode("ascii").splitlines()[1:]
+                if " " in ln)
+    return int(head["WIDTH"]), int(head["HEIGHT"]), data[end + 7:][3::4]
 
 
-def judge(env, png, level, hist=None):
-    """The window shot against the content level (spec 1.7 measure)."""
-    hist = alpha_hist(env, png) if hist is None else hist
+def hole_share(w, h, alpha):
+    """The share of the window in its largest hole (HOLE_*), 0 without one."""
+    b, m = HOLE_BLOCK, HOLE_EDGE
+    bw, bh = (w - 2 * m) // b, (h - 2 * m) // b
+    if bw < HOLE_CORE or bh < HOLE_CORE:
+        return 0
+    zero = bytes(b)
+    bare = []                       # blocks all at alpha 0
+    for by in range(bh):
+        row = [True] * bw
+        for dy in range(b):
+            o = (m + by * b + dy) * w + m
+            line = alpha[o:o + bw * b]
+            for bx in range(bw):
+                if row[bx] and line[bx * b:bx * b + b] != zero:
+                    row[bx] = False
+        bare.append(row)
+    k, r = HOLE_CORE, HOLE_CORE // 2
+    across = [[False] * bw for _ in range(bh)]   # the middle of k bare blocks in a row
+    for y in range(bh):
+        n = 0
+        for x in range(bw):
+            n = n + 1 if bare[y][x] else 0
+            if n >= k:
+                across[y][x - r] = True
+    core = [[False] * bw for _ in range(bh)]     # ... and of k such in a column
+    for x in range(bw):
+        n = 0
+        for y in range(bh):
+            n = n + 1 if across[y][x] else 0
+            if n >= k:
+                core[y - r][x] = True
+    seen = [[False] * bw for _ in range(bh)]
+    best = 0
+    for sy in range(bh):
+        for sx in range(bw):
+            if not core[sy][sx] or seen[sy][sx]:
+                continue
+            seen[sy][sx] = True
+            todo, n = [(sy, sx)], 0
+            while todo:
+                y, x = todo.pop()
+                n += 1
+                for yy, xx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                    if 0 <= yy < bh and 0 <= xx < bw and bare[yy][xx] and not seen[yy][xx]:
+                        seen[yy][xx] = True
+                        todo.append((yy, xx))
+            best = max(best, n)
+    return best * b * b / float(w * h)
+
+
+def judge(env, png, level, hist=None, plane=None):
+    """The window shot against the content level (spec 1.7 measure). The
+    holes are looked for when the whole plane is known (a shot, or plane:
+    (width, height, alpha bytes)), not from a histogram alone."""
+    if hist is None:
+        plane = alpha_plane(env, png) if plane is None else plane
+        hist = collections.Counter(plane[2])
     want = int(round(level * 255))
     tol = int(round(TOL * 255))
     visible = sum(v for k, v in hist.items() if k)
@@ -612,10 +816,19 @@ def judge(env, png, level, hist=None):
     mode = max(trans, key=trans.get) if trans else None
     near = sum(v for k, v in trans.items() if abs(k - want) <= tol)
     opaque = hist.get(255, 0)
+    bare = hist.get(0, 0) / max(sum(hist.values()), 1)
     rep = {"alpha_mode": mode, "expected": want, "share": round(near / max(visible, 1), 3),
-           "opaque_px": opaque}
+           "opaque_px": opaque, "bare": round(bare, 3)}
+    if plane is not None:
+        rep["hole"] = round(hole_share(*plane), 3)
     if mode is None:
         return dict(rep, result="fail", reason="the window is opaque (no glass)")
+    if bare > BARE:
+        return dict(rep, result="fail", reason="%.0f%% of the window at alpha 0 (holes, not glass)"
+                    % (100.0 * bare))
+    if rep.get("hole", 0) > HOLE:
+        return dict(rep, result="fail", reason="a hole of %.0f%% of the window at alpha 0 "
+                    "(native widgets on the bare blur)" % (100.0 * rep["hole"]))
     if abs(mode - want) > tol:
         return dict(rep, result="fail", reason="background alpha %d, expected %d+-%d"
                     % (mode, want, tol))

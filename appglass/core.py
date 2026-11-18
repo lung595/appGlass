@@ -744,6 +744,10 @@ class Ctx:
         # a family with several apps may set this to the niri app-id regexes
         # of the apps it actually configured (default: the module's APP_IDS)
         self.app_ids = None
+        # verify.candidate: the plan for the hidden-session check, where the
+        # app under check (this key) is routed as if it passed; the others
+        # keep the engine's verdict
+        self.candidate = None
 
     def records(self, generic_only=False, plain=False):
         """The detect records the engine routes to this family (adapters.resolve
@@ -753,14 +757,54 @@ class Ctx:
         opaque instead (a failed check, two failed launches: S7), whose
         launchers go back to the plain app until the next fingerprint."""
         from . import adapters, engine
-        g = engine.Gate(self.app)
+        g = gate = engine.Gate(self.app)
+        if self.candidate:
+            def g(r, injected, explicit):
+                if r.get("key") == self.candidate:
+                    return "glass", None
+                return gate(r, injected, explicit)
         out = []
         for r in engine.records(self.app):
             if not r.get("installed") or r.get("nodisplay"):
                 continue
+            if plain and r.get("key") == self.candidate:
+                continue
             route = adapters.resolve(r, self.app.families, self.app.settings, gate=g)
             if route.get("family") == self.owner and (route.get("generic") or not generic_only) \
                     and ((route.get("state") == "opaque") if plain else route["effective"] == "glass"):
+                out.append(r)
+        return out
+
+    def switched_off(self):
+        """The records of this family you switched off (apps.<key>.enabled
+        false) whose launcher it still owns: the next apply takes it out."""
+        from . import adapters, engine
+        g = engine.Gate(self.app)
+        out = []
+        for r in engine.records(self.app):
+            if not r.get("installed") or not r.get("desktop_id"):
+                continue
+            route = adapters.resolve(r, self.app.families, self.app.settings, gate=g)
+            if route.get("family") == self.owner and route.get("state") == "off" \
+                    and self.owns(self.data_path("applications", r["desktop_id"])):
+                out.append(r)
+        return out
+
+    def stale(self):
+        """The records of this family updated since their check passed (or
+        not checked yet with a launcher of ours on disk) whose launcher it
+        still owns: the launcher stays (the wrapper starts the plain app by
+        the engine's plain/ marker) and the check record with it, until the
+        new check is done."""
+        from . import adapters, engine
+        g = engine.Gate(self.app)
+        out = []
+        for r in engine.records(self.app):
+            if not r.get("installed") or not r.get("desktop_id") or r.get("nodisplay"):
+                continue
+            route = adapters.resolve(r, self.app.families, self.app.settings, gate=g)
+            if route.get("family") == self.owner and route.get("state") in engine.UNJUDGED \
+                    and self.owns(self.data_path("applications", r["desktop_id"])):
                 out.append(r)
         return out
 
@@ -975,9 +1019,8 @@ class Ctx:
             raise Conflict("%s is a symlink; left untouched" % self.env.tilde(dest))
         rec = self._record(dest)
         if rec is None and os.path.lexists(dest) and self.app.state.owner_of(dest) is None:
-            raise Conflict("%s is a hand-made launcher (appglass adopt %s hands it to "
-                           "appglass, backed up)" % (self.env.tilde(dest),
-                                                     self.env.tilde(dest)))
+            raise Conflict("%s is a hand-made launcher (%s)"
+                           % (self.env.tilde(dest), hand_remedy(self.app, dest)))
         raw = _read(src)
         text = fn(raw.decode("utf-8", "replace"))
         return self.write_owned(dest, text, meta={"source": src, "source_sha256": sha(raw)})
@@ -1224,10 +1267,14 @@ class App:
             if fam.installed(self.env):
                 return True
             # a generic family: installed when the engine routes an app to it
-            # (a plain one too: its launchers are still ours, S7)
+            # (a plain one too: its launchers are still ours, S7; one you
+            # switched off too: its launcher goes back to the plain app; one
+            # updated since its check: its launcher and record wait for it)
+            ctx = self.ctx(fam.NAME)
             return bool(getattr(fam, "GENERIC", False)
-                        and (self.ctx(fam.NAME).records(generic_only=True)
-                             or self.ctx(fam.NAME).records(generic_only=True, plain=True)))
+                        and (ctx.records(generic_only=True)
+                             or ctx.records(generic_only=True, plain=True)
+                             or ctx.switched_off() or ctx.stale()))
         except Exception as ex:  # detection must never break apply
             self.warn("%s: install check failed: %s" % (fam.NAME, ex))
             return False
@@ -1884,6 +1931,13 @@ def _family_enabled(app, name):
         return _settings.app_enabled(app.settings, name, True)
     own = app.settings.get("apps", {}).get(name)
     if isinstance(own, dict) and "enabled" in own:
+        if own["enabled"] is False and getattr(fam, "GENERIC", False):
+            # a generic family off: still on for an app you switched on
+            # (adapters.switch: the app's own switch wins)
+            try:
+                return bool(app.ctx(name).records())
+            except Exception:
+                return False
         return bool(own["enabled"])
     # the engine's gate in place of OPT_IN (engine.family_gate): on unless
     # every key is switched off; it goes live once checked
@@ -2271,6 +2325,13 @@ def app_routes(app, records=None, renders=None, note_removed=False):
         if fam in removed and fam not in app.state.owners and route["effective"] == "glass":
             route.update(effective="fallback", reason="family %s removed (appglass apply "
                          "--only %s sets it up again)" % (fam, fam))
+        hand = (hand_launcher(app, r) if fam and route["effective"] == "glass"
+                and getattr(app.families.get(fam), "LAUNCHER", False) else None)
+        if hand:
+            t = app.env.tilde(hand)
+            route.update(effective="fallback", state="opaque", hand=t,
+                         reason="%s is a hand-made launcher: the app runs plain (%s)"
+                                % (t, hand_remedy(app, hand)))
         rd = None
         if fam and route["effective"] == "glass":
             rd = renders[fam] if renders is not None and fam in renders else family_render(app, fam)
@@ -2278,6 +2339,35 @@ def app_routes(app, records=None, renders=None, note_removed=False):
             route.update(render=rd[0], reason="%s, %s" % (route["reason"], render_says(rd)))
         out.append((r, route))
     return out
+
+
+def hand_remedy(app, path):
+    """How to hand the hand-made file path over: adopt for a file appglass
+    knows (HAND_FILES: backed up, restored on remove), else move it away."""
+    from . import adapters
+    t = app.env.tilde(path)
+    if any(os.path.join(app.env.home, rel) == path for rel, _, _ in adapters.HAND_FILES):
+        return "appglass adopt %s hands it to appglass, backed up" % t
+    return "move %s away and apply: appglass writes its own from the system launcher" % t
+
+
+def hand_launcher(app, rec):
+    """The launcher of yours in the place of the one a launcher family
+    writes for rec ($XDG_DATA_HOME/applications/<desktop_id>: not owned by
+    appglass, not parked, or a symlink), which apply leaves as it is (see
+    Context.desktop_override), else None."""
+    did = rec.get("desktop_id")
+    if not did:
+        return None
+    p = os.path.abspath(os.path.join(app.env.data_home, "applications", did))
+    if os.path.islink(p):
+        return p
+    if not os.path.lexists(p) or app.state.owner_of(p) is not None:
+        return None
+    parked = app.state.data.get("parked") or {}
+    if p in parked and _parked_unchanged(p, parked[p]):
+        return None
+    return p
 
 
 def hand_files(app):
@@ -2348,10 +2438,14 @@ def status_doc(app):
     for r, route in app_routes(app, renders=renders, note_removed=True):
         counts[route["effective"]] = counts.get(route["effective"], 0) + 1
         own = (app.settings.get("apps", {}).get(r["key"]) or {}).get("route")
+        conflicts = list(clash.get(adapters.family_for(r, app.families), []))
+        hand = route.pop("hand", None)
+        if hand and hand not in conflicts:
+            conflicts.append(hand)
         apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
                           "app_ids": r["app_ids"], "source": r.get("source", "desktop"),
                           "routes": adapters.routes(r, app.families), "route": own or None,
-                          "conflicts": clash.get(adapters.family_for(r, app.families), [])},
+                          "conflicts": conflicts},
                          **route))
     return {
         "version": 1,

@@ -19,6 +19,9 @@ from .. import shims
 
 NAME = "lianli"
 ADAPTER = "webkit-shim"
+# glass reaches the app only through its launcher override: a hand-made
+# launcher in its place keeps it opaque (core.app_routes)
+LAUNCHER = True
 OPT_IN = True
 KEYS = ("com.sgtaziz.lianlilinux",)
 APP_IDS = [r"^com\.sgtaziz\.lianlilinux$"]
@@ -31,6 +34,18 @@ TMPL = "lianli-glass.css.tmpl"
 
 def installed(env):
     return bool(env.which(COMMAND))
+
+
+def verify_mask(rec):
+    """The hidden check keeps the app away from its daemon (/run/lianli:
+    the fans and lights of the real machine), from the system manager (the
+    GUI runs systemctl start lianli-control-recovery.service, a root unit
+    its polkit rule allows: the system bus and all of /run/systemd
+    hidden, resolved's DNS socket with it), from the real session bus and its session locks
+    ($XDG_RUNTIME_DIR/bus, lianli-session-*.lock) and off the network."""
+    from .. import verify
+    return {"hide": verify.run_paths(rec, keys=("lianli",)) + verify.system_paths()
+            + verify.session_paths(prefix="lianli"), "nonet": True}
 
 
 def css(ctx):
