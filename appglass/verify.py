@@ -13,7 +13,8 @@ verify <key> | --queue
     child (shims/verify/agv-pick.py), else one whose app-id matches a name
     of its launcher, and the app-id seen is kept (engine.seen_ids). The
     shot (niri screenshot-window, premultiplied alpha) must show the
-    background within 0.05 of the content level and opaque text. PASS
+    background within 0.05 of the content level and opaque text, with no
+    more than a quarter of it and no hole inside it at alpha 0. PASS
     lets an injected route go live for this app version (fingerprint);
     FAIL makes it run plain with one notification. A window that does not
     show within 10 s is "unverifiable": an injected route stays off, a
@@ -68,6 +69,17 @@ TOL = 0.05
 # all) has holes, not glass: native chrome around one glassed WebView. The
 # rounded corners and CSD margins of a normal window stay under 0.10.
 BARE = 0.25
+# ... and a window with one bare region inside it, away from those margins,
+# has a hole even when the rest is glass: a native sidebar shown after a
+# glassed WebView mapped, its labels on the bare blur. A hole is a region of
+# alpha 0 at least HOLE_EDGE px in from the window's edge that holds a solid
+# square of HOLE_CORE blocks of HOLE_BLOCK px (40 x 40) and covers more than
+# HOLE of the window. CSD shadow margins (20 px at scale 1, 40 at scale 2),
+# rounded corners and the thin gaps between widgets never hold that square.
+HOLE = 0.01
+HOLE_EDGE = 16
+HOLE_BLOCK = 8
+HOLE_CORE = 5
 NO_MASK = ("no bwrap mount namespace: a flatpak would leave the check's limits "
            "(systemd scope)")
 
@@ -692,16 +704,75 @@ def _scrub(run):
                    stderr=subprocess.DEVNULL)
 
 
-def alpha_hist(env, png):
-    """Counter of the alpha values of a PNG (ffmpeg decodes it)."""
-    data = subprocess.check_output(["ffmpeg", "-loglevel", "error", "-i", png, "-f", "rawvideo",
-                                    "-pix_fmt", "rgba", "-"], timeout=30)
-    return collections.Counter(data[3::4])
+def alpha_plane(env, png):
+    """(width, height, alpha bytes) of a PNG (ffmpeg decodes it, as PAM)."""
+    data = subprocess.check_output(["ffmpeg", "-loglevel", "error", "-i", png, "-frames:v", "1",
+                                    "-f", "image2pipe", "-c:v", "pam", "-pix_fmt", "rgba", "-"],
+                                   timeout=30)
+    end = data.index(b"ENDHDR\n")
+    head = dict(ln.split(" ", 1) for ln in data[:end].decode("ascii").splitlines()[1:]
+                if " " in ln)
+    return int(head["WIDTH"]), int(head["HEIGHT"]), data[end + 7:][3::4]
 
 
-def judge(env, png, level, hist=None):
-    """The window shot against the content level (spec 1.7 measure)."""
-    hist = alpha_hist(env, png) if hist is None else hist
+def hole_share(w, h, alpha):
+    """The share of the window in its largest hole (HOLE_*), 0 without one."""
+    b, m = HOLE_BLOCK, HOLE_EDGE
+    bw, bh = (w - 2 * m) // b, (h - 2 * m) // b
+    if bw < HOLE_CORE or bh < HOLE_CORE:
+        return 0
+    zero = bytes(b)
+    bare = []                       # blocks all at alpha 0
+    for by in range(bh):
+        row = [True] * bw
+        for dy in range(b):
+            o = (m + by * b + dy) * w + m
+            line = alpha[o:o + bw * b]
+            for bx in range(bw):
+                if row[bx] and line[bx * b:bx * b + b] != zero:
+                    row[bx] = False
+        bare.append(row)
+    k, r = HOLE_CORE, HOLE_CORE // 2
+    across = [[False] * bw for _ in range(bh)]   # the middle of k bare blocks in a row
+    for y in range(bh):
+        n = 0
+        for x in range(bw):
+            n = n + 1 if bare[y][x] else 0
+            if n >= k:
+                across[y][x - r] = True
+    core = [[False] * bw for _ in range(bh)]     # ... and of k such in a column
+    for x in range(bw):
+        n = 0
+        for y in range(bh):
+            n = n + 1 if across[y][x] else 0
+            if n >= k:
+                core[y - r][x] = True
+    seen = [[False] * bw for _ in range(bh)]
+    best = 0
+    for sy in range(bh):
+        for sx in range(bw):
+            if not core[sy][sx] or seen[sy][sx]:
+                continue
+            seen[sy][sx] = True
+            todo, n = [(sy, sx)], 0
+            while todo:
+                y, x = todo.pop()
+                n += 1
+                for yy, xx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                    if 0 <= yy < bh and 0 <= xx < bw and bare[yy][xx] and not seen[yy][xx]:
+                        seen[yy][xx] = True
+                        todo.append((yy, xx))
+            best = max(best, n)
+    return best * b * b / float(w * h)
+
+
+def judge(env, png, level, hist=None, plane=None):
+    """The window shot against the content level (spec 1.7 measure). The
+    holes are looked for when the whole plane is known (a shot, or plane:
+    (width, height, alpha bytes)), not from a histogram alone."""
+    if hist is None:
+        plane = alpha_plane(env, png) if plane is None else plane
+        hist = collections.Counter(plane[2])
     want = int(round(level * 255))
     tol = int(round(TOL * 255))
     visible = sum(v for k, v in hist.items() if k)
@@ -712,11 +783,16 @@ def judge(env, png, level, hist=None):
     bare = hist.get(0, 0) / max(sum(hist.values()), 1)
     rep = {"alpha_mode": mode, "expected": want, "share": round(near / max(visible, 1), 3),
            "opaque_px": opaque, "bare": round(bare, 3)}
+    if plane is not None:
+        rep["hole"] = round(hole_share(*plane), 3)
     if mode is None:
         return dict(rep, result="fail", reason="the window is opaque (no glass)")
     if bare > BARE:
         return dict(rep, result="fail", reason="%.0f%% of the window at alpha 0 (holes, not glass)"
                     % (100.0 * bare))
+    if rep.get("hole", 0) > HOLE:
+        return dict(rep, result="fail", reason="a hole of %.0f%% of the window at alpha 0 "
+                    "(native widgets on the bare blur)" % (100.0 * rep["hole"]))
     if abs(mode - want) > tol:
         return dict(rep, result="fail", reason="background alpha %d, expected %d+-%d"
                     % (mode, want, tol))
