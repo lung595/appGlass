@@ -55,6 +55,19 @@ ln -s ~/.local/share/appglass/bin/appglass ~/.local/bin/
 
 The rest of this page writes `appglass` for short.
 
+<details>
+<summary>Updating</summary>
+
+```sh
+git -C ~/.local/share/appglass pull
+appglass doctor --fix   # the hook and units, as the new version writes them
+appglass apply --all    # the glass files, as the new version writes them
+dms restart             # reload the plugin's code; your settings are kept
+```
+
+Then restart the apps whose glass changed.
+</details>
+
 ### 2. Enable
 
 In **Settings → Plugins**, turn **App Glass** on. If it does not show up, click **Settings → Plugins → Manage Registries → *Scan***.
@@ -299,6 +312,10 @@ These are plans, not promises. They have no dates.
 
 Built on [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell), [Quickshell](https://quickshell.org) and [niri](https://github.com/YaLTeR/niri).
 
+The levels come from [browserGlass](https://github.com/lung595/browserGlass): the bar level of 0.65 and the opaque menus are its own.
+
 ## License
 
 [MIT](LICENSE) © lung595
+
+The wallpaper in the screenshots and GIFs is third-party art: it is not covered by the MIT licence.

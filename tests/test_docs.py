@@ -699,6 +699,37 @@ class Privacy(unittest.TestCase):
                       read("shims", "electron-hook", "appglass-feishin"))
 
 
+class Updating(unittest.TestCase):
+    """The README Updating block runs after an install."""
+
+    def test_the_update_commands_run(self):
+        r = read("README.md")
+        i = r.index("<summary>Updating</summary>")
+        block = re.search(r"```sh\n(.*?)```", r[i:], re.S).group(1)
+        cmds = [l.split("#")[0].strip() for l in block.splitlines()]
+        cmds = [c for c in cmds if c.startswith("appglass ")]
+        self.assertEqual(cmds, ["appglass doctor --fix", "appglass apply --all"])
+        self.assertIn("git -C ~/.local/share/appglass pull", block)
+        self.assertIn("dms restart", block)
+        sb = Sandbox()
+        try:
+            sb.seed_dms()
+            sb.seed_niri()
+            sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+            for argv in (("plugin", "install"), ("hook", "install"), ("apply", "--all")) + \
+                    tuple(tuple(c.split()[1:]) for c in cmds):
+                code, out, err = sb.run(*argv, assume="alacritty")
+                self.assertEqual(code, 0, (argv, out, err))
+        finally:
+            sb.cleanup()
+
+    def test_credits_and_the_wallpaper_licence(self):
+        r = read("README.md")
+        self.assertIn("browserGlass", section(r, "Credits"))
+        self.assertIn("0.65", section(r, "Credits"))
+        self.assertRegex(section(r, "License"), r"wallpaper[^\n]*not covered by the MIT")
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""
