@@ -58,23 +58,26 @@ static char *take(const char *name) {   // the value, out of the environment
     return c;
 }
 
-// LD_PRELOAD without the entries named appglass-wk.so (':' or ' ' separated)
+// LD_PRELOAD without the entries named appglass-wk.so (':' or ' ' separated), in every LD_PRELOAD
+// slot of the array (execve takes one with the name twice)
 static void drop_preload(void) {
-    char **e = env_find("LD_PRELOAD"); if (!e) return;
-    const char *v = *e + strlen("LD_PRELOAD=");
-    char *in = strdup(v), *out = calloc(1, strlen("LD_PRELOAD=") + strlen(v) + 1);
-    if (!in || !out) { free(in); free(out); return; }
-    strcpy(out, "LD_PRELOAD=");
-    size_t head = strlen(out);
-    for (char *save = NULL, *t = strtok_r(in, ": ", &save); t; t = strtok_r(NULL, ": ", &save)) {
-        const char *b = strrchr(t, '/'); b = b ? b + 1 : t;
-        if (strcmp(b, "appglass-wk.so") == 0) continue;
-        if (strlen(out) > head) strcat(out, ":");
-        strcat(out, t);
+    const size_t pre = strlen("LD_PRELOAD=");
+    for (char **e = environ; e && *e; ) {
+        if (strncmp(*e, "LD_PRELOAD=", pre) != 0) { e++; continue; }
+        const char *v = *e + pre;
+        char *in = strdup(v), *out = calloc(1, pre + strlen(v) + 1);
+        if (!in || !out) { free(in); free(out); return; }
+        strcpy(out, "LD_PRELOAD=");
+        for (char *save = NULL, *t = strtok_r(in, ": ", &save); t; t = strtok_r(NULL, ": ", &save)) {
+            const char *b = strrchr(t, '/'); b = b ? b + 1 : t;
+            if (strcmp(b, "appglass-wk.so") == 0) continue;
+            if (strlen(out) > pre) strcat(out, ":");
+            strcat(out, t);
+        }
+        free(in);
+        if (strlen(out) > pre) { *e = out; e++; }   // kept for the life of the process, as putenv's
+        else { free(out); env_drop(e); }            // the next entry moved up into this slot
     }
-    free(in);
-    if (strlen(out) > head) *e = out;   // kept for the life of the process, as putenv's
-    else { free(out); env_drop(e); }
 }
 
 __attribute__((constructor)) static void appglass_wk_init(void) {
