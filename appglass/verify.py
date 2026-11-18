@@ -1078,6 +1078,9 @@ def cmd_launch_check(app, key, pid):
 
 
 def cmd_fail(app, key, reason=None):
+    if engine.record_for(app, key) is None:
+        from .core import AppglassError
+        raise AppglassError("fail: no app %s (use a key that appglass status shows)" % key)
     n, paused = engine.fail(app, key, reason or "failed launch (appglass fail)")
     app.info("%s: failed launch %d on this version%s" % (
         key, n, ": glass paused until the next update" if paused else ""))

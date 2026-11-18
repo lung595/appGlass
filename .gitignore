@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+# the Vencord installer CLI the sync re-runs (docs/routes.md)
+/VencordInstallerCli-linux

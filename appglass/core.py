@@ -2475,8 +2475,8 @@ def cmd_get(app, key=None):
 def _refuse_if_plugin(app):
     from . import settings as _settings
     if _settings.plugin_active(app.env):
-        raise AppglassError("settings are managed by the DMS plugin appGlass (%s): "
-                            "change them in DMS Settings > Plugins > appGlass"
+        raise AppglassError("settings are managed by the DMS plugin App Glass (%s): "
+                            "change them in DMS Settings > Plugins > App Glass"
                             % app.env.tilde(_settings.plugin_dir(app.env)))
 
 
@@ -2725,7 +2725,7 @@ def _enable_adopted(app, paths, dry_run):
     if not names:
         return
     if _settings.plugin_active(app.env):
-        app.warn("adopt: %s stay off: switch them on in the DMS plugin appGlass"
+        app.warn("adopt: %s stay off: switch them on in the DMS plugin App Glass"
                  % ", ".join(names))
         return
     new = app.settings

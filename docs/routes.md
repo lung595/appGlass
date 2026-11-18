@@ -15,7 +15,7 @@ The app lists below name the apps each family lists by hand. The GTK3, GTK4 and 
 
 TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron apps no family lists.
 
-| Route | Badge | Family | Apps | Default |
+| Route | Kind | Family | Apps | Default |
 |---|---|---|---|---|
 | [Terminal opacity key](#terminals) | Native | `alacritty`, `kitty`, `foot`, `ghostty`, `wezterm`, `konsole` | Alacritty, kitty, foot, Ghostty, WezTerm, Konsole | on |
 | [GTK4 CSS](#gtk4--libadwaita) | Native | `gtk4` | Nautilus, GNOME Software, Zenity, the file chooser portal, Flatseal (native package), GNOME Web (chrome only); flatpaks: GNOME Text Editor, Mission Center, Resources; any other GTK4 app that uses libadwaita (a plain GTK4 app, with no libadwaita, gets the fallback) | on |
@@ -121,7 +121,15 @@ Native routes through each app's own config files, for the native and the flatpa
 A Mod route: client mods are against Discord's terms. appglass never installs Vencord and never owns it; you install it with the official installer.
 
 - **Writes:** `~/.config/Vencord/themes/appglass-discord.css` (rendered from the DMS colours and levels), and merges `transparent` and the enabled themes into Vencord's `settings.json`.
-- **After a Discord update:** the `appglass-discord.path` unit re-runs the Vencord installer, so the glass comes back. That installer patches Discord's own `app-*/resources` folder. The niri rule is written only while Vencord is in the newest Discord folder; otherwise Discord keeps the fallback look.
+- **After a Discord update:** the `appglass-discord.path` unit re-runs the Vencord installer CLI, so the glass comes back. It runs it only from `~/.local/share/appglass/VencordInstallerCli-linux`, and only when that file is executable; nothing else is looked for. The one-line install command from vencord.dev does not keep the installer, so put it there yourself:
+
+  ```sh
+  curl -fL -o ~/.local/share/appglass/VencordInstallerCli-linux \
+      https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux
+  chmod +x ~/.local/share/appglass/VencordInstallerCli-linux
+  ```
+
+  `.gitignore` keeps it out of the clone's changes. Without it, run the Vencord installer again yourself after each Discord update. That installer patches Discord's own `app-*/resources` folder. The niri rule is written only while Vencord is in the newest Discord folder; otherwise Discord keeps the fallback look.
 - **Measured:** not measured in a nested session for this version.
 - **Fade, not recorded:** Discord's window shows Discord's web app, which needs a signed-in account. A test session must not reuse your signed-in profile (it holds the account's session), and a fresh profile stops at the login page. What is checked: the rendered theme puts `html:not(.app-focused)` (Discord drops that class when its window loses focus) at the unfocused level and eases `#app-mount` (unit test).
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps, or `appglass set apps.vencord.enabled false --apply` without the plugin.
@@ -205,6 +213,6 @@ With the default fallback ("Opaque", Settings > Fallback), these windows get `op
 - **Chrome and Chromium browsers.** Web content has no window alpha: measured alpha 255 everywhere. See [electron.md](electron.md).
 - **Games, Wine/Proton, SDL.** Opaque with blur off, on purpose. Nothing runs inside a game process. A host GTK4 game is the exception: every host GTK4 app reads the global `gtk.css`, so it gets the glass background like the other GTK4 apps. `apply --all` puts its app-id in the niri glass block (opacity 1.0, blur on), not the games block (blur off would leave that translucent background over nothing), whatever `fallback.mode` is: under the DMS opacity it would fade twice.
 - **Root GUIs** (Timeshift through pkexec): opaque, with the reason "runs as root". No file, launcher or environment variable is written for them; `apply --all` puts their app-id in the niri games block (opacity 1.0, blur off), so they stay opaque whatever `fallback.mode` is.
-- **Electron apps without a CSS hook**, Java, Tk, X11 apps that are not GTK, Qt from a flatpak KDE runtime (Kate and Konsole excepted): no route in this version.
+- **Electron apps without a CSS hook**, Java, Tk, X11 apps of other toolkits (a Qt app under XWayland gets the Qt route: VLC was measured that way), Qt from a flatpak KDE runtime (Kate and Konsole excepted): no route in this version.
 
-Settings > Fallback can make these windows translucent instead ("Translucent (text too)", at the Fallback opacity, 0.70 by default) or leave them at the DMS opacity ("DMS opacity"). Both fade the text with the background.
+Settings > Fallback can make Steam, Chrome, Electron apps without a CSS hook, Java, Tk and X11 apps of other toolkits translucent instead ("Translucent (text too)", at the Fallback opacity, 0.70 by default) or leave them at the DMS opacity ("DMS opacity"). Both fade the text with the background. Games, root GUIs and Qt flatpaks on the KDE runtime stay opaque in every mode.

@@ -148,7 +148,7 @@ appglass plugin install | remove [--dry-run]  # link dms-plugin into the DMS plu
 appglass doctor [--fix]                      # drift between the repo render and the disk
 appglass restore [ID] [--list]               # put back a backup ring entry
 appglass levels                              # the current levels as JSON (what the wrappers read)
-appglass verify [key] [--queue]              # the hidden check: one app, or every queued app
+appglass verify <key> | --queue              # the hidden check: one app, or every queued app
 appglass fail <key> [reason]                 # record a failed glass launch
 appglass vibrancy                            # the Alacritty fade daemon (run by its unit)
 appglass launch-check <key> <pid>            # (wrappers) watch one launch for a window

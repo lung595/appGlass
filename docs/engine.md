@@ -44,15 +44,11 @@ A Native app that a family lists by hand (Solaar in `gtk3`, Alacritty) and that 
 
 ### Route kinds
 
-| Badge | What it means | On by default |
+| Kind | What it means | On by default |
 |---|---|---|
 | Native | A colour file, a CSS file, a theme or a config key the app already reads. Nothing is loaded into the app. | yes, at once |
 | Forced | A shim or hook loaded into one launch of the app (a preload library, an Electron inspector hook). The app binary is not changed. | yes, after its hidden check passes |
 | Mod | A client mod that the user installed (Vencord for Discord). | yes, after its hidden check passes |
-| Fallback | No route: the app gets the fallback look (opaque by default). | |
-| Opaque | Kept opaque on purpose (games, root GUIs). No file, launcher or environment variable is written; `apply --all` puts the app-id in the niri games block (opacity 1.0, blur off), so it stays opaque whatever `fallback.mode` is. A host GTK4 game is the exception: it reads the global `gtk.css` (the glass CSS) all the same, so its app-id goes in the niri glass block (opacity 1.0, blur on) in every mode. | |
-| Delegated | Another tool owns it (Firefox-family browsers: browserGlass). | |
-| Excluded | DMS draws these windows itself. | |
 
 The Qt style plugin is a Native route: Qt loads the style itself, nothing is preloaded.
 
@@ -88,12 +84,12 @@ These are the status chips in Settings > Apps:
 | Chip | Meaning |
 |---|---|
 | Glass | The route is applied. |
-| Fallback | No route, or the app's family is not installed. The window gets the fallback look. |
+| Fallback | No route, the app's family is not installed, an injected route that failed its check or two launches, or a Forced or Mod app switched off. The window gets the fallback look (Settings > Fallback). |
 | Waiting for check | An injected route waits for its first hidden check. The app runs plain, its window opaque. |
 | Stale | An injected route after an app update: the old check no longer counts. The app runs plain until it passes again. |
 | Paused | The glass is paused, or you switched this app off. For a Native app the files stay until its family is off (see [guide.md](guide.md#per-app-switch)). |
 | Conflict | A hand-made file that appglass does not own is in the way. Settings > Advanced > Adopt hand-made files hands it over, backed up first. |
-| Opaque | Kept opaque on purpose, or an injected route that failed its check or two launches. |
+| Opaque | Kept opaque on purpose (root GUIs, password apps on a non-Native route, Qt flatpaks on the KDE runtime): opaque in every fallback mode. |
 | Game: never touched | A game: opaque, blur off, nothing written. |
 | Delegated | Owned by browserGlass, or drawn by DMS. |
 
@@ -106,7 +102,7 @@ These are the status chips in Settings > Apps:
 - A dnf transaction touches the rpm database many times. The path unit has no trigger limit (`TriggerLimitBurst=0`) and the service no start limit: a hit limit would put the path unit into a failure mode that stops every watch, the DMS follow included, until the next login. The service coalesces the burst instead: one run at a time, a 1 s settle, then it waits until the rpm database has been quiet for 5 s.
 - `appglass-sync.timer` runs the same sync once a day, for apps that update themselves and for a missed event.
 - `appglass-verify.service` runs the queued hidden checks (see [The gate](#the-gate-glass-waiting-stale-opaque-off-excluded)). A sync that queued a check starts it.
-- `appglass-discord.path` watches Discord's config, so the Vencord route survives a Discord update.
+- `appglass-discord.path` watches Discord's config, so the Vencord route survives a Discord update (with the installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux`).
 - `appglass-vibrancy.service` is the only resident process: it fades unfocused Alacritty windows, which niri cannot do without fading the text.
 - The DMS plugin only writes settings and runs `appglass sync`. The units and the CLI do the work, so the glass stays the same when the plugin is off.
 
@@ -139,7 +135,7 @@ First run: the hidden check starts Feishin in a throwaway HOME. Left alone, Feis
 - **System files.** appglass writes only under your home folder, never needs root, and never modifies an app binary, asar or flatpak deploy. Its changes sit beside the app: launcher overrides in `~/.local/share/applications`, user CSS and themes, a preload for one launch. The preload variables are taken out of the environment of the app's child processes.
 - **Your own edits.** A file you changed after appglass keeps your change. Anything you took out stays out on later theme changes.
 
-One exception to "beside the app": the Mod route for Discord re-runs the Vencord installer you installed after a Discord update, and that installer patches Discord's own `app-*/resources` folder. This is why it is a Mod route.
+One exception to "beside the app": the Mod route for Discord re-runs the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` after a Discord update (see [routes.md](routes.md#discord-vencord)), and that installer patches Discord's own `app-*/resources` folder. This is why it is a Mod route.
 
 TODO(engine): a hard deny-list that refuses writes under `/usr`, `/etc`, `/var`, `/opt` and `/app`. Today every write path is under the home folder by construction, but nothing refuses a system path.
 
@@ -182,6 +178,6 @@ Failure always ends opaque, never half-faded:
 - **Restart needed** after a theme change for GTK apps and Dux Calendar. Alacritty, Herdr and Dux Files reload live. Quit Obsidian before the first `appglass apply`: Obsidian needs a restart on the first enable (or the snippet toggled off and on), and reloads live after that.
 - **Light mode** is measured less than dark mode.
 - **Dark logos drawn by an app** can be hard to see on dark glass. CSS cannot reach them.
-- **Opaque by design:** Steam, Chrome and other Chromium browsers, games, root GUIs, Java, Tk and X11 apps that are not GTK, Electron apps with no CSS hook. Qt flatpaks on the KDE runtime cannot load the host Qt style: only Kate and Konsole, which have their own routes, get glass. See [routes.md](routes.md#opaque) for each reason.
+- **No glass:** Steam, Chrome and other Chromium browsers, Java, Tk and X11 apps of other toolkits (a Qt app under XWayland, VLC, gets the Qt route), and Electron apps with no CSS hook get the fallback look: opaque by default, they follow the fallback mode. Games, root GUIs and Qt flatpaks on the KDE runtime stay opaque in every mode: the KDE runtime cannot load the host Qt style, so only Kate and Konsole, which have their own routes, get glass. See [routes.md](routes.md#opaque) for each reason.
 
   `appglass status` lists Steam with no route and no switch, and the reason "Steam client (CEF): no injection, it stays opaque"; only the niri fallback reaches it.

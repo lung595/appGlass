@@ -24,7 +24,7 @@
 
 var PLUGIN_ID = "appGlass";
 // = plugin.json "version" (logic.test.qml checks)
-var VERSION = "0.2.0";
+var VERSION = "0.1.0";
 var SYNC_ID = "appGlass.sync";
 var STATUS_ID = "appGlass.status";
 var SEED_ID = "appGlass.seed";
@@ -57,7 +57,7 @@ var DEFAULTS = {
     "inactiveInstantFallback": false
 };
 
-// Every badge the app list shows, from a status route
+// The kind of a route (shown next to it in the app list), from its tier
 var BADGES = {
     "native": "Native",
     "forced": "Forced",
@@ -420,8 +420,9 @@ function appStatus(app, saved, glassOn, status) {
     // the engine's gate (status "state"): a game is never touched
     if (a.state === "excluded")
         return "game";
+    // no switch: what the CLI says (Chrome, Java, Tk: the fallback look)
     if (typeof a.enabled !== "boolean")
-        return eff === "glass" ? "glass" : "opaque";
+        return eff === "glass" || eff === "fallback" ? eff : "opaque";
     if (glassOn === false)
         return "paused";
     if (Array.isArray(a.conflicts) && a.conflicts.length)
