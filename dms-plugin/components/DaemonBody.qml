@@ -550,7 +550,8 @@ PluginComponent {
         root.publish(uninstallVar, "");
         const seeded = root.service.loadPluginData(Logic.PLUGIN_ID, "seeded", false) === true;
         if (gone === "removing") {
-            // an uninstall a reload cut short (its callback never came): no
+            // an uninstall a reload cut short (its callback never came; the
+            // remove itself may have ended meanwhile, it is not known): no
             // seed and no sync (they would write the glass back), and no
             // remove either (no plugin event runs one): the page offers
             // Uninstall again or Set up again
@@ -558,7 +559,7 @@ PluginComponent {
             root.uninstalled = true;
             root.interrupted = true;
             root.publish(uninstallVar, "interrupted");
-            root.publish(uninstallErrorVar, "Uninstall did not finish (the shell reloaded while it ran). Uninstall again to finish it, or Set up again to keep the glass");
+            root.publish(uninstallErrorVar, "Uninstall may not have finished (the shell reloaded while it ran). Uninstall again to finish it (it does no harm if it had finished), or Set up again to keep the glass");
             return;
         }
         if (seeded) {

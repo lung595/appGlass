@@ -190,7 +190,7 @@ PluginSettings {
                         objectName: "headerStatus"
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 30
-                        text: root.uninstallState === "interrupted" ? "Uninstall did not finish" : root.gone ? "Uninstalled: every file restored" : !root.glassOn ? "Glass paused" : (root.status ? "Glass on, " + Logic.glassCount(root.status, true) + " apps on glass" : "Waiting for appglass")
+                        text: root.uninstallState === "interrupted" ? "Uninstall may not have finished" : root.gone ? "Uninstalled: every file restored" : !root.glassOn ? "Glass paused" : (root.status ? "Glass on, " + Logic.glassCount(root.status, true) + " apps on glass" : "Waiting for appglass")
                         color: Theme.surfaceText
                         font.pixelSize: Theme.fontSizeMedium
                         font.weight: Theme.fontWeightMedium

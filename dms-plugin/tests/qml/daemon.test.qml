@@ -565,8 +565,9 @@ Item {
                     root.mark = Proc.calls.length;
                     root.d = daemonComponent.createObject(root);
                     t.check("the new body runs nothing", Proc.calls.slice(root.mark).map(c => c.id), []);
-                    t.check("it says the uninstall did not finish", [root.vars().uninstallState, IpcRegistry.call("appGlass", "sync"), IpcRegistry.call("appGlass", "pause")], ["interrupted", "uninstalling", "uninstalling"]);
+                    t.check("it says the uninstall may not have finished", [root.vars().uninstallState, IpcRegistry.call("appGlass", "sync"), IpcRegistry.call("appGlass", "pause")], ["interrupted", "uninstalling", "uninstalling"]);
                     t.ok("and how to go on", (root.vars().uninstallError || "").indexOf("Uninstall again") >= 0);
+                    t.ok("never that it surely stopped (the remove may have ended)", (root.vars().uninstallError || "").indexOf("may not have finished") >= 0);
                     PluginService.savePluginData("appGlass", "inactiveMorePct", 7);
                     t.check("no other action", root.d.runAction("learn"), false);
                 }
