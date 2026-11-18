@@ -1027,6 +1027,32 @@ class Heal(unittest.TestCase):
         self.assertEqual(len(self.harness_calls()), 2)
         self.assertEqual(self.state()["state"], "glass")
 
+    def test_an_app_open_on_the_desktop_is_not_judged(self):
+        """A single-instance app already running on the desktop could hand
+        the hidden launch to that instance: no check while a window of it
+        is open (nothing recorded, it stays queued, its state is kept)."""
+        self.run_ok("apply")
+        self.assertEqual(self.state()["state"], "waiting")
+        self.result("fail", "the window is opaque (no glass)")
+        self.sb.write("no-windows.json", json.dumps(
+            [{"id": 3, "app_id": "org.localsend.localsend_app", "pid": 777}]), base=self.sb.root)
+        out = self.run_ok("verify", "--queue")
+        self.assertIn("unverifiable", out)
+        self.assertIn("open on the desktop", out)
+        self.assertEqual(self.harness_calls(), [])
+        self.assertIn(LS, self.store()["queue"])
+        self.assertNotIn("verify", self.store()["apps"].get(LS, {}))
+        self.assertEqual(self.state()["state"], "waiting")
+        self.assertEqual(self.notes(), [])
+        # an explicit check says the same, and records nothing either
+        self.assertIn("open on the desktop", self.run_ok("verify", LS))
+        self.assertEqual(self.harness_calls(), [])
+        # once it is closed, the queued check runs
+        self.sb.write("no-windows.json", "[]", base=self.sb.root)
+        self.result("pass", "background 204 (want 204)")
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.state()["state"], "glass")
+
     def launch_check(self, windows):
         wf = self.sb.write("windows.json", json.dumps(windows), base=self.sb.root)
         proc = self.sb.path("proc")

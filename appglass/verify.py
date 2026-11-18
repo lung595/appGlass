@@ -992,8 +992,27 @@ def verify_one(app, key):
             engine.store(a).save()
         with_lock(app, skip)
         return {"result": "skipped", "reason": route.get("reason")}
+    seen = open_on_desktop(app, rec)
+    if seen:
+        # not judged, not recorded: it stays queued and keeps its state
+        return {"result": "unverifiable",
+                "reason": "a window of it is open on the desktop (%s): a single-instance app "
+                          "would hand the hidden launch to it; checked once it is closed" % seen}
     res = run_harness(app, rec, app.levels.content)
     return with_lock(app, lambda a: record(a, key, rec, route, res))
+
+
+def open_on_desktop(app, rec):
+    """The app-id of a window of this app open on the real desktop, or None.
+    A single-instance app (Electron's lock, a D-Bus name, a socket) can pass
+    a second launch to the running instance, so the hidden session would
+    measure nothing of its own, or the wrong window."""
+    from . import learn
+    rx = window_rx(rec)
+    for w in learn.windows(app.env) or ():
+        if re.search(rx, w["app_id"]):
+            return w["app_id"]
+    return None
 
 
 def cmd_verify(app, key=None, queue=False):
