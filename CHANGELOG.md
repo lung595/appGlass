@@ -40,7 +40,10 @@ The first release.
 - **Hook.** A matugen template and user units re-apply on every DMS theme or level change.
   A no-change run exits in about 20 ms.
 - **Unfocused fade.** Unfocused windows fade a little more (10 % by default, 180 ms, ease out).
-  Only the background fades. The fade works on every glass route.
+  Only the background fades. It works on the GTK4, GTK3 and Qt Widgets routes, Alacritty,
+  Obsidian, Discord (Vencord), Feishin, Jellyfin and Lian Li. The other routes do not fade yet;
+  **Dim apps that cannot fade** (off by default) gives them an instant niri rule that dims
+  the whole window, text too.
 - **DMS plugin "App Glass".** A settings page (Glass, Apps, Fade, Fallback, Advanced, About),
   a bar pill with the glass count, a global pause, and IPC calls.
   It survives DMS reloads.

@@ -278,7 +278,7 @@ These are plans, not promises. They have no dates.
 
 - A generic Electron route through `NODE_OPTIONS`, for Electron apps with no hook.
 - `appglass report <key>`: a scrubbed record for bug reports.
-- Fade for the other terminals, Zed, mpv, GIMP, VSCodium and the colour-key apps.
+- Fade for the other terminals, Zed, mpv, GIMP, VSCodium, Dux, Herdr and the colour-key apps.
 - Filter chips and a "Run check now" button in the settings page.
 
 ## Documentation

@@ -648,6 +648,32 @@ class GlassLevelRule(unittest.TestCase):
         self.assertIn("Window rules", section(r, "Usage"))
 
 
+class FadeRoutes(unittest.TestCase):
+    """inactive.py lists the routes that fade; the CHANGELOG names them and
+    the README Roadmap names the ones that do not."""
+
+    NAMES = {"gtk4": "GTK4", "gtk3": "GTK3", "obsidian": "Obsidian",
+             "alacritty": "Alacritty", "vencord": "Vencord", "feishin": "Feishin",
+             "jellyfin": "Jellyfin", "lianli": "Lian Li", "qtstyle": "Qt"}
+
+    def test_the_changelog_names_the_routes_that_fade(self):
+        from appglass import inactive
+        listed = re.findall(r"(?m)^  (\w+) +\S", inactive.__doc__)
+        self.assertEqual(set(listed), set(self.NAMES))
+        c = read("CHANGELOG.md")
+        bullet = c[c.index("**Unfocused fade.**"):]
+        bullet = bullet[:bullet.index("\n- ")]
+        self.assertNotIn("every glass route", bullet)
+        for name in self.NAMES.values():
+            self.assertIn(name, bullet, name)
+
+    def test_the_roadmap_names_dux_and_herdr(self):
+        road = section(read("README.md"), "Roadmap")
+        line = [l for l in road.splitlines() if l.startswith("- Fade for")][0]
+        for name in ("Dux", "Herdr", "Zed", "mpv", "GIMP", "VSCodium"):
+            self.assertIn(name, line, name)
+
+
 class RouteTable(unittest.TestCase):
     """The README route table says what docs/apps.md measured."""
 
