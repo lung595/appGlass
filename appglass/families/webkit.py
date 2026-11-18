@@ -16,7 +16,12 @@ page's own colours and marks it: the page colour at the content level,
 large boxes of another colour (sidebars, toolbars, cards) at the bar level,
 popups (dialogs, menus, listboxes, tooltips, floating boxes) untouched and
 opaque, text never touched. The unfocused fade: html.agl-inactive (the
-shim's focus script) eases the content to the inactive level.
+shim's focus script) eases the content to the inactive level. The window is
+glassed only when the view is all it draws: at its map, a widget mapped
+beside the view or a parent of it (a mail client's folder list) makes the
+shim give the view its background back and take the files out, so the app
+stays opaque and its check fails (verify.judge: opaque, or too many alpha-0
+holes).
 
 Files (all owned, removed by remove):
   ~/.local/lib/appglass/webkit/appglass-wk.so        the shim (stamp: source + gcc)

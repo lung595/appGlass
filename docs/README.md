@@ -92,12 +92,12 @@ TODO(adapters): this table is from the first per-app tests and is kept as a reco
 | VSCodium 1.143 (flatpak) | electron | yes | yes | yes (opt-in) | `vscodium` family: electron hook via the wrapper `appglass-vscodium` + workbench CSS ([apps.md](apps.md)) | [electron.md](electron.md) |
 | VS Code (Microsoft build) | electron | no | no | no | fallback | [electron.md](electron.md) |
 | Element / Signal / Slack / Spotify | electron | no | no | no | fallback | [electron.md](electron.md) |
-| Kiri (`kiri-window`, Tauri / WebKitGTK 4.1) | webkit | yes | yes | yes | family `webkit`, found by its toolkit: `appglass-wk.so` + page CSS/JS from the page's own colours; 153 / 166 / 255, language dialog 255 | [webkit.md](webkit.md) |
-| Any host GTK3 WebKitGTK 4.x app | webkit | n/a | no (documented; Kiri and Lian Li are the tested ones) | yes (expected), after its check | family `webkit` (generic, as for Kiri); flatpaks and WebKitGTK 6 (GTK4) stay on the fallback | [webkit.md](webkit.md) |
+| Kiri (`kiri-window`, GTK3 + WebKitGTK 4.1) | webkit | yes | yes | yes | family `webkit`, found by its toolkit: `appglass-wk.so` + page CSS/JS from the page's own colours; 153 / 166 / 255, language dialog 255 | [webkit.md](webkit.md) |
+| Any host GTK3 WebKitGTK 4.x app whose window is one WebView | webkit | n/a | no (documented; Kiri and Lian Li are the tested ones) | yes (expected), after its check | family `webkit` (generic, as for Kiri); native widgets beside the view keep it opaque; flatpaks and WebKitGTK 6 (GTK4) stay on the fallback | [webkit.md](webkit.md) |
 | Lian Li Linux (`lianli-gui`, Tauri 2) | webkit | yes | yes | yes | family `lianli`: the same shim with its own CSS (was: fallback, transparency compiled in, `gtk.css` has no effect) | [webkit.md](webkit.md) |
 | Tauri/wry app built with `transparent: true` (demo) | webkit | no | yes | partial | the app paints alpha: RGBA visual, WebView bg rgba 0, rgba CSS per level; needs a rebuild | [webkit.md](webkit.md) |
 | GNOME Web / Epiphany 51 | webkit | yes | yes | partial | chrome only via libadwaita roles in `gtk-4.0/gtk.css` (gtk4 family, `opacity 1.0` rule); page always opaque | [webkit.md](webkit.md) |
-| Geary / Evolution / Yelp / GOA web views | webkit | no | no | no | fallback unless the app clears the WebView background | [webkit.md](webkit.md) |
+| Geary / Evolution / Yelp / GOA web views | webkit | no | no | no | GTK3 ones take the generic route, but the shim keeps a WebView with native widgets beside it opaque and the check fails it: fallback | [webkit.md](webkit.md) |
 | Dux Files (`dfiles`) | qtquick | yes | yes | partial | merge keys into `~/.config/dfiles/ui-settings.json` (w 0.60, f 0.0); levels inverted | [qtquick.md](qtquick.md) |
 | Dux Calendar (`dcal`) | qtquick | yes | yes | partial | merge keys into `~/.config/dankcal/ui-settings.json` (w 0.60, f 0.65), restart; levels inverted | [qtquick.md](qtquick.md) |
 | DMS windows (Settings, modals) | qtquick | yes | no | yes (already done) | DMS paints them itself; `dms-window-opaque` rule already present | [qtquick.md](qtquick.md) |
@@ -124,7 +124,7 @@ TODO(adapters): this table is from the first per-app tests and is kept as a reco
 These get the fallback rule (opaque by default, see Method step 4), not the glass rule:
 
 - **Chrome, Discord, Feishin, Steam, VS Code (Microsoft build), Element, Signal, Slack, Spotify**: an Electron/Chromium window is see-through only if the app's own code sets a transparent background colour.
-- **Lian Li Linux, Kiri** and other GTK3 WebKitGTK/Tauri apps: transparency is compiled in (Tauri `transparent: true`, `webkit_web_view_set_background_color`), so the WebKit shim does it for one launch (family `lianli`, or the generic `webkit` for any other such app). WebKitGTK flatpaks and WebKitGTK 6 (GTK4) apps keep the fallback.
+- **Lian Li Linux, Kiri** and other GTK3 WebKitGTK/Tauri apps: transparency is compiled in (Tauri `transparent: true`, `webkit_web_view_set_background_color`), so the WebKit shim does it for one launch (family `lianli`, or the generic `webkit` for any other such app) when the window is the WebView alone; native widgets beside the view keep it opaque. WebKitGTK flatpaks and WebKitGTK 6 (GTK4) apps keep the fallback.
 - **VLC, Jellyfin, KDE apps, KeePassXC, Krita, OBS, qBittorrent**: Qt Widgets palette alpha lands on an opaque buffer; real glass needs a style plugin (Kvantum, not installed).
 - **LocalSend** and other Flutter apps: the `FlView` is opaque unless the app's runner clears it.
 - **Timeshift**: runs as root through XWayland, no RGBA visual.

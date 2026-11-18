@@ -6,7 +6,11 @@
 //
 // What it does, per WebKitWebView, on the first webkit_web_view_load_uri/html/request/bytes:
 //   1. webkit_web_view_set_background_color(view, rgba(0,0,0,0))  (and every later call is forced to alpha 0)
-//   2. toplevel: RGBA visual (if not yet realized) + app-paintable  (what tao does for transparent:true)
+//   2. toplevel: RGBA visual (if not yet realized) + app-paintable  (what tao does for transparent:true),
+//      only when the view fills it: when the toplevel maps, no other widget is mapped beside the view
+//      or any of its ancestors (a header bar given with gtk_window_set_titlebar is fine: it paints
+//      itself). Native chrome around a WebView (a mail client's folder list) would be holes on the
+//      bare blur: such a view gets its background back and the window stays opaque.
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
 //   4. with a stylesheet: a small script that sets html.agl-inactive while the page has no focus
 //      (the stylesheet fades the content background on it)
@@ -73,7 +77,19 @@ static void real_set_bg(void *view, const GdkRGBA *c) {
     if (f) f(view, c);
 }
 
+static void *obj_get(void *o, const char *k) {
+    static void *(*f)(void *, const char *); if (!f) f = sym("g_object_get_data");
+    return f ? f(o, k) : NULL;
+}
+static void obj_set(void *o, const char *k, void *v, void (*destroy)(void *)) {
+    static void (*f)(void *, const char *, void *, void (*)(void *)); if (!f) f = sym("g_object_set_data_full");
+    if (f) f(o, k, v, destroy); else if (destroy && v) destroy(v);
+}
+
+// the app's own colour is kept (appglass-bg): a view left opaque gets it back
 void webkit_web_view_set_background_color(void *view, const GdkRGBA *c) {
+    if (c) { GdkRGBA *k = malloc(sizeof *k); if (k) { *k = *c; obj_set(view, "appglass-bg", k, free); } }
+    if (obj_get(view, "appglass-off")) { real_set_bg(view, c); return; }
     GdkRGBA t = { c ? c->r : 0, c ? c->g : 0, c ? c->b : 0, 0 };
     LOG("set_background_color(%g,%g,%g,%g) -> alpha 0", t.r, t.g, t.b, c ? c->a : -1);
     real_set_bg(view, &t);
@@ -86,16 +102,67 @@ static const char FOCUS_JS[] =
     "var d=document.documentElement,f=function(){setTimeout(function(){d.classList.toggle('agl-inactive',!document.hasFocus())},0)};"
     "window.addEventListener('focus',f);window.addEventListener('blur',f);f();})();";
 
-// the window of the view: RGBA visual (before it is realized) and app-paintable; 0 without one yet
+static void uninject(void *view);
+
+// 1 when nothing but the view is drawn in the toplevel: no other child of the view's ancestors is
+// mapped (at the toplevel's map, after its children). A titlebar is not a child (it paints itself).
+static int fills(void *view, void *top) {
+    void *(*get_parent)(void *) = sym("gtk_widget_get_parent");
+    gboolean (*mapped)(void *) = sym("gtk_widget_get_mapped");
+    void *(*children)(void *) = sym("gtk_container_get_children");
+    void (*list_free)(void *) = sym("g_list_free");
+    const char *(*name)(void *) = sym("gtk_widget_get_name");
+    if (!get_parent || !mapped || !children || !list_free) return 1;
+    typedef struct L { void *data; struct L *next, *prev; } L;
+    for (void *w = view; w && w != top; ) {
+        void *p = get_parent(w); if (!p) return 0;
+        L *l = children(p); int other = 0;
+        for (L *i = l; i; i = i->next)
+            if (i->data != w && mapped(i->data)) { other = 1; LOG("beside the view: %s", name ? name(i->data) : "?"); break; }
+        list_free(l);
+        if (other) return 0;
+        w = p;
+    }
+    return 1;
+}
+
+// the toplevel is mapped: glass it if the view fills it, else the view gets its background back
+static void decide(void *view, void *top) {
+    if (obj_get(view, "appglass-decided")) return;
+    obj_set(view, "appglass-decided", (void *)1, NULL);
+    void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
+    void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
+    if (fills(view, top)) {
+        if (set_paintable) set_paintable(top, 1);
+        if (queue_draw) queue_draw(top);
+        LOG("toplevel %p: app-paintable (the view fills it)", top);
+        return;
+    }
+    obj_set(view, "appglass-off", (void *)1, NULL);
+    const GdkRGBA *k = obj_get(view, "appglass-bg"); GdkRGBA white = { 1, 1, 1, 1 };
+    real_set_bg(view, k ? k : &white);
+    uninject(view);
+    LOG("toplevel %p: native widgets beside the view, left opaque", top);
+}
+static void on_top_map(void *view, void *top) { decide(view, top); }   // swapped: (view, toplevel)
+// the toplevel is mapped already, maybe mapping now (a view seen at its own map): once it is done
+static int decide_idle(void *view) {
+    void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
+    void *top = get_toplevel ? get_toplevel(view) : NULL;
+    if (top) decide(view, top);
+    return 0;
+}
+
+// the window of the view: RGBA visual (before it is realized), then decide() at its map; 0 without one yet
 static int glass_toplevel(void *view) {
     void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
     gboolean (*is_toplevel)(void *) = sym("gtk_widget_is_toplevel");
     gboolean (*get_realized)(void *) = sym("gtk_widget_get_realized");
-    void (*set_paintable)(void *, gboolean) = sym("gtk_widget_set_app_paintable");
+    gboolean (*get_mapped)(void *) = sym("gtk_widget_get_mapped");
     void *(*get_screen)(void *) = sym("gtk_widget_get_screen");
     void *(*rgba_visual)(void *) = sym("gdk_screen_get_rgba_visual");
     void (*set_visual)(void *, void *) = sym("gtk_widget_set_visual");
-    void (*queue_draw)(void *) = sym("gtk_widget_queue_draw");
+    unsigned long (*connect_object)(void *, const char *, void *, void *, int) = sym("g_signal_connect_object");
     if (!get_toplevel || !is_toplevel) return 1;   // not GTK3: nothing to wait for
     void *top = get_toplevel(view);
     if (!top || !is_toplevel(top)) { LOG("view %p has no toplevel yet", view); return 0; }
@@ -103,33 +170,27 @@ static int glass_toplevel(void *view) {
         void *v = rgba_visual(get_screen(top)); if (v) set_visual(top, v);
         LOG("toplevel %p: rgba visual %p", top, v);
     } else LOG("toplevel %p already realized: visual unchanged", top);
-    if (set_paintable) set_paintable(top, 1);
-    if (queue_draw) queue_draw(top);
+    void *(*ref)(void *) = sym("g_object_ref"); void (*unref)(void *) = sym("g_object_unref");
+    unsigned (*idle_full)(int, void *, void *, void (*)(void *)) = sym("g_idle_add_full");
+    if (get_mapped && get_mapped(top)) {
+        if (idle_full && ref && unref) idle_full(0, (void *)decide_idle, ref(view), unref);   // G_PRIORITY_DEFAULT
+        else decide(view, top);
+    } else if (connect_object)   // G_CONNECT_AFTER | G_CONNECT_SWAPPED: after the children are mapped
+        connect_object(top, "map", (void *)on_top_map, view, 1 | 2);
     return 1;
 }
 
 static void on_hierarchy(void *view, void *prev, void *data) {
     (void)prev; (void)data;
-    static void *(*get_data)(void *, const char *); static void (*set_data)(void *, const char *, void *);
-    if (!get_data) { get_data = sym("g_object_get_data"); set_data = sym("g_object_set_data"); }
-    if (!get_data || !set_data || get_data(view, "appglass-top")) return;
-    if (glass_toplevel(view)) set_data(view, "appglass-top", (void *)1);
+    if (obj_get(view, "appglass-top")) return;
+    if (glass_toplevel(view)) obj_set(view, "appglass-top", (void *)1, NULL);
 }
 
-static void glassify(void *view) {
-    static void *(*get_data)(void *, const char *); static void (*set_data)(void *, const char *, void *);
-    if (!get_data) { get_data = sym("g_object_get_data"); set_data = sym("g_object_set_data"); }
-    if (!get_data || !set_data || get_data(view, "appglass")) return;
-    set_data(view, "appglass", (void *)1);
+// the stylesheet and scripts added to the view's content manager, kept on the view (its data owns a
+// ref) so a view left opaque can take them out again
+static const char *const ITEMS[] = { "appglass-ss", "appglass-sc0", "appglass-sc1", "appglass-sc2" };
 
-    GdkRGBA clear = { 0, 0, 0, 0 };
-    real_set_bg(view, &clear);
-
-    if (!glass_toplevel(view)) {  // not in a window yet (wry builds the view first): when it is
-        unsigned long (*connect)(void *, const char *, void *, void *, void *, int) = sym("g_signal_connect_data");
-        if (connect) connect(view, "hierarchy-changed", (void *)on_hierarchy, NULL, NULL, 0);
-    }
-
+static void inject(void *view) {
     if (dbg()) { // console.log -> stdout of the web process (lands in the app log)
         void *(*get_settings)(void *) = sym("webkit_web_view_get_settings");
         void (*wc)(void *, gboolean) = sym("webkit_settings_set_enable_write_console_messages_to_stdout");
@@ -144,7 +205,10 @@ static void glassify(void *view) {
         void *(*ss_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_style_sheet_new");
         void (*add_ss)(void *, void *) = sym("webkit_user_content_manager_add_style_sheet");
         void (*ss_unref)(void *) = sym("webkit_user_style_sheet_unref");
-        if (ss_new && add_ss) { void *s = ss_new(css, 0, 0, NULL, NULL); add_ss(ucm, s); if (ss_unref) ss_unref(s); LOG("css injected (%zu bytes)", strlen(css)); }
+        if (ss_new && add_ss) {
+            void *ss = ss_new(css, 0, 0, NULL, NULL); add_ss(ucm, ss); obj_set(view, ITEMS[0], ss, ss_unref);
+            LOG("css injected (%zu bytes)", strlen(css));
+        }
         free(css);
     }
     // webkit_user_script_new(src, ALL_FRAMES=0, INJECT_AT_DOCUMENT_START=0 / END=1, allow, block)
@@ -155,11 +219,41 @@ static void glassify(void *view) {
     for (int at = 0; at < 2; at++) {  // APPGLASS_JS_START: document start (0); APPGLASS_JS: document end (1)
         char *js = slurp(at ? g_js : g_js_start);
         if (!js) continue;
-        void *s = sc_new(js, 0, at, NULL, NULL); add_sc(ucm, s); if (sc_unref) sc_unref(s); LOG("js injected at %s (%zu bytes)", at ? "end" : "start", strlen(js));
+        void *sc = sc_new(js, 0, at, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[1 + at], sc, sc_unref);
+        LOG("js injected at %s (%zu bytes)", at ? "end" : "start", strlen(js));
         free(js);
     }
     if (had_css) {  // unfocused fade: html.agl-inactive while the page has no focus (the glass CSS eases it)
-        void *s = sc_new(FOCUS_JS, 0, 1, NULL, NULL); add_sc(ucm, s); if (sc_unref) sc_unref(s); LOG("focus script injected");
+        void *sc = sc_new(FOCUS_JS, 0, 1, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[3], sc, sc_unref);
+        LOG("focus script injected");
+    }
+}
+
+// a view left opaque: what inject() added comes out (the script only set attributes and custom
+// properties: without the stylesheet the page is as the app drew it)
+static void uninject(void *view) {
+    void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
+    void (*rm_ss)(void *, void *) = sym("webkit_user_content_manager_remove_style_sheet");
+    void (*rm_sc)(void *, void *) = sym("webkit_user_content_manager_remove_script");
+    void *ucm = get_ucm ? get_ucm(view) : NULL;
+    if (!ucm) return;
+    for (unsigned i = 0; i < sizeof ITEMS / sizeof *ITEMS; i++) {
+        void *it = obj_get(view, ITEMS[i]); if (!it) continue;
+        if (i == 0 && rm_ss) rm_ss(ucm, it); else if (i && rm_sc) rm_sc(ucm, it);
+        obj_set(view, ITEMS[i], NULL, NULL);   // drops the ref
+    }
+    LOG("glass stylesheet and scripts removed");
+}
+
+static void glassify(void *view) {
+    if (obj_get(view, "appglass")) return;
+    obj_set(view, "appglass", (void *)1, NULL);
+    GdkRGBA clear = { 0, 0, 0, 0 };
+    real_set_bg(view, &clear);
+    inject(view);
+    if (!glass_toplevel(view)) {  // not in a window yet (wry builds the view first): when it is
+        unsigned long (*connect)(void *, const char *, void *, void *, void *, int) = sym("g_signal_connect_data");
+        if (connect) connect(view, "hierarchy-changed", (void *)on_hierarchy, NULL, NULL, 0);
     }
 }
 
