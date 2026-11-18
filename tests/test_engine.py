@@ -1152,6 +1152,17 @@ class Judge(unittest.TestCase):
         r = self.j({204: 1000, 120: 900, 255: 8000})
         self.assertEqual(r["result"], "fail")
 
+    def test_bare_holes_fail(self):
+        """Native chrome around one glassed WebView: the chrome is alpha 0
+        (labels on the bare blur), the view alone at the level."""
+        r = self.j({0: 1210915, 153: 838972, 255: 46323}, level=0.60)
+        self.assertEqual(r["result"], "fail")
+        self.assertIn("alpha 0", r["reason"])
+        self.assertEqual(r["bare"], 0.578)
+        # the rounded corners and CSD margins of a normal window pass
+        self.assertEqual(self.j({0: 117192, 153: 1863983, 255: 8919}, level=0.60)["result"],
+                         "pass")
+
 
 class Harness(unittest.TestCase):
     def test_session_env_is_clean_but_keeps_the_toolkit_hints(self):

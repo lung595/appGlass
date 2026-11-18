@@ -64,6 +64,10 @@ STALE_RUN = 15 * 60    # an agv.* dir older than this is a killed run's
 WINDOW_WAIT = 10
 LAUNCH_WAIT = 20
 TOL = 0.05
+# a window more than this share bare (alpha 0: the blur with no colour at
+# all) has holes, not glass: native chrome around one glassed WebView. The
+# rounded corners and CSD margins of a normal window stay under 0.10.
+BARE = 0.25
 NO_MASK = ("no bwrap mount namespace: a flatpak would leave the check's limits "
            "(systemd scope)")
 
@@ -694,10 +698,14 @@ def judge(env, png, level, hist=None):
     mode = max(trans, key=trans.get) if trans else None
     near = sum(v for k, v in trans.items() if abs(k - want) <= tol)
     opaque = hist.get(255, 0)
+    bare = hist.get(0, 0) / max(sum(hist.values()), 1)
     rep = {"alpha_mode": mode, "expected": want, "share": round(near / max(visible, 1), 3),
-           "opaque_px": opaque}
+           "opaque_px": opaque, "bare": round(bare, 3)}
     if mode is None:
         return dict(rep, result="fail", reason="the window is opaque (no glass)")
+    if bare > BARE:
+        return dict(rep, result="fail", reason="%.0f%% of the window at alpha 0 (holes, not glass)"
+                    % (100.0 * bare))
     if abs(mode - want) > tol:
         return dict(rep, result="fail", reason="background alpha %d, expected %d+-%d"
                     % (mode, want, tol))
