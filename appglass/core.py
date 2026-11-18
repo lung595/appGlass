@@ -2708,6 +2708,15 @@ class _ProbeCtx(Ctx):
         self.fns[os.path.abspath(path)] = fn
         return Ctx.edit_text(self, path, fn, undo)
 
+    def read_text(self, path):
+        # the files a family reads (DMS's dank-colors.css): a file at one of
+        # its paths that is that file, or a plain copy of it, is not proof
+        # that appglass wrote it (adopt --rescue)
+        p = os.path.abspath(path)
+        if p not in self.ops and os.path.isfile(p):
+            self.app._probe_reads[p] = _read(p)
+        return Ctx.read_text(self, path)
+
 
 def _unrendered(fn, data):
     """data (a launcher) when fn renders exactly it from a text that differs
@@ -2777,9 +2786,11 @@ def _engine_ops(app):
     # that is every launcher appglass wrote
     hooked, recs = getattr(app, "from_hook", False), getattr(app, "_engine_records", None)
     app.from_hook = False
+    app._probe_reads = {}
     from . import engine
     try:
         here = {name: app.installed(fam) for name, fam in app.families.items()}
+        app._probe_here = {n for n, v in here.items() if v}
         try:
             engine.records(app)     # the real records, before the probe widens
         except Exception:
@@ -2906,54 +2917,24 @@ def _edit_names_ours(claim, claims):
 
 
 def orphans(app):
-    """With state.json missing: the files on disk that appglass wrote (its
-    marker in them). [] when state.json is there."""
+    """With state.json missing: the files on disk that appglass wrote, the
+    ones adopt --rescue would record (lost_claims). [] when state.json is
+    there. appglass's own settings.json is not one: the user may have
+    written it."""
     if not app.state_missing:
         return []
     if app._orphans is None:
-        from . import adapters
-        hand = {os.path.join(app.env.home, rel) for rel, _, _ in adapters.HAND_FILES}
-        history = _ring_history(app.env)
-        out, later, found = [], [], set()
-        for p, (owner, kind, undo, fn, planned, keys) in sorted(_engine_ops(app).items()):
-            if not os.path.isfile(p):
-                continue
-            try:
-                data = _read(p)
-            except OSError:
-                continue
-            if not data:
-                continue
-            if kind != "edit":
-                undo = None
-            if p in hand:
-                # a hand file appglass took over, the hook's own wrapper, or
-                # one appglass made (the ring saw it absent)
-                mine = (ADOPTED_MARK in data or HOOK_MARK in data
-                        or _hand_made(history, p, data, planned))
-            elif undo is not None:
-                # the user's file, appglass's lines in it; not a JSON file
-                # (an app's settings: the user may have set the same key)
-                mine = not p.endswith(".json") and (_edit_is_ours(undo, fn, data, p in history)
-                                                    or _edit_marked(undo, data))
-            else:
-                mine = bool(MARK.search(data))
-            if mine:
-                out.append(p)
-                if owner in app.families:
-                    found.add(owner)
-            elif owner in app.families and undo is None and (
-                    planned is None or (planned and data == planned)
-                    or (p in hand and MARK.search(data))):
-                later.append((owner, p))
-        # a family that applied here (its marked files are on disk) skips on
-        # a file at its path that is not its own (a Conflict): a build of it,
-        # a file that holds exactly what it renders there, or its hand path
-        # with its marker in it, is its own too (adopt --rescue records them
-        # the same way). The ring, when kept, tells first (_hand_made)
-        out += [p for o, p in later if o in found]
-        app._orphans = sorted(out)
+        from . import settings as _settings
+        sp = _settings.path(app.env)
+        app._orphans = sorted(c["path"] for c in lost_claims(app)
+                              if c["kind"] != "retired" and c["path"] != sp)
     return app._orphans
+
+
+def lost_claims(app):
+    """adopt --rescue's claims for the state as this run found it: the
+    refusal, doctor and the rescue all name these files."""
+    return _rescue_claims(app, app.backups_at_start)[0]
 
 
 def orphan_backups(app):
@@ -3041,27 +3022,115 @@ def _named_keys(keys, data):
             and obj.get(k) == i["set"]}
 
 
-def _rescue_claims(app, backups=()):
-    """adopt --rescue: [claim] for the files appglass wrote, edited or
-    adopted. A claim is a dict: path, owner, kind (owned | edit | json |
-    retired), data (the bytes now), undo, fn, keys (a merge's), backup (its
-    original's name in backup/, when backups holds one).
+def _through_link(env, p):
+    """p is reached through a symlink below the base dir that holds it
+    (HOME or an XDG base dir; the base itself may be a link, dotfiles):
+    p is another file than its path says, and maybe one appglass reads.
+    A path under no base dir counts as one too."""
+    bases = sorted({os.path.abspath(x) for x in (env.home, env.config_home, env.data_home,
+                                                 env.state_home, env.cache_home)},
+                   key=len, reverse=True)
+    for base in bases:
+        if p.startswith(base + os.sep):
+            q = base
+            for part in p[len(base) + 1:].split(os.sep):
+                q = os.path.join(q, part)
+                if os.path.islink(q):
+                    return True
+            return False
+    return True
 
-    Evidence: an original in backup/ (named by sha1 of the path: appglass
-    backed the file up, so it adopted or edited it), appglass's marker in a
-    file it wrote (a hand path: the stub of an adopted one, the hook's own
-    wrapper, a unit's repo bytes while the hook is there, or exactly what
-    the family renders there), its lines in a file it edited (its undo
-    takes something out), the ring's record that a path was absent before
-    appglass first wrote it, a json file that holds the merge's keys and
-    nothing else."""
+
+def _inode(p):
+    try:
+        st = os.stat(p)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
+
+
+def _ring_made(env, p):
+    """The ring shows appglass made p and nothing but appglass touched it
+    since: the newest record of p says it was absent, and every run after
+    it that touched p found it in its state.json as a file appglass created
+    (a remove that took it out, then the user's or DMS's own file at the
+    same path, breaks the chain)."""
+    found = None
+    for n in ring_entries(env):
+        d = os.path.join(ring_dir(env), n)
+        m = _load_json(os.path.join(d, "manifest.json"))
+        files = m.get("files") if isinstance(m, dict) else None
+        rec = files.get(p) if isinstance(files, dict) else None
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("absent"):
+            found = True
+            continue
+        if not found:
+            continue
+        st = _load_json(os.path.join(d, "state.json")) if m.get("state") else None
+        owners = st.get("owners") if isinstance(st, dict) else None
+        if not isinstance(owners, dict) or not any(
+                isinstance(o, dict) and isinstance(o.get("files"), dict)
+                and (o["files"].get(p) or {}).get("kind") == "created"
+                for o in owners.values()):
+            found = False
+    return bool(found)
+
+
+def _edit_created(undo, fn, text, made, mark=None):
+    """A file appglass edits holds nothing of the user's: empty once
+    appglass's lines are out, or (made: the ring shows appglass made it)
+    exactly what appglass writes from nothing, or it carries the family's
+    CREATED_MARK (a line appglass puts only on a file it makes: gtk3's
+    header on a copy of a system launcher). Otherwise the rest is the
+    user's (DMS's import, the stock config, a launcher of the user's own),
+    and the file is recorded as edited with that rest as the original."""
+    try:
+        if not undo(text).strip():
+            return True
+        if mark and any(ln.strip() == mark for ln in text.splitlines()):
+            return True
+        return bool(made) and fn is not None and fn("") == text
+    except Exception:
+        return False
+
+
+def _rescue_claims(app, backups=()):
+    """adopt --rescue: ([claim], [doubt]) for the files appglass wrote,
+    edited or adopted. A claim is a dict: path, owner, kind (owned | edit |
+    json | retired), data (the bytes now), undo, fn, keys (a merge's),
+    backup (its original's name in backup/, when backups holds one), made
+    (the ring shows appglass made the file). A doubt is a line for the user:
+    a file that looks like appglass's but is left as it is.
+
+    Never claimed: a path reached through a symlinked dir or that is a
+    symlink, a file that is also another path appglass writes or a file it
+    reads (one inode), a plain copy of a file a family reads (DMS's
+    dank-colors.css in a flatpak dir) unless the ring shows appglass made
+    it.
+
+    Proof on its own: an original in backup/ (named by sha1 of the path:
+    appglass backed the file up, so it adopted or edited it), appglass's
+    marker in a file it wrote (a hand path: the stub of an adopted one, the
+    hook's own wrapper), its edit in a file it edits (_edit_is_ours,
+    _edit_marked), the ring (a hand path or json file it made, a copy it
+    made), a json file that holds the merge's keys and nothing else.
+    Proof only once the same family has a file proven so (a family applies
+    whole or not at all, and the probe plans every family's paths): what
+    the family renders there exactly (a unit while the hook is there, a hand
+    path), a build of its own, a json key that names appglass, an edit the
+    user changed around whose lines all name appglass or the family's
+    files."""
     from . import adapters, hook
     from . import settings as _settings
     env = app.env
+    t = env.tilde
     have = set(backups)
     history = _ring_history(env)
     hand = {os.path.join(env.home, rel): a for rel, a, _ in adapters.HAND_FILES}
     cand = dict(_engine_ops(app))
+    reads = dict(getattr(app, "_probe_reads", {}) or {})
     for p, a in hand.items():
         if p not in cand:
             owner = adopt_owner(app, a, p)
@@ -3080,18 +3149,31 @@ def _rescue_claims(app, backups=()):
         os.path.isfile(p) and HOOK_MARK in (_read(p) or b"")
         for p in (hook.sync_path(env), hook.vibrancy_path(env)))
     units = {hook.unit_path(env, n) for n in hook.UNITS}
+    # one inode at two paths appglass writes, or at a path it writes and a
+    # file it reads: neither path tells whose file it is
+    inodes = {}
+    for p in cand:
+        if os.path.isfile(p) and not _through_link(env, p):
+            inodes.setdefault(_inode(p), set()).add(p)
+    for p in reads:
+        if p not in cand:
+            inodes.setdefault(_inode(p), set()).add(p)
+    shared = {p for ps in inodes.values() if len(ps) > 1 for p in ps}
+    read_bytes = {data for p, data in reads.items() if p not in cand and data}
+    out, doubts, weak, edits, merged = [], [], [], [], []
 
-    def made(p):
-        return _made(history, p)
-    out, skipped, builds, edits, merged = [], [], [], [], []
+    def looks(kind, undo, planned, data):
+        return (bool(MARK.search(data)) or ADOPTED_MARK in data or HOOK_MARK in data
+                or (bool(planned) and data == planned)
+                or (kind == "edit" and undo is not None and _edited(undo, data)))
     for p, (owner, kind, undo, fn, planned, keys) in sorted(cand.items()):
         b = _bname(p) if _bname(p) in have else None
         claim = {"path": p, "owner": owner, "kind": kind, "undo": undo, "fn": fn,
-                 "keys": keys, "backup": b, "data": None}
-        if os.path.islink(p):
-            continue
+                 "keys": keys, "backup": b, "data": None, "made": False,
+                 "planned": planned}
+        linked = os.path.islink(p) or _through_link(env, p)
         if not os.path.lexists(p):
-            if b is not None and (p in hand or p in units):
+            if b is not None and (p in hand or p in units) and not linked:
                 # an adopted hand file appglass retired (deleted): its
                 # original is in backup/
                 out.append(dict(claim, kind="retired"))
@@ -3103,19 +3185,28 @@ def _rescue_claims(app, backups=()):
         except OSError:
             continue
         claim["data"] = data
+        if linked or p in shared:
+            if data and looks(kind, undo, planned, data):
+                doubts.append("%s %s: left as is (not recorded)" % (
+                    t(p), "is reached through a symlink" if linked else
+                    "is the same file as another path appglass writes or reads"))
+            continue
         if p == sp:
             # appglass's own settings: recorded only when it made the file
             # (one the user wrote stays theirs)
-            if made(p):
+            if _made(history, p):
                 out.append(claim)
             else:
-                app.warn("adopt --rescue: %s is not recorded (nothing says appglass made "
-                         "it; remove leaves it)" % env.tilde(p))
+                doubts.append("%s is not recorded (nothing says appglass made it; remove "
+                              "leaves it)" % t(p))
             continue
         if not data and b is None:
             continue
+        made = _ring_made(env, p)
+        claim["made"] = made
         if kind == "json":
-            if b is not None or made(p) or (owner is not None and _only_keys(keys, data)):
+            if b is not None or _made(history, p) or (owner is not None
+                                                     and _only_keys(keys, data)):
                 if owner is None:
                     owner = _json_owner(app, p)
                 if owner is not None:
@@ -3129,54 +3220,87 @@ def _rescue_claims(app, backups=()):
                     merged.append((dict(claim, owner=owner, keys=named),
                                    sorted(set(keys or {}) - set(named))))
                 else:
-                    skipped.append(p)
+                    doubts.append("%s holds keys appglass merged: left as is (not "
+                                  "recorded, no original in backup/; set them back by hand "
+                                  "if you want them gone)" % t(p))
             continue
+        copy = data in read_bytes
         if p in units:
-            mine = b is not None or (hook_on and data == planned) or HOOK_MARK in data
             kind = "owned"
+            # the repo's units say "appGlass:" too: a hand-made copy of one
+            # carries it, so the marker proves nothing here
+            mine = b is not None or HOOK_MARK in data
+            if not mine and hook_on and data == planned:
+                weak.append(dict(claim, kind=kind))
         elif p in hand:
-            mine = (b is not None or ADOPTED_MARK in data or HOOK_MARK in data
-                    or (bool(planned) and data == planned)
-                    or _hand_made(history, p, data, planned))
             kind = "owned"
-            if not mine and planned is None:
-                # a build of the family: appglass's when the family's other
-                # files are (a family applies whole or not at all)
-                builds.append(dict(claim, kind=kind))
+            mine = (b is not None or ADOPTED_MARK in data or HOOK_MARK in data
+                    or _hand_made(history, p, data, planned))
+            if not mine and (planned is None or (bool(planned) and data == planned)):
+                weak.append(dict(claim, kind=kind))
+            elif not mine and MARK.search(data):
+                doubts.append("%s holds appglass's marker but nothing proves appglass "
+                              "wrote it: left as is (not recorded)" % t(p))
         elif kind == "edit":
-            mine = _edit_is_ours(undo, fn, data, p in history)
+            mine = undo is not None and (_edit_is_ours(undo, fn, data, p in history)
+                                         or _edit_marked(undo, data))
             if not mine and undo is not None and _edited(undo, data):
                 # the user edited the file around appglass's lines: decided
                 # once the family's own files are known (below)
                 edits.append(dict(claim, kind=kind))
+        elif copy:
+            # a plain copy of a file a family reads: only the ring tells
+            mine = b is not None or made
+            if not mine:
+                doubts.append("%s is a copy of a file appglass reads; nothing says appglass "
+                              "wrote it: left as is (not recorded; delete it by hand if "
+                              "you did not make it)" % t(p))
         else:
-            mine = b is not None or bool(MARK.search(data)) or (bool(planned) and data == planned)
+            mine = b is not None or bool(MARK.search(data)) or (made and data == planned)
+            if not mine and bool(planned) and data == planned:
+                weak.append(dict(claim, kind=kind))
         if mine:
             out.append(dict(claim, kind=kind))
-    mine_owners = {c["owner"] for c in out if c["kind"] == "owned"}
-    for c in builds:
-        if c["owner"] in mine_owners:
+    # a family found (a file of it proven) or installed: what it renders
+    # there is its own (a family applies whole or not at all)
+    # (a build at a hand path needs a proven file: the user's own build may
+    # sit there)
+    found = {c["owner"] for c in out if c["kind"] in ("owned", "edit")}
+    here = set(getattr(app, "_probe_here", ()) or ())
+    builds = [c for c in weak if c["path"] in hand and c["planned"] is None]
+    for c in [c for c in weak if c not in builds] + builds:
+        if c in builds:
+            found |= {x["owner"] for x in out if x["kind"] in ("owned", "edit")}
+            ok = c["owner"] in found
+        else:
+            ok = c["owner"] in found or c["owner"] in here
+        if ok:
             out.append(c)
+        elif c["data"]:
+            doubts.append("%s looks like what appglass writes for %s, but %snothing else "
+                          "of it is on disk: left as is (not recorded; delete it by hand if "
+                          "you did not make it)" % (
+                              t(c["path"]), c["owner"],
+                              "" if c["owner"] in here else "it is not installed and "))
+    owned = {c["owner"] for c in out if c["kind"] == "owned"}
     for c, rest in merged:
-        if c["owner"] in mine_owners:
+        if c["owner"] in owned:
             out.append(c)
             if rest:
-                app.warn("adopt --rescue: %s: %s may be the user's too: left as is"
-                         % (env.tilde(c["path"]), ", ".join(rest)))
+                doubts.append("%s: %s may be the user's too: left as is"
+                              % (t(c["path"]), ", ".join(rest)))
         else:
-            skipped.append(c["path"])
+            doubts.append("%s holds keys appglass merged: left as is (not recorded, no "
+                          "original in backup/; set them back by hand if you want them "
+                          "gone)" % t(c["path"]))
     for c in edits:
         if _edit_names_ours(c, out):
             out.append(c)
         else:
-            app.warn("adopt --rescue: %s holds a line like appglass's but nothing else "
-                     "proves it is: left as is (not recorded)" % env.tilde(c["path"]))
+            doubts.append("%s holds a line like appglass's but nothing else proves it is: "
+                          "left as is (not recorded)" % t(c["path"]))
     out.sort(key=lambda c: c["path"])
-    for p in skipped:
-        app.warn("adopt --rescue: %s holds keys appglass merged: left as is (not "
-                 "recorded, no original in backup/; set them back by hand if you want "
-                 "them gone)" % env.tilde(p))
-    return out
+    return out, doubts
 
 
 def _json_owner(app, p):
@@ -3266,7 +3390,9 @@ def cmd_rescue(app, dry_run=False):
     except OSError:
         backups = []
     history = _ring_history(env)
-    claims = _rescue_claims(app, backups)
+    claims, doubts = _rescue_claims(app, backups)
+    for d in doubts:
+        app.warn("adopt --rescue: %s" % d)
 
     def what(c):
         if c["kind"] == "edit":
@@ -3361,17 +3487,24 @@ def cmd_rescue(app, dry_run=False):
         else:
             text = c["undo"](data.decode("utf-8"))
             orig = text.encode("utf-8")
-            fn = c["fn"]
-            try:
-                pristine = c["undo"](fn("")).encode("utf-8").strip() if fn else None
-            except Exception:
-                pristine = None
-            if not orig.strip() or (pristine is not None and orig.strip() == pristine):
+            fam = app.families.get(c["owner"])
+            if _edit_created(c["undo"], c["fn"], data.decode("utf-8"), c["made"],
+                             getattr(fam, "CREATED_MARK", None)):
                 # nothing of the user's in it: appglass made it from empty
                 rec = {"kind": "created", "how": "edit", "sha256": sha(data)}
-                if pristine is not None:
-                    rec["pristine_sha256"] = sha(pristine)
+                if orig.strip():
+                    rec["pristine_sha256"] = sha(orig.strip())
             else:
+                if c["fn"] is not None and not c["made"]:
+                    try:
+                        maybe = c["fn"]("") == data.decode("utf-8")
+                    except Exception:
+                        maybe = False
+                    if maybe:
+                        app.warn("adopt --rescue: %s holds what appglass writes from nothing, "
+                                 "but nothing says appglass made it: recorded as edited, so "
+                                 "remove leaves what is not appglass's in it (delete it by "
+                                 "hand if you did not have it before)" % t(p))
                 b = _bname(p)
                 path = os.path.join(bdir, b)
                 env.guard(path)

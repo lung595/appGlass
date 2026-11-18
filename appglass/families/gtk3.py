@@ -54,6 +54,10 @@ ENV_ROUTE = True
 
 ENV_PREFIX = "env GTK_THEME=%s " % THEME
 MARK = "# appglass: Exec runs with GTK_THEME=%s (GTK3 glass theme)" % THEME
+# only a copy of a system launcher gets the header (a launcher of the
+# user's own is edited without it): adopt --rescue takes it as proof that
+# appglass made the file
+CREATED_MARK = MARK
 
 
 def accepts(rec):

@@ -1526,10 +1526,14 @@ class UninstalledSinceApply(Base):
 
 
 class UninstalledForReal(unittest.TestCase):
+    maxDiff = None
     """Apps uninstalled the way a package manager does it (the binary, the
     system launcher and the flatpak gone; ~/.var/app stays), then the state
     lost: the refusal and doctor name every file appglass wrote for them,
-    and rescue then remove gives the tree before apply back."""
+    and rescue then remove gives the tree before apply back, but for what
+    nothing proves appglass's once the ring is gone (a plain copy of the
+    host colours, the DMS import in a gtk.css), which rescue lists and
+    leaves."""
 
     FLATPAKS = (("org.kde.kate", "kate"), ("org.kde.konsole", "konsole"),
                 ("org.gnome.TextEditor", "gnome-text-editor"))
@@ -1586,6 +1590,12 @@ class UninstalledForReal(unittest.TestCase):
         shutil.rmtree(os.path.join(w.usr, "share", "applications"))
         shutil.rmtree(sb.path("flatpak"))
         shutil.rmtree(sb.path("etc"))
+        # the host colours copied into the flatpak dir: a plain copy of a file
+        # appglass reads, with the ring gone nothing says appglass wrote it
+        copy = [p for p in theirs if p.endswith("org.gnome.TextEditor/config/gtk-4.0/"
+                                                 "dank-colors.css")]
+        self.assertEqual(len(copy), 1, theirs)
+        theirs = [p for p in theirs if p not in copy]
         code, out, err = w.run("apply")
         self.assertNotEqual(code, 0, err)
         self.assertEqual([p for p in theirs if tilde(p) not in err], [], err)
@@ -1593,9 +1603,27 @@ class UninstalledForReal(unittest.TestCase):
         self.assertEqual([p for p in theirs if tilde(p) not in out + err], [], out + err)
         code, out, err = w.run("adopt", "--rescue")
         self.assertEqual(code, 0, out + err)
+        self.assertIn(tilde(copy[0]) + " is a copy of a file appglass reads", err)
+        self.assertNotIn("recorded " + tilde(copy[0]), out)
+        # a gtk.css appglass made from nothing holds DMS's import once its
+        # lines are out: with the ring gone that rest may be DMS's, so it
+        # is recorded as edited, listed, and stays
+        rest = [p for p in theirs if p.endswith("/gtk-4.0/gtk.css")]
+        self.assertEqual(len(rest), 2, theirs)
+        for p in rest:
+            self.assertIn(tilde(p) + " holds what appglass writes from nothing", err)
         code, out, err = w.run("remove")
         self.assertEqual(code, 0, out + err)
-        self.assertEqual(sorted(self.files() - pre), [])
+        self.assertEqual(sorted(self.files() - pre), sorted(copy + rest))
+        for p in rest:
+            self.assertEqual(sb.read(p).strip(), '@import url("dank-colors.css");')
+        # the user deletes what the rescue listed: the tree before apply is back
+        for p in copy + rest:
+            os.remove(p)
+            try:
+                os.removedirs(os.path.dirname(p))
+            except OSError:
+                pass
         self.assertEqual(sb.tree_hash(sb.home), before)
 
 
