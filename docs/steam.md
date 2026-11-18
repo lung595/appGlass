@@ -9,8 +9,9 @@ The Steam client stays opaque. `appglass status` shows it as `opaque` with the r
   CEF flags give no window alpha on Linux.
 - Injecting CSS or code into the client (a preload, the CEF remote debugging port) was dropped. Steam is a game
   launcher: its children are games, some with anti-cheat, so nothing is loaded into Steam or anything it starts.
-- Steam's own GL composer option is still being checked in a throwaway Steam (result pending). Unless it gives
-  the window real alpha, there is no route.
+- Steam's own GL composer option was measured: the main window and menus always use Steam's system composer
+  ("transparent background not supported"), the window stays alpha 255 everywhere, so there is no route
+  (details in [routes.md](routes.md#opaque)).
 
 ## What appglass does with Steam
 
