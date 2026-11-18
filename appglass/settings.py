@@ -21,7 +21,8 @@ fallback.mode   how niri treats windows appglass cannot glass:
 fallback.inactive
                 null, or a niri opacity (0.30..1.00) for every glass window
                 that is not focused (instant, text fades too; overrides
-                inactive.instantFallback)
+                inactive.instantFallback); while the inactive fade is on,
+                the apps that fade their own background are left out
 inactive        unfocused windows a little more transparent, faded
                 (appglass/inactive.py): enabled, factor 0.80..1.00 (the
                 content level is multiplied by it, never below 0.60),

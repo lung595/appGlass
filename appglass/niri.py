@@ -1,6 +1,6 @@
 """niri: one generated rules file + one include line in config.kdl.
 
-$XDG_CONFIG_HOME/niri/appglass.kdl holds up to five window-rules, in order:
+$XDG_CONFIG_HOME/niri/appglass.kdl holds up to six window-rules, in order:
 
   fallback "opaque" a catch-all ``opacity 1.0`` (browsers excluded), before
                     the glass block: windows appglass cannot glass stay sharp
@@ -11,7 +11,9 @@ $XDG_CONFIG_HOME/niri/appglass.kdl holds up to five window-rules, in order:
                     believes it and can draw black behind it
   fallback "value"  the detected fallback apps at ``opacity <value>``
   inactive          glass apps that are not focused, ``opacity <inactive>``:
-                    fallback.inactive (every glass app), else with
+                    fallback.inactive (every glass app but the ones
+                    that fade their own background while the fade is
+                    on: lever families, see instant_inactive), else with
                     inactive.instantFallback the glass apps that cannot fade
                     their own background (instant, the text fades too)
   games             ``opacity 1.0``, blur off, popups 1.0
@@ -219,12 +221,16 @@ def _adopted(app):
 
 def instant_inactive(app):
     """(opacity, app-ids) of the niri is-active=false rule: fallback.inactive
-    for every glass app; else, with inactive.instantFallback, the inactive
-    ratio for the families that cannot fade their own background."""
+    for every glass app but the ones that fade their own background while
+    the fade is on; else, with inactive.instantFallback, the inactive ratio
+    for the families that cannot fade their own background."""
     from . import inactive as _inactive
+    content = getattr(getattr(app, "levels", None), "content", None)
     # an app a lever family fades (Kate and Konsole through the Qt style)
-    # is not dimmed a second time, whichever family also lists it
-    levers = set(_inactive.fading(app.state))
+    # is not dimmed a second time, whichever family also lists it; with the
+    # fade off (or at the floor) nothing fades, and none is left out
+    on = content is None or _inactive.active(app.settings, content)
+    levers = set(_inactive.fading(app.state)) if on else set()
     faded = {a for name in app.state.families() if name in levers
              for a in app.state.owners[name].get("app_ids", [])}
     ids = []
@@ -238,7 +244,6 @@ def instant_inactive(app):
         # every glass app but the faded ones (None: all, the engine's too)
         return fbi, (ids if faded else None)
     p = _inactive.params(app.settings)
-    content = getattr(getattr(app, "levels", None), "content", None)
     if not (p["enabled"] and p["instantFallback"]) or content is None:
         return None, None
     r = _inactive.ratio(content, p["factor"])

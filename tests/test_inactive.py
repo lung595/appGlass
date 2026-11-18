@@ -160,6 +160,14 @@ class NiriInstant(unittest.TestCase):
         app = fake_app({"herdr": {"app_ids": [r"^herdr$"]}}, {"fallback": {"inactive": 0.55}})
         self.assertEqual(niri.instant_inactive(app), (0.55, None))
 
+    def test_fallback_inactive_dims_every_app_while_nothing_fades(self):
+        """r2: with the fade off (or at the floor) the lever apps do not
+        fade either: fallback.inactive must dim them too."""
+        off = {"fallback": {"inactive": 0.55}, "inactive": {"enabled": False}}
+        self.assertEqual(niri.instant_inactive(fake_app(self.OWNERS, off)), (0.55, None))
+        floor = {"fallback": {"inactive": 0.55}}
+        self.assertEqual(niri.instant_inactive(fake_app(self.OWNERS, floor, 0.6)), (0.55, None))
+
     def test_alacritty_fades_only_with_the_vibrancy_unit(self):
         """w2: without appglass-vibrancy.service nothing fades Alacritty:
         it gets the dim like the apps with no lever."""
