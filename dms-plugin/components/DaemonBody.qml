@@ -311,13 +311,16 @@ PluginComponent {
             }
             return true;
         }
-        Proc.runCommand(Logic.ACTION_IDS[name], argv, (out, code) => root.actionDone(name, out, code), 0, Logic.ACTION_TIMEOUT_MS, root);
+        // adopt moves files and records them: a kill half way would cut it
+        const timeout = name === "adopt" ? Proc.noTimeout : Logic.ACTION_TIMEOUT_MS;
+        Proc.runCommand(Logic.ACTION_IDS[name], argv, (out, code) => root.actionDone(name, out, code), 0, timeout, root);
         return true;
     }
 
     function launchRemove() {
         root.holding = false;
-        Proc.runCommand(Logic.ACTION_IDS.uninstall, Logic.uninstallArgv(root.bin), (out, code) => root.removeDone(out, code), 0, Logic.ACTION_TIMEOUT_MS, root);
+        // never killed half way: remove restores file after file
+        Proc.runCommand(Logic.ACTION_IDS.uninstall, Logic.uninstallArgv(root.bin), (out, code) => root.removeDone(out, code), 0, Proc.noTimeout, root);
     }
 
     function removeDone(output, exitCode) {

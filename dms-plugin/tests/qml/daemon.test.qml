@@ -296,6 +296,9 @@ Item {
                     root.d.runAction("adopt");
                     Proc.flush();
                     t.check("adopt argv", Proc.lastCommand(Logic.ACTION_IDS.adopt), Logic.adoptArgv(root.bin));
+                    // adopt and remove are never killed half way (a timeout would cut them)
+                    const timeouts = id => Proc.calls.filter(c => c.id === id).map(c => c.timeoutMs);
+                    t.check("adopt has no timeout, learn has one", [timeouts(Logic.ACTION_IDS.adopt).pop(), timeouts(Logic.ACTION_IDS.learn).pop()], [Proc.noTimeout, Logic.ACTION_TIMEOUT_MS]);
                     t.check("adopt error shared", root.vars().lastError, "appglass: adopt: ~/x changed since");
                     t.check("a failed action: the status only", Proc.pendingIds(), [Logic.STATUS_ID]);
                     Proc.flush();
@@ -312,6 +315,7 @@ Item {
                     root.d.runAction("uninstall");
                     Proc.flush();
                     t.check("uninstall argv", Proc.lastCommand(Logic.ACTION_IDS.uninstall), Logic.uninstallArgv(root.bin));
+                    t.check("remove has no timeout", Proc.calls.filter(c => c.id === Logic.ACTION_IDS.uninstall).map(c => c.timeoutMs).pop(), Proc.noTimeout);
                     t.check("then the plugin link", [Proc.pendingIds(), root.d.uninstalled], [[Logic.UNLINK_ID], true]);
                     Proc.flush();
                     t.check("unlink argv", Proc.lastCommand(Logic.UNLINK_ID), Logic.unlinkArgv(root.bin));
