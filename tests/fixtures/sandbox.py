@@ -3,7 +3,7 @@
     sb = Sandbox()                 # tempfile.mkdtemp
     sb.seed_dms(); sb.seed_niri(); sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
     code, out, err = sb.run("apply", "--only", "alacritty", assume="alacritty")
-    sb.tree_hash()                 # sha256 over every path, type and content
+    sb.tree_hash()                 # sha256 over every path, type, mode and content
     sb.cleanup()
 """
 
@@ -12,8 +12,8 @@ import io
 import json
 import os
 import re
-import re
 import shutil
+import stat
 import sys
 import tempfile
 
@@ -122,20 +122,23 @@ class Sandbox:
 
     # checking
     def tree_hash(self, root=None):
+        """Every entry under root, dirs and links included: its path, its
+        lstat type and mode, and the link target or the file's sha256."""
         root = root or self.root
         h = hashlib.sha256()
         for dp, dns, fns in os.walk(root):
             dns.sort()
-            rel = os.path.relpath(dp, root)
-            h.update(b"D " + rel.encode() + b"\n")
-            for fn in sorted(fns):
-                p = os.path.join(dp, fn)
+            for n in sorted(dns + fns):
+                p = os.path.join(dp, n)
                 r = os.path.relpath(p, root).encode()
-                if os.path.islink(p):
-                    h.update(b"L " + r + b" " + os.readlink(p).encode() + b"\n")
-                else:
+                st = os.lstat(p)
+                h.update(b"%s %o " % (r, st.st_mode))
+                if stat.S_ISLNK(st.st_mode):
+                    h.update(b"L " + os.readlink(p).encode())
+                elif stat.S_ISREG(st.st_mode):
                     with open(p, "rb") as f:
-                        h.update(b"F " + r + b" " + hashlib.sha256(f.read()).digest() + b"\n")
+                        h.update(b"F " + hashlib.sha256(f.read()).digest())
+                h.update(b"\n")
         return h.hexdigest()
 
     def files(self):
