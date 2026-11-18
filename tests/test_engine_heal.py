@@ -1035,6 +1035,24 @@ class HiddenScope(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(d, "daemon.sock")))   # outside: kept
         self.assertIsNot(verify.mask_argv(env), argv)                    # cached per mask
 
+    def test_xdg_dirs_out_of_home_are_staged(self):
+        """The hidden session's XDG dirs are the defaults under the throwaway
+        HOME: a launcher in an XDG_DATA_HOME out of HOME is staged there (else
+        the check starts the plain app and fails)."""
+        class E:
+            home = "/r/home"
+            config_home, data_home = "/r/config", "/r/data"
+            state_home, cache_home = "/r/home/.local/state", "/r/home/.cache"
+        h = "/x/h"
+        self.assertEqual(verify.staged_path(E, h, "/r/data/applications/a.desktop"),
+                         "/x/h/.local/share/applications/a.desktop")
+        self.assertEqual(verify.staged_path(E, h, "/r/config/appglass/settings.json"),
+                         "/x/h/.config/appglass/settings.json")
+        self.assertEqual(verify.staged_path(E, h, "/r/home/.local/bin/w"), "/x/h/.local/bin/w")
+        self.assertIsNone(verify.staged_path(E, h, "/usr/share/x"))
+        self.assertEqual(verify._rehome(E, h, "Exec=/r/data/x /r/home/.local/bin/w"),
+                         "Exec=/x/h/.local/share/x /x/h/.local/bin/w")
+
     def test_the_kdl_has_no_xwayland_satellite(self):
         self.assertIn("xwayland-satellite {\n    off\n}", verify.KDL)
         niri = shutil.which("niri", path="/usr/bin:/bin:/usr/local/bin")

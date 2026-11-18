@@ -157,10 +157,10 @@ def launcher_exec(app, rec, home):
     $HOME rewritten to the throwaway one; None without a launcher."""
     from . import detect
     did = rec.get("desktop_id") or ""
-    rel = os.path.relpath(os.path.join(app.env.data_home, "applications", did), app.env.home)
     # the staged launcher (a family waiting for its first check has none on
     # disk), else the one on disk, else the app's own
-    p = os.path.join(home, rel) if did and not rel.startswith("..") else ""
+    p = (staged_path(app.env, home, os.path.join(app.env.data_home, "applications", did))
+         if did else None) or ""
     if not os.path.isfile(p):
         p = os.path.join(app.env.data_home, "applications", did)
     if not did or not os.path.isfile(p):
@@ -189,6 +189,18 @@ def candidate(app, owner, key=None):
         return {}
     return {p: (op.data, op.mode) for p, op in ctx.ops.items()
             if op.kind != "retire" and isinstance(op.data, bytes)}
+
+
+def staged_path(env, home, p):
+    """Where a file of the user's goes in the throwaway home (the hidden
+    session's XDG dirs are the defaults under it, wherever the user's are),
+    or None for a file outside HOME and the XDG dirs."""
+    for real, rel in ((env.config_home, ".config"), (env.data_home, ".local/share"),
+                      (env.state_home, ".local/state"), (env.cache_home, ".cache"),
+                      (env.home, "")):
+        if p.startswith(real + os.sep):
+            return os.path.join(home, rel, os.path.relpath(p, real))
+    return None
 
 
 def stage(app, rec, run):
@@ -233,9 +245,9 @@ def stage(app, rec, run):
                 with open(os.path.join(kd, n), "rb") as f:
                     staged[os.path.join(kd, n)] = (f.read(), 0o644)
     for p, (data, mode) in sorted(staged.items()):
-        if not p.startswith(env.home + os.sep):
+        dst = staged_path(env, home, p)
+        if dst is None:
             continue
-        dst = os.path.join(home, os.path.relpath(p, env.home))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         try:
             data = _rehome(env, home, data.decode("utf-8")).encode("utf-8")
@@ -272,8 +284,8 @@ def seed(app, rec, home):
 
 
 def _rehome(env, home, text):
-    """A staged text file with the real $HOME rewritten to the throwaway
-    one, except the appglass repo: a wrapper calls bin/appglass as
+    """A staged text file with the real $HOME (and an XDG dir out of it)
+    rewritten to the throwaway one, except the appglass repo: a wrapper calls bin/appglass as
     "$HOME/<repo>" when the repo is under HOME, and the throwaway HOME holds
     no repo (every check would start the plain app and fail)."""
     from . import shims
@@ -282,6 +294,10 @@ def _rehome(env, home, text):
     text = text.replace(repo, hold)
     if repo.startswith(env.home + os.sep):
         text = text.replace("$HOME" + repo[len(env.home):], hold)
+    for real, rel in ((env.config_home, ".config"), (env.data_home, ".local/share"),
+                      (env.state_home, ".local/state"), (env.cache_home, ".cache")):
+        if not real.startswith(env.home + os.sep):          # an XDG dir out of HOME
+            text = text.replace(real, os.path.join(home, rel))
     return text.replace(env.home, home).replace(hold, repo)
 
 
