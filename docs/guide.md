@@ -114,6 +114,8 @@ Every file appglass writes or edits is recorded. Files it created are deleted, f
 - a file appglass created whole (`appglass.toml`, `dank-glass.css`, the AppGlass GTK3 theme, `appglass.kdl`, the VLC launcher, the shims and wrappers) is deleted, with any edit you made inside it;
 - a file you handed over with Adopt is restored as it was before, and your edited version is saved next to it as `<file>.appglass-changed`.
 
+The JSON keys appglass merges into an app's settings (Obsidian's `appearance.json`, Dux's `ui-settings.json`) are its own while it is on: every run, the theme hook and the plugin's sync included, sets them to appglass's values again, so a change the app (or you) makes to one of those keys is undone at the next run. Your other keys are never touched, and `remove` gives each of its keys the value it had before appglass. To keep your own value for such a key, switch that app off.
+
 `appglass remove --only <family>` lasts only until the next sync or `appglass apply --all` while the family is still on in settings. To keep a family out, switch it off (see [Per-app switch](#per-app-switch)).
 
 ```sh
