@@ -24,7 +24,18 @@
 #
 # 1. scratch sandbox: apply/remove round trip (whole tree back to the same
 #    sha256), the rule file for the nested niri
-# 2. harness sandbox: apps.lianli.enabled, appglass apply: the launcher
+# 2. the gate: a sandbox with the default settings (Lian Li not switched
+#    on): apply leaves it waiting for its check, the real `appglass verify
+#    com.sgtaziz.lianlilinux` (the hidden session: headless gamescope, its own
+#    niri, no network, the family's mask: /run/lianli*, the system bus,
+#    /run/systemd, the session bus and locks hidden) comes to a measured
+#    verdict and leaves nothing behind; the next apply follows it (pass: the
+#    glass launcher; fail: still no glass launcher). With its daemon hidden
+#    the app lays its "Check your installation" dialog and a scrim over the
+#    page within the 2 s the check waits, so the verdict seen is a fail
+#    (background about 194 for 153): Lian Li goes glass when you switch it
+#    on. The journals below cover the check too.
+# 2b. harness sandbox: apps.lianli.enabled, appglass apply: the launcher
 #    override starts lianli-gui through appglass-lianli
 # 3. shoot, measure the content level (153), the bars and cards (166) and
 #    some opaque pixels (text, 255)
@@ -78,8 +89,51 @@ printf '%s\n' "$KDL" | grep -q 'lianli' || ag_die "the rule file has no Lian Li 
 ag_appglass "$PRE" remove >/dev/null || ag_die "pre-remove failed"
 [ "$(ag_tree_hash "$PRE")" = "$P0" ] || ag_die "scratch round trip: tree differs after remove"
 
-# 2. the harness sandbox
 ag_start "$NAME" "$KDL"
+JMARK=$(ag_journal_mark)
+UJMARK=$(ag_user_journal_mark)
+
+# 2. the gate, then glass after the check
+KEY=com.sgtaziz.lianlilinux
+V=$(mktemp -d "$AG_OUT/gate.XXXX")
+ag_mkroot "$V"; ag_seed_dms "$V"; ag_seed_niri "$V"
+ag_appglass "$V" apply --only lianli --quiet || ag_die "gate: apply failed"
+lianli_state() {
+    ag_appglass "$V" status --json | jq -r --arg k "$KEY" '.apps[] | select(.key == $k) | .state'
+}
+[ "$(lianli_state)" = waiting ] || ag_die "gate: lianli is $(lianli_state) before its check"
+grep -q appglass-lianli "$V/data/applications/$DID" 2>/dev/null \
+    && ag_die "gate: a glass launcher before the check"
+# the private runtime dir of the check: a short path (sun_path)
+VB=$(mktemp -d "${TMPDIR:-/tmp}/agv.XXXX")
+chmod 700 "$VB"
+# niri: the nested one (verify asks it whether a game runs)
+VOUT=$(env -u WAYLAND_DISPLAY -u NIRI_CONFIG NIRI_SOCKET="$AG_SOCK" \
+    APPGLASS_VERIFY_HARNESS=builtin APPGLASS_VERIFY_BASE="$VB" APPGLASS_VERIFY_KEEP="$AG_OUT" \
+    APPGLASS_SANDBOX="$V" HOME="$V/home" XDG_CONFIG_HOME="$V/config" XDG_DATA_HOME="$V/data" \
+    XDG_STATE_HOME="$V/state" XDG_CACHE_HOME="$V/cache" "$AG_BIN" verify "$KEY" 2>&1) || true
+printf '%s\n' "$VOUT" > "$AG_OUT/verify.log"
+LEFTV=$(ls -A "$VB"); rmdir "$VB" 2>/dev/null || true
+[ -z "$LEFTV" ] || ag_die "gate: the check left $LEFTV behind"
+GATE="$(printf '%s' "$VOUT" | sed -n "s/^verify: $KEY: //p" | head -1)"
+case "$GATE" in
+    # the judge's verdicts on a shot (not "unverifiable", not a harness error)
+    "pass "*|"fail (the window is opaque"*|"fail ("*"% of the window at alpha 0"*| \
+    "fail (a hole of "*|"fail (background alpha "*|"fail (only "*|"fail (no opaque text"*) ;;
+    *) ag_die "gate: verify gave no measured verdict: $VOUT" ;;
+esac
+ag_appglass "$V" apply --only lianli --quiet || ag_die "gate: apply after the check failed"
+if [ "${GATE%% *}" = pass ]; then
+    [ "$(lianli_state)" = glass ] || ag_die "gate: lianli is $(lianli_state) after its check passed"
+    grep -q "^Exec=.*$V/home/.local/bin/appglass-lianli" "$V/data/applications/$DID" \
+        || ag_die "gate: no glass launcher after the check passed"
+else
+    [ "$(lianli_state)" != glass ] || ag_die "gate: lianli is glass after its check failed"
+    grep -q appglass-lianli "$V/data/applications/$DID" 2>/dev/null \
+        && ag_die "gate: a glass launcher after the check failed"
+fi
+
+# 2b. the harness sandbox
 SB=$AG_TMP
 seed "$SB"
 H0=$(tree "$SB")
@@ -100,8 +154,6 @@ mapfile -t HIDE < <(ag_hide_args /run/lianli* "$RT"/lianli* "${AG_SESSION_SOCKET
 printf '%s\n' "${HIDE[@]}" | grep -qx /run/lianli || ag_die "no /run/lianli to hide"
 ag_out_of_reach "${HIDE[@]}"
 [ "${#NONET[@]}" = 0 ] || ag_no_dns bwrap --dev-bind / / "${HIDE[@]}" --die-with-parent "${NONET[@]}"
-JMARK=$(ag_journal_mark)
-UJMARK=$(ag_user_journal_mark)
 NOBUS=1 ag_harness run "$NAME" -- bwrap --dev-bind / / "${HIDE[@]}" --die-with-parent \
     "${NONET[@]}" "${EXEC[@]}" >&2
 ID=$(ag_wait_window "$NAME" "$APPID" 30) || { ag_harness windows "$NAME" >&2 || true
@@ -145,14 +197,16 @@ REAL_OK=1
 [ "$REAL_FP0" = "$(real_fp)" ] || REAL_OK=0
 
 python3 - "$AG_OUT/measure.json" "$REAL_OK" "$([ -n "$JMARK" ] && echo "${JOURNAL:+entries}" || echo unread)" \
-    "$([ -n "$UJMARK" ] && echo "${UJOURNAL:+entries}" || echo unread)" <<'PY'
+    "$([ -n "$UJMARK" ] && echo "${UJOURNAL:+entries}" || echo unread)" "$GATE" <<'PY'
 import json, sys
 m = json.load(open(sys.argv[1]))
 print("content alpha mode %s (expected %s, share %.2f); bar px at %s: %s; opaque px: %s; "
-      "real Lian Li untouched: %s; lianli-* units in the system journal: %s, in the user journal: %s"
+      "real Lian Li untouched: %s; lianli-* units in the system journal: %s, in the user journal: %s; "
+      "gate: %s"
       % (m["content"]["alpha_mode"], m["content"]["expected"], m["content"]["share_within_tol"],
          m.get("bar", {}).get("expected"), m.get("bar", {}).get("px"),
-         m.get("opaque_px"), sys.argv[2] == "1", sys.argv[3] or "none", sys.argv[4] or "none"))
+         m.get("opaque_px"), sys.argv[2] == "1", sys.argv[3] or "none", sys.argv[4] or "none",
+         sys.argv[5]))
 for f in m["fails"]:
     print("  fail: " + f)
 PY
