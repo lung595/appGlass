@@ -311,6 +311,7 @@ class SyncScript(unittest.TestCase):
         for name, body in (
                 ("gsettings", "[ \"$1\" = get ] && { echo \"'Adwaita'\"; exit 0; }\n"
                               'echo "$*" >> "%s"\n' % glog),
+                ("dconf", '[ "$1" = read ] && echo "\'Adwaita\'"\n'),   # set by the user
                 # the sleep between the two sets: long, and it says it started
                 ("sleep", '[ "$1" = 0.3 ] && { touch "%s"; exec %s 30; }\nexec %s "$@"\n'
                           % (mark, real_sleep, real_sleep)),
@@ -346,6 +347,46 @@ class SyncScript(unittest.TestCase):
         self.assertEqual(sets[-1], "set org.gnome.desktop.interface gtk-theme 'Adwaita'",
                          sets)
         self.assertNotEqual(p.returncode, 0)
+
+    def flip(self, dconf_value):
+        """One full GTK theme flip with stub gsettings and dconf; the
+        gsettings calls after the get, in order."""
+        bindir = os.path.join(self.run_dir, "bin")
+        os.makedirs(bindir)
+        glog = os.path.join(self.run_dir, "gsettings.log")
+        real_sleep = shutil.which("sleep")
+        for name, body in (
+                ("gsettings", "[ \"$1\" = get ] && { echo \"'Adwaita'\"; exit 0; }\n"
+                              'echo "$*" >> "%s"\n' % glog),
+                ("dconf", '[ "$1" = read ] && printf "%%s" "%s"\n' % dconf_value),
+                ("sleep", 'exec %s 0\n' % real_sleep),
+                ("appglass", 'echo "%s/gtk-4.0/gtk.css"\n' % self.w.sb.config)):
+            with open(os.path.join(bindir, name), "w") as f:
+                f.write("#!/bin/sh\n" + body)
+            os.chmod(os.path.join(bindir, name), 0o755)
+        env = dict(self.w.sb.env, XDG_RUNTIME_DIR=self.run_dir, APPGLASS_SYNC_SETTLE="0",
+                   APPGLASS_BIN=os.path.join(bindir, "appglass"),
+                   APPGLASS_RPMDB=os.path.join(self.run_dir, "no-rpmdb"),
+                   PATH=bindir + os.pathsep + os.environ.get("PATH", "/usr/bin"))
+        del env["APPGLASS_SANDBOX"]      # the flip runs only outside a sandbox
+        env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        r = subprocess.run([os.path.join(REPO, "bin", "appglass-sync")], env=env,
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(glog) as f:
+            return f.read().splitlines()
+
+    def test_the_flip_leaves_a_default_theme_at_its_default(self):
+        """A gtk-theme key the user never set (no dconf value) is reset after
+        the flip, not pinned to the theme name it read."""
+        self.assertEqual(self.flip(""), [
+            "set org.gnome.desktop.interface gtk-theme ''",
+            "reset org.gnome.desktop.interface gtk-theme"])
+
+    def test_the_flip_puts_a_set_theme_back(self):
+        self.assertEqual(self.flip("'Adwaita'"), [
+            "set org.gnome.desktop.interface gtk-theme ''",
+            "set org.gnome.desktop.interface gtk-theme 'Adwaita'"])
 
     def test_colours_rerender_the_theme(self):
         self.w.run("set", "apps.vencord.enabled", "true")

@@ -108,11 +108,18 @@ if touched '/gtk-[34]\.0/'; then
         log "GTK CSS changed (no theme flip in a sandbox)"
     # GTK re-reads gtk.css when the theme name changes
     elif t=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null) && [ -n "$t" ]; then
+        # back to the theme read; a key the user never set (no dconf value)
+        # is reset to its default, not pinned to the name read
+        back() { gsettings set org.gnome.desktop.interface gtk-theme "$t" 2>/dev/null; }
+        if command -v dconf >/dev/null 2>&1 \
+                && v=$(dconf read /org/gnome/desktop/interface/gtk-theme 2>/dev/null) && [ -z "$v" ]; then
+            back() { gsettings reset org.gnome.desktop.interface gtk-theme 2>/dev/null; }
+        fi
         # a stop meanwhile (a logout, systemctl stop) puts the theme back first
-        trap 'gsettings set org.gnome.desktop.interface gtk-theme "$t" 2>/dev/null; exit 143' TERM INT HUP
+        trap 'back; exit 143' TERM INT HUP
         gsettings set org.gnome.desktop.interface gtk-theme "''" 2>/dev/null
         sleep 0.3
-        gsettings set org.gnome.desktop.interface gtk-theme "$t" 2>/dev/null
+        back
         trap - TERM INT HUP
     fi
 fi
