@@ -612,7 +612,7 @@ STATE_NAMES = ("state.json", ".lock", "verify.lock", "colors.json", "engine.json
 STATE_DIRS = ("backup", "ring", "plain")
 # a ring entry's name (_ring_entry: UTC time, -n on a collision)
 RING_NAME = re.compile(r"^\d{8}-\d{6}-\d{6}(-\d+)?$")
-BACKUP_NAME = re.compile(r"^[0-9a-f]{16}\.orig$")
+BACKUP_NAME = re.compile(r"^[0-9a-f]{16}\.orig(\.damaged)?$")   # .damaged: SET_ASIDE
 
 
 def _state_own_name(n):
