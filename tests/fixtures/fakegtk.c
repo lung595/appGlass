@@ -13,8 +13,10 @@
 // scripts registered when it finishes loading, as WebKit's do at document
 // end, and the view emits load-changed committed then finished: fk_navigate
 // starts another document; fk_hold keeps a view's loads from finishing until
-// released, fk_commit commits a held load without finishing it), fk_report
-// prints one line of the window and the view.
+// released, fk_commit commits a held load without finishing it; a finished
+// page posts "appglassShown" when its view registered that handler, unless
+// fk_nopaint holds it back until fk_paint), fk_report prints one line of the
+// window and the view.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,9 +35,17 @@ typedef struct W {
     int loading, page, shown, held, committed;   // ... a document loading; the scripts its document
                                          //     ran; a document committed once; its loads held; the
                                          //     load in progress committed
+    int handler, nopaint;                //     appglassShown registered; its post held back
 } W;
 static W *loads[16]; static int nloads;
 static void load(W *v) { v->loading = 1; v->committed = 0; if (nloads < 16) loads[nloads++] = v; }
+// the page's paint script: two frames after the document, a message to the handler
+static void post_shown(W *v) {
+    if (!v->handler) return;
+    for (H *h = v->handlers; h; h = h->next)
+        if (!strcmp(h->sig, "script-message-received::appglassShown"))
+            ((void (*)(void *, void *, void *))h->fn)(v, NULL, h->data);
+}
 static void load_changed(W *v, int ev) {
     for (H *h = v->handlers; h; h = h->next)
         if (!strcmp(h->sig, "load-changed")) ((void (*)(void *, int, void *))h->fn)(v, ev, h->data);
@@ -89,6 +99,7 @@ void fk_idle(void) {
         if (!v->committed) load_changed(v, 2);   // WEBKIT_LOAD_COMMITTED
         v->committed = 0;
         load_changed(v, 3);                      // WEBKIT_LOAD_FINISHED
+        if (!v->nopaint) post_shown(v);
     }
     nloads = kept;
 }
@@ -180,6 +191,9 @@ void webkit_user_content_manager_add_style_sheet(void *m, void *s) { (void)s; ((
 void webkit_user_content_manager_remove_style_sheet(void *m, void *s) { (void)s; ((W *)m)->sheets--; }
 void webkit_user_content_manager_add_script(void *m, void *s) { (void)s; ((W *)m)->scripts++; }
 void webkit_user_content_manager_remove_script(void *m, void *s) { (void)s; ((W *)m)->scripts--; }
+int webkit_user_content_manager_register_script_message_handler(void *m, const char *name) {
+    return !strcmp(name, "appglassShown") ? (((W *)m)->handler = 1) : 0;
+}
 
 // ------------------------------------------------------------------- driver
 void *fk_widget(const char *name, void *parent, int top) {
@@ -203,6 +217,8 @@ void fk_show(void *w) { W *x = w; x->visible = 1; if (x->parent && x->parent->ma
 void fk_hide(void *w) { W *x = w; x->visible = 0; if (x->mapped) unmap_tree(x); }
 void fk_navigate(void *view) { load(view); }   // the page goes to another document
 void fk_hold(void *v, int on) { ((W *)v)->held = on; }
+void fk_nopaint(void *v, int on) { ((W *)v)->nopaint = on; }
+void fk_paint(void *v) { post_shown(v); }
 void fk_commit(void *v) { W *x = v; if (x->loading && !x->committed) { x->committed = 1; load_changed(x, 2); } }
 void fk_titlebar(void *win, void *w) { ((W *)win)->titlebar = w; }
 void fk_frame(void *w, unsigned border, int margin) { ((W *)w)->border = border; ((W *)w)->margin = margin; }

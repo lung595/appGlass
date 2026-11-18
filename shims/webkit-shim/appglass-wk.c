@@ -21,6 +21,9 @@
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
 //   4. with a stylesheet: a small script that sets html.agl-inactive while the page has no focus
 //      (the stylesheet fades the content background on it)
+//   5. a paint script that, two animation frames after the document, posts to the appglassShown
+//      message handler: the window turns app-paintable only then (load finished is not painted:
+//      the clear view would show the bare blur until its first frame; no handler: load finished)
 // Everything is resolved with dlsym, so in processes without GTK/WebKit
 // (WebKitWebProcess, NetworkProcess, helpers) the shim is inert.
 // At load (a constructor) it keeps its APPGLASS_* settings and takes every
@@ -137,6 +140,13 @@ static const char FOCUS_JS[] =
     "(function(){if(window.top!==window||window.__aglFocus)return;window.__aglFocus=1;"
     "var d=document.documentElement,f=function(){setTimeout(function(){d.classList.toggle('agl-inactive',!document.hasFocus())},0)};"
     "window.addEventListener('focus',f);window.addEventListener('blur',f);f();})();";
+
+// Top frame, document end: two animation frames after the document (its first frame is drawn
+// then), a message to the appglassShown handler; the window turns app-paintable on it.
+static const char PAINT_JS[] =
+    "(function(){if(window.top!==window)return;var p=function(){try{"
+    "window.webkit.messageHandlers.appglassShown.postMessage(0)}catch(e){}};"
+    "requestAnimationFrame(function(){requestAnimationFrame(p)});})();";
 
 static void remove_sheet(void *view);
 
@@ -371,7 +381,8 @@ static void on_hierarchy(void *view, void *prev, void *data) {
 
 // the stylesheet and scripts added to the view's content manager, kept on the view (its data owns a
 // ref): the stylesheet comes out while the view is left opaque, the scripts stay
-static const char *const ITEMS[] = { "appglass-ss", "appglass-sc0", "appglass-sc1", "appglass-sc2" };
+static const char *const ITEMS[] = { "appglass-ss", "appglass-sc0", "appglass-sc1", "appglass-sc2",
+                                     "appglass-sc3" };
 
 static void *content_manager(void *view) {
     void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
@@ -409,7 +420,11 @@ static void remove_sheet(void *view) {
     LOG("glass stylesheet removed");
 }
 
-// once per view, before its first load: the stylesheet, the page scripts and the focus script
+static void first_document(void *view);
+static void on_painted(void *ucm, void *value, void *view) { (void)ucm; (void)value; first_document(view); }
+
+// once per view, before its first load: the stylesheet, the page scripts, the focus script and
+// the paint script (with its handler: without one, the first document's end stands in for it)
 static void inject(void *view) {
     if (dbg()) { // console.log -> stdout of the web process (lands in the app log)
         void *(*get_settings)(void *) = sym("webkit_web_view_get_settings");
@@ -435,22 +450,32 @@ static void inject(void *view) {
         void *sc = sc_new(FOCUS_JS, 0, 1, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[3], sc, sc_unref);
         LOG("focus script injected");
     }
+    gboolean (*reg)(void *, const char *) = sym("webkit_user_content_manager_register_script_message_handler");
+    unsigned long (*connect_object)(void *, const char *, void *, void *, int) = sym("g_signal_connect_object");
+    if (reg && connect_object && reg(ucm, "appglassShown")) {
+        connect_object(ucm, "script-message-received::appglassShown", (void *)on_painted, view, 0);
+        void *sc = sc_new(PAINT_JS, 0, 1, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[4], sc, sc_unref);
+        obj_set(view, "appglass-paint-msg", (void *)1, NULL);
+        LOG("paint script injected");
+    }
 }
 
-// the first document finished loading (committed is not painted yet: the clear view would show
-// the bare blur until the first paint; a load that fails finishes too): the window decided afresh
+// the first document painted (the paint script's message; committed, even finished, is not painted
+// yet: the clear view would show the bare blur until its first frame): the window decided afresh
 // (its views as they are now, not as they were at the last map), so a window glassed meanwhile
-// turns app-paintable now
+// turns app-paintable now. A page that never says so leaves the window opaque.
 static void first_document(void *view) {
     if (obj_get(view, "appglass-shown")) return;
     obj_set(view, "appglass-shown", (void *)1, NULL);
+    LOG("view %p: first document painted", view);
     void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
     void *top = get_toplevel ? get_toplevel(view) : NULL;
     if (top) redecide(top);
 }
 static void on_load_changed(void *view, int ev, void *data) {
     (void)data;
-    if (ev == 3) first_document(view);   // WEBKIT_LOAD_FINISHED
+    // no paint script (no handler): the first document's end (WEBKIT_LOAD_FINISHED) stands in
+    if (ev == 3 && !obj_get(view, "appglass-paint-msg")) first_document(view);
 }
 
 static void glassify(void *view) {
