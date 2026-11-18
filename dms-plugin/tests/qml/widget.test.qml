@@ -116,6 +116,22 @@ Item {
                     t.check("still uninstalled", root.find(root.pill, "pillText").text, "uninstalled");
                     root.w.triggerPopout();
                     t.check("a click still opens the settings (to set up again)", PopoutService.opened, ["plugin:appGlass"]);
+                    // an uninstall a reload cut short: the files may all
+                    // still be there, so the pill does not say uninstalled
+                    root.fresh({
+                        "status": root.status,
+                        "uninstallState": "interrupted"
+                    }, {
+                        "glassEnabled": true,
+                        "uninstallState": "removing"
+                    });
+                }
+            },
+            {
+                "run": () => {
+                    t.check("unfinished pill", [root.find(root.pill, "pillText").text, root.find(root.pill, "pillIcon").name], ["unfinished", "blur_off"]);
+                    root.w.pillRightClickAction();
+                    t.check("right click is inert there too", SettingsData.getPluginSetting("appGlass", "glassEnabled", undefined), true);
                 }
             }
         ]);

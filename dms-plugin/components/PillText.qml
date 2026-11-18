@@ -6,5 +6,6 @@ QtObject {
     property var status: null
     property bool glassOn: true
     property bool uninstalled: false
-    readonly property string text: Logic.pillText(status, glassOn, uninstalled)
+    property bool unfinished: false
+    readonly property string text: Logic.pillText(status, glassOn, uninstalled, unfinished)
 }

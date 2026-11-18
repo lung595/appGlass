@@ -10,7 +10,8 @@ import qs.Modules.Plugins
 // settings, a right click pauses or resumes the glass. It only saves
 // glassEnabled; the daemon turns that into `appglass sync`. After an
 // uninstall whose plugin link stayed (uninstallState), the pill says
-// "uninstalled" and a right click does nothing (the daemon syncs nothing).
+// "uninstalled" ("unfinished" for one a reload cut short) and a right
+// click does nothing (the daemon syncs nothing).
 //
 // It imports nothing of the plugin's own: after an update, `dms ipc call
 // plugins reload appGlass` loads this file again (?revision=N) but would
@@ -38,7 +39,8 @@ PluginComponent {
         root.pillText = comp.createObject(root, {
             "status": Qt.binding(() => statusVar.value),
             "glassOn": Qt.binding(() => root.glassOn),
-            "uninstalled": Qt.binding(() => root.gone)
+            "uninstalled": Qt.binding(() => root.gone),
+            "unfinished": Qt.binding(() => uninstallVar.value === "interrupted")
         });
     }
     readonly property string countText: root.pillText ? root.pillText.text : ""

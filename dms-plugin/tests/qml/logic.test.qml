@@ -302,6 +302,7 @@ Item {
         t.check("withRoute ignores a bad route", Logic.withRoute({}, "discord", "../x"), {});
         t.check("glass count", [Logic.glassCount(status, true), Logic.glassCount(status, false), Logic.glassCount(null, true)], [7, 0, 0]);
         t.check("pill text", [Logic.pillText(status, true), Logic.pillText(status, false), Logic.pillText(null, true)], ["7", "off", ""]);
+        t.check("pill text after an uninstall, or one cut short", [Logic.pillText(status, true, true), Logic.pillText(status, true, true, true)], ["uninstalled", "unfinished"]);
         const report = Logic.reportText(status, saved, true);
         t.ok("report: header", report.indexOf("appGlass " + Logic.VERSION) === 0);
         t.ok("report: one line per app", status.apps.every(a => report.indexOf("\n  " + a.key + " ") >= 0));

@@ -530,7 +530,10 @@ function glassCount(status, glassOn) {
 }
 
 // The bar pill's text: the count, "off", or nothing before a status
-function pillText(status, glassOn, uninstalled) {
+// unfinished: an uninstall a reload cut short (the files may all be there)
+function pillText(status, glassOn, uninstalled, unfinished) {
+    if (unfinished === true)
+        return "unfinished";
     if (uninstalled === true)
         return "uninstalled";
     if (glassOn === false)
