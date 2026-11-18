@@ -1496,6 +1496,13 @@ class App:
             self.warn("%s cannot be read (%s); left as is"
                       % (p, ex.strerror or type(ex).__name__))
             return
+        if (cur is not None and rec.get("backup") and rec.get("orig_sha256")
+                and sha(cur) == rec["orig_sha256"]):
+            # the original is back already (a remove cut after it put it
+            # back, its backup dropped or not): nothing to read or write
+            if rec.get("orig_mode") is not None and _mode(p) != rec["orig_mode"]:
+                os.chmod(p, rec["orig_mode"])
+            return
         if cur is None and rec.get("retired"):
             # a hand file appglass took over and deleted: given back
             orig = self.backup_bytes(rec)
@@ -3511,6 +3518,20 @@ def doctor_drift(app):
                 (_save_aside(app, ps), cmd_apply(app, only=n)))
                if name in app.families else None)
         out.extend(("%s: %s %s" % (name, tilde(p), what), fix) for p, what in drift)
+    # the originals remove puts back
+    for name in sorted(st.owners):
+        for p, rec in sorted(st.owners[name].get("files", {}).items()):
+            b = rec.get("backup")
+            if not b or os.path.isfile(os.path.join(env.state_dir, b)):
+                continue
+            cur = _read(p) if os.path.isfile(p) else None
+            if cur is not None and sha(cur) == rec.get("orig_sha256"):
+                why = ("is back to its original but still recorded (a remove that "
+                       "stopped half way; appglass remove finishes it)")
+            else:
+                why = ("has no original in %s: remove cannot put it back (appglass "
+                       "restore --list shows the ring)" % tilde(app.backup_dir()))
+            out.append(("%s: %s %s" % (name, tilde(p), why), None))
     # the plugin link
     dst = plugin.target(env)
     if os.path.islink(dst) and not os.path.exists(dst):

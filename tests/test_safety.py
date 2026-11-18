@@ -9,6 +9,7 @@ import os
 import shutil
 import time
 import unittest
+import unittest.mock
 
 from fixtures.sandbox import Sandbox, REPO
 from appglass import core, hook, niri, plugin
@@ -1418,6 +1419,81 @@ class Hints(Base):
         self.assertIn("appglass adopt --rescue", err)
         code, out, err = self.sb.run("adopt", self.owned())
         self.assertNotEqual(code, 0)
+
+
+class Stop(BaseException):
+    """A kill: no except clause catches it."""
+
+
+class InterruptedRemove(Base):
+    """A remove stopped between any two of its steps (a SIGTERM, a DMS
+    restart) is finished by the next remove: the tree ends byte-identical
+    to the one before apply."""
+
+    ASSUME = "alacritty"
+
+    def cut(self, where, k, applied):
+        # the applied tree back in place (one apply for every cut)
+        shutil.rmtree(self.sb.root)
+        shutil.copytree(applied, self.sb.root, symlinks=True)
+        real = getattr(core.App, where)
+        n = [0]
+
+        def wrapped(app, *a, **kw):
+            r = real(app, *a, **kw)
+            n[0] += 1
+            if n[0] == k:
+                raise Stop()
+            return r
+        hit = False
+        with unittest.mock.patch.object(core.App, where, wrapped):
+            try:
+                self.sb.run("remove", assume=self.ASSUME)
+            except Stop:
+                hit = True
+        code, out, err = self.sb.run("remove", assume=self.ASSUME)
+        return hit, code, out + err
+
+    def test_a_remove_cut_at_any_step_is_finished_by_the_next(self):
+        before = self.sb.tree_hash()
+        self.apply()
+        code, out, err = self.sb.run("hook", "install", assume=self.ASSUME)
+        self.assertEqual(code, 0, err)
+        applied = self.sb.root.rstrip(os.sep) + ".applied"
+        shutil.copytree(self.sb.root, applied, symlinks=True)
+        self.addCleanup(shutil.rmtree, applied, True)
+        # after each file put back, and after each backup dropped (before
+        # the state saved without its record)
+        for where in ("_revert", "_drop_backup"):
+            k = 1
+            while True:
+                hit, code, msg = self.cut(where, k, applied)
+                if not hit:
+                    break
+                with self.subTest(where=where, k=k):
+                    self.assertEqual(code, 0, msg)
+                    self.assertNotIn("is missing", msg)
+                    self.assertEqual(self.sb.tree_hash(), before, msg)
+                k += 1
+            self.assertGreater(k, 2, where)
+
+    def test_a_record_already_back_to_its_original_needs_no_backup(self):
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        text = self.sb.readb(main)
+        self.apply()
+        with open(self.state_json) as f:
+            rec = json.load(f)["owners"]["alacritty"]["files"][main]
+        # a remove cut after it put the original back and dropped the backup
+        with open(main, "wb") as f:
+            f.write(text)
+        os.remove(os.path.join(self.state_dir, rec["backup"]))
+        code, out, err = self.sb.run("doctor")
+        self.assertIn(self.env.tilde(main), out + err)
+        self.assertIn("appglass remove finishes it", out + err)
+        code, out, err = self.sb.run("remove")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.readb(main), text)
+        self.assertFalse(os.path.exists(self.state_dir))
 
 
 if __name__ == "__main__":
