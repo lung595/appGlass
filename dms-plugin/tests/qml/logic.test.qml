@@ -169,6 +169,38 @@ Item {
                 "kind": "Forced"
             }]);
         t.check("games have no route", byKey["Pinball"].routes, []);
+        // no switch, no route: Chrome (no adapter) is on the fallback and
+        // follows the fallback mode; a root app is opaque in every mode
+        const nosw = JSON.parse(JSON.stringify(status));
+        nosw.apps = [{
+                "key": "com.google.Chrome",
+                "name": "Chrome",
+                "toolkit": "chromium",
+                "app_ids": ["^google-chrome$"],
+                "adapter": "niri-fallback",
+                "tier": "fallback",
+                "family": null,
+                "enabled": null,
+                "effective": "fallback",
+                "state": "opaque",
+                "reason": "Chromium browser: web content has no window alpha",
+                "routes": []
+            }, {
+                "key": "timeshift-gtk",
+                "name": "Timeshift",
+                "toolkit": "gtk3",
+                "app_ids": ["^timeshift-gtk$"],
+                "adapter": "niri-fallback",
+                "tier": "fallback",
+                "family": null,
+                "enabled": null,
+                "effective": "opaque",
+                "state": "opaque",
+                "reason": "runs as root (su): never touched",
+                "routes": []
+            }];
+        const noswRows = Logic.appRows(nosw, {}, true);
+        t.check("no switch: fallback or opaque as the status says", noswRows.map(r => [r.key, r.switchable, r.statusLabel]), [["com.google.Chrome", false, "Fallback"], ["timeshift-gtk", false, "Opaque"]]);
         // a family that says where it renders (ArtCraft: GPU or CPU route): the row's reason says it
         const art = JSON.parse(JSON.stringify(status));
         art.apps = [{
