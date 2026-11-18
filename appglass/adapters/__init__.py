@@ -265,6 +265,22 @@ def _strong(rec):
     return True
 
 
+def switch(own, mine, generic=False):
+    """An injected app's switch: True (on by you), False (off) or None (on,
+    gated by its check). own: the family's apps.<family>, mine: the app's
+    apps.<key>. A family that lists its apps: the family's switch wins. A
+    generic family (it takes apps nobody listed, future ones too): the app's
+    own switch wins, and the family's on only allows the route, it is no
+    check passed for every app it may route later."""
+    own = own if isinstance(own, dict) else {}
+    mine = mine if isinstance(mine, dict) else {}
+    if not generic:
+        return own.get("enabled") if "enabled" in own else mine.get("enabled")
+    if "enabled" in mine:
+        return mine["enabled"]
+    return False if own.get("enabled") is False else None
+
+
 def resolve(rec, families, settings=None, gate=None):
     """{"adapter", "tier", "risk", "implemented", "family", "enabled",
     "effective", "reason", "state", "injected"} for one detect record.
@@ -345,7 +361,7 @@ def resolve(rec, families, settings=None, gate=None):
         if injected:
             # the gate in place of OPT_IN: on unless switched off, live
             # only with a check for this fingerprint (or the user's own on)
-            exp = own.get("enabled") if "enabled" in own else mine.get("enabled")
+            exp = switch(own, mine, getattr(families[fam], "GENERIC", False))
             on = exp is not False
             state, why = gate(rec, True, exp is True) if on else ("off", "off in settings")
         else:

@@ -1802,6 +1802,13 @@ def _family_enabled(app, name):
         return _settings.app_enabled(app.settings, name, True)
     own = app.settings.get("apps", {}).get(name)
     if isinstance(own, dict) and "enabled" in own:
+        if own["enabled"] is False and getattr(fam, "GENERIC", False):
+            # a generic family off: still on for an app you switched on
+            # (adapters.switch: the app's own switch wins)
+            try:
+                return bool(app.ctx(name).records())
+            except Exception:
+                return False
         return bool(own["enabled"])
     # the engine's gate in place of OPT_IN (engine.family_gate): on unless
     # every key is switched off; it goes live once checked

@@ -57,6 +57,26 @@ class Accepts(unittest.TestCase):
         self.assertEqual((gtk4["state"], gtk4["family"]), ("opaque", None))
         self.assertIn("webkit-shim", adapters.routes(rec(), fams))
 
+    def test_the_app_switch_wins_over_the_family_switch(self):
+        """apps.webkit (the generic family) is a default for its apps: an
+        app's own switch wins, and a family on is no check passed for apps
+        that may only appear later."""
+        fams = core.discover()
+        st = lambda s: adapters.resolve(rec(), fams, s)["state"]
+        self.assertEqual(st({"apps": {"webkit": {"enabled": False}, "kiri": {"enabled": True}}}),
+                         "glass")
+        self.assertEqual(st({"apps": {"webkit": {"enabled": True}}}), "waiting")
+        self.assertEqual(st({"apps": {"webkit": {"enabled": False}}}), "off")
+        self.assertEqual(st({"apps": {"webkit": {"enabled": True}, "kiri": {"enabled": False}}}),
+                         "off")
+
+        class A:
+            families = fams
+            settings = {"apps": {"webkit": {"enabled": True}}}
+        self.assertFalse(engine.explicit_on(A, "webkit", "kiri"))
+        A.settings = {"apps": {"webkit": {"enabled": False}, "kiri": {"enabled": True}}}
+        self.assertTrue(engine.explicit_on(A, "webkit", "kiri"))
+
     def test_lian_li_keeps_its_family(self):
         r = adapters.resolve(rec(key="com.sgtaziz.lianlilinux",
                                  names=["com.sgtaziz.lianlilinux", "lianli-gui"]), core.discover())
@@ -160,6 +180,15 @@ class Route(unittest.TestCase):
         self.assertFalse("appglass-webkit" in (self.sb.read(self.launcher())
                                                 if os.path.exists(self.launcher()) else ""))
         self.assertEqual(self.route()["state"], "off")
+
+    def test_family_off_app_on(self):
+        p = os.path.join(self.sb.config, "appglass", "settings.json")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            json.dump({"apps": {"webkit": {"enabled": False}, KEY: {"enabled": True}}}, f)
+        self.run_ok("apply")
+        self.assertEqual(self.route()["state"], "glass")
+        self.assertIn("appglass-webkit", self.sb.read(self.launcher()))
 
     def test_gtk4_webkit_stays_opaque(self):
         _w(self.exe, elf(WK6), 0o755)

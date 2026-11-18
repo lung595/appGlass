@@ -457,12 +457,12 @@ def explicit(app, key):
 
 def explicit_on(app, fam, key):
     """The user switched this injected route on themselves (the family's
-    own switch, else the app's): what adapters.resolve calls explicit."""
+    own switch, else the app's; a generic family: the app's): what
+    adapters.resolve calls explicit (adapters.switch)."""
+    from . import adapters
     apps = app.settings.get("apps", {}) or {}
-    own = apps.get(fam) if isinstance(apps.get(fam), dict) else {}
-    mine = apps.get(key) if isinstance(apps.get(key), dict) else {}
-    exp = own.get("enabled") if "enabled" in own else mine.get("enabled")
-    return exp is True
+    generic = getattr(app.families.get(fam), "GENERIC", False)
+    return adapters.switch(apps.get(fam), apps.get(key), generic) is True
 
 
 def family_gate(app, name):
