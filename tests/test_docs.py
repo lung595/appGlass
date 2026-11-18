@@ -659,6 +659,21 @@ class OneVersion(unittest.TestCase):
         self.assertEqual({appglass.__version__, plugin, js, top}, {top})
 
 
+class ChangelogCommands(unittest.TestCase):
+    INTERNAL = {"sync", "vibrancy", "launch-check", "keys"}   # run by the plugin, units, wrappers
+
+    def test_the_commands_bullet_lists_the_user_commands(self):
+        c = read("CHANGELOG.md")
+        bullet = c[c.index("**Commands.**"):]
+        bullet = bullet[:bullet.index("\n- ")]
+        self.assertEqual(set(re.findall(r"`([a-z-]+)`", bullet)), subcommands() - self.INTERNAL)
+
+    def test_the_version_link_points_at_its_tag(self):
+        c = read("CHANGELOG.md")
+        for v in re.findall(r"(?m)^## \[([^\]]+)\]", c):
+            self.assertIn("[%s]: https://github.com/lung595/appGlass/releases/tag/v%s" % (v, v), c)
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""

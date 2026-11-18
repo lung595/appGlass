@@ -50,9 +50,9 @@ The first release.
 - **Safety.** Every write is recorded in state.json with a backup.
   A ring keeps the last 5 applies. `appglass restore`, `appglass adopt --rescue` and
   `appglass doctor --fix` bring things back. No event removes files.
-- **Commands.** `apply`, `remove`, `status`, `levels`, `get`, `set`, `sync`, `hook`, `plugin`,
-  `adopt`, `doctor`, `restore` and `verify`.
+- **Commands.** `apply`, `remove`, `status`, `levels`, `detect`, `learn`, `get`, `set`, `hook`,
+  `plugin`, `adopt`, `doctor`, `restore`, `verify` and `fail`.
 - **Docs.** A user guide, the engine, the routes, the plugin pages, and an app table
   generated from `docs/apps.json`.
 
-[0.1.0]: https://github.com/lung595/appGlass/commits/main
+[0.1.0]: https://github.com/lung595/appGlass/releases/tag/v0.1.0
