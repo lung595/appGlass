@@ -2,13 +2,18 @@
 
     agv-pick.py APID APPID_REGEX < `niri msg -j windows`
 
-Prints "<window id> <app-id>" of the first window that is the app's, or
-nothing. In this order: a window of APID (the launcher the harness started)
-or of a child of it; a window of a process that carries the private
-XDG_RUNTIME_DIR (it left the tree: double-forked, D-Bus activated); a
-window whose app-id matches APPID_REGEX (a single-instance hand-off). An
-app often names its window after its binary, not its launcher
-(org.example.FnGtk2 shows "gtkfn"), so the app-id alone misses it.
+Prints "<window id> <app-id>" of the app's own main window, or nothing
+(the harness polls again; no window at the end is unverifiable). A window
+is the app's when it is of APID (the launcher the harness started) or a
+child of it, or of a process that carries the private XDG_RUNTIME_DIR (it
+left the tree: double-forked, D-Bus activated), or when its app-id matches
+APPID_REGEX (a single-instance hand-off). An app often names its window
+after its binary, not its launcher (org.example.FnGtk2 shows "gtkfn"), so
+the app-id alone misses it. In this order: a tiled window of ours whose
+app-id matches; a tiled window of ours; a tiled window whose app-id
+matches; a floating one whose app-id matches. A floating window of another
+app-id (a dialog, a splash) and a helper dialog tool's window (zenity: the
+Discord updater) are never measured.
 AGV_PROC: another /proc (tests).
 """
 
@@ -16,6 +21,10 @@ import json
 import os
 import re
 import sys
+
+# dialog tools a launcher shows before (or instead of) the app
+HELPERS = re.compile(r"^(zenity|org\.gnome\.Zenity|kdialog|org\.kde\.kdialog|yad|"
+                     r"xmessage|gxmessage|Xdialog)$", re.I)
 
 
 def parents(proc):
@@ -67,9 +76,23 @@ def main(argv):
     except ValueError:
         return 0
     mine = tree(proc, apid)
-    tests = (lambda w: w.get("pid") in mine,
-             lambda w: isinstance(w.get("pid"), int) and ours(proc, w["pid"], rt),
-             lambda w: bool(re.search(rx, w.get("app_id") or "")))
+    ws = [w for w in ws if not HELPERS.match(w.get("app_id") or "")]
+
+    def of_ours(w):
+        return w.get("pid") in mine or (isinstance(w.get("pid"), int)
+                                        and ours(proc, w["pid"], rt))
+
+    def match(w):
+        return bool(re.search(rx, w.get("app_id") or ""))
+
+    def tiled(w):
+        return not w.get("is_floating")
+
+    tests = (lambda w: tiled(w) and match(w) and of_ours(w),
+             lambda w: tiled(w) and of_ours(w),
+             lambda w: tiled(w) and match(w),
+             lambda w: match(w) and of_ours(w),
+             match)
     for t in tests:
         for w in ws:
             if t(w):

@@ -2,9 +2,10 @@
 # appglass verify: the hidden session, run by `appglass verify` inside
 # dbus-run-session with env -i (a private bus, a private XDG_RUNTIME_DIR, a
 # throwaway HOME). Headless gamescope -> nested niri (animations off) -> the
-# app's glass launcher ($RUN/cmd.sh); the app's window (agv-pick.py: of the
-# launcher's pid or a child, of a process with this private runtime dir, or
-# an app-id that matches) is shot with niri screenshot-window (premultiplied
+# app's glass launcher ($RUN/cmd.sh); the app's own main window (agv-pick.py:
+# of the launcher's pid or a child, of a process with this private runtime
+# dir, or an app-id that matches; never a helper dialog such as zenity, nor a
+# floating window of another app-id) is shot with niri screenshot-window (premultiplied
 # alpha) to $SHOT. Prints "window=<id> app_id=<app-id>" or window=none.
 # Ends only the PIDs it started.
 #   appglass-verify-run RUN APPID_REGEX SHOT WAIT_S

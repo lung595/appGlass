@@ -769,6 +769,33 @@ class WindowOfTheApp(Stubbed):
                          "4 org.example.FnGtk2")
         self.assertEqual(self.pick(ws, 100, r"^nope$", proc), "")
 
+    def test_a_helper_dialog_is_never_the_app(self):
+        """Discord's bootstrap shows a zenity updater (a child of the
+        launcher) before any Discord window: that is not the app, the
+        harness keeps waiting (no window: unverifiable, never a fail)."""
+        proc = self.proc({100: 1, 101: 100, 102: 100})
+        ws = [{"id": 5, "app_id": "zenity", "pid": 101, "is_floating": True}]
+        self.assertEqual(self.pick(ws, 100, r"^discord$", proc), "")
+        ws[0]["is_floating"] = False
+        self.assertEqual(self.pick(ws, 100, r"^discord$", proc), "")
+        ws.append({"id": 6, "app_id": "discord", "pid": 102, "is_floating": False})
+        self.assertEqual(self.pick(ws, 100, r"^discord$", proc), "6 discord")
+
+    def test_the_main_window_before_a_dialog(self):
+        """The app's own main window: an app-id match of ours first, then a
+        tiled window of ours; a floating window (a dialog, a splash) of
+        another app-id is never measured."""
+        proc = self.proc({100: 1, 101: 100})
+        dialog = {"id": 2, "app_id": "org.example.App", "pid": 101, "is_floating": True}
+        splash = {"id": 3, "app_id": "splash", "pid": 101, "is_floating": True}
+        main = {"id": 4, "app_id": "org.example.App", "pid": 101, "is_floating": False}
+        rx = r"^org\.example\.App$"
+        self.assertEqual(self.pick([splash, dialog, main], 100, rx, proc), "4 org.example.App")
+        self.assertEqual(self.pick([splash], 100, rx, proc), "")
+        other = {"id": 8, "app_id": "binname", "pid": 101, "is_floating": False}
+        self.assertEqual(self.pick([splash, other], 100, rx, proc), "8 binname")
+        self.assertEqual(self.pick([other, main], 100, rx, proc), "4 org.example.App")
+
     def test_the_regex_covers_every_name(self):
         rec = {"key": "org.example.FnGtk2", "app_ids": [r"^org\.example\.FnGtk2$"],
                "names": ["org.example.FnGtk2", "gtkfn"]}
