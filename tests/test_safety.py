@@ -1809,6 +1809,33 @@ class MidWrite(Base):
         self.assertEqual(self.sb.readb(main), text)
         self.assertEqual(self.sb.readb(main + ".appglass-changed"), cut)
 
+    def test_a_dir_mkdir_could_not_make_is_not_recorded(self):
+        # (a folder appglass makes for a file: dux's ~/.config/dfiles)
+        real = core.os.mkdir
+        refused = []
+
+        def mkdir(d, *a, **kw):
+            d2 = os.path.abspath(d) + os.sep
+            if not d2.startswith(self.state_dir + os.sep):
+                refused.append(d)
+                raise PermissionError(13, "Permission denied", d)
+            return real(d, *a, **kw)
+        with unittest.mock.patch.object(core.os, "mkdir", mkdir):
+            code, out, err = self.sb.run("apply", "--only", self.ASSUME, assume=self.ASSUME)
+        self.assertTrue(refused)
+        self.assertNotEqual(code, 0)
+        with open(self.state_json) as f:
+            st = json.load(f)
+        dirs = [d for o in st["owners"].values() for d in o.get("dirs", [])]
+        self.assertFalse([d for d in dirs if d in refused], out + err)
+        # (one made by hand since is the user's: remove leaves it)
+        for d in refused:
+            os.makedirs(d, exist_ok=True)
+        code, out, err = self.sb.run("remove", assume=self.ASSUME)
+        self.assertEqual(code, 0, out + err)
+        for d in refused:
+            self.assertTrue(os.path.isdir(d), d)
+
 
 class UninstalledSinceApply(Base):
     """An app uninstalled after apply, then the state lost: its marked

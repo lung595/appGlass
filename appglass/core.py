@@ -1690,8 +1690,16 @@ class App:
                 # skips one that is not there)
                 owner.setdefault("dirs", []).extend(new_dirs)
                 st.save()
-            for d in new_dirs:
-                os.mkdir(d)
+            for i, d in enumerate(new_dirs):
+                try:
+                    os.mkdir(d)
+                except OSError:
+                    # not made (not ours, nor the ones under it): out of
+                    # the record before the error goes on
+                    for x in new_dirs[i:]:
+                        owner["dirs"].remove(x)
+                    st.save()
+                    raise
             backed = False
             if rec is None:
                 if cur is None:
