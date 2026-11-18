@@ -270,7 +270,10 @@ PluginComponent {
     // First start: take over what appglass has (the CLI may have set it).
     // When `appglass get` fails nothing is synced (that would write the
     // defaults over the CLI's settings); the next request tries again.
-    function seed() {
+    // keep (Set up again): a full remove took settings.json out, so `get`
+    // answers the defaults; the stored plugin data stays the source and
+    // only the keys never stored are seeded
+    function seed(keep) {
         root.seeding = true;
         Proc.runCommand(Logic.SEED_ID, Logic.getArgv(root.bin), (out, code) => {
             root.seeding = false;
@@ -280,8 +283,10 @@ PluginComponent {
                 return;
             }
             const data = Logic.pluginDataFromSettings(s);
-            for (const key of Object.keys(data))
-                root.save(key, data[key]);
+            for (const key of Object.keys(data)) {
+                if (!keep || root.service.loadPluginData(Logic.PLUGIN_ID, key, undefined) === undefined)
+                    root.save(key, data[key]);
+            }
             root.save("seeded", true);
             root.ready = true;
             root.requestSync("start", 0);
@@ -392,8 +397,9 @@ PluginComponent {
     }
 
     // Set up again after an uninstall (the page's button, the user's own
-    // click): the files come back from `appglass get` and a sync, as on a
-    // first start
+    // click): the files come back from a sync of the stored settings (an
+    // app switched off stays off), `appglass get` filling only what was
+    // never stored
     function reinstall() {
         if (!root.uninstalled || root.sweeping || actionVar.value || !root.bin)
             return false;
@@ -403,7 +409,7 @@ PluginComponent {
         root.publish(uninstallVar, "");
         root.publish(lastErrorVar, "");
         root.publish(uninstallErrorVar, "");
-        root.seed();
+        root.seed(true);
         return true;
     }
 

@@ -589,6 +589,37 @@ Item {
             },
             {
                 "run": () => {
+                    // Set up again after a full remove: settings.json is gone,
+                    // so `appglass get` answers the defaults; the stored
+                    // choices stay (an app switched off stays off, no confirm
+                    // skipped) and only the keys never stored are seeded
+                    root.fresh(false, undefined, {
+                        "uninstallState": "removed",
+                        "apps": {
+                            "gtk3": {
+                                "enabled": false
+                            }
+                        },
+                        "inactiveDurationMs": 250
+                    });
+                    t.check("set up again", root.d.reinstall(), true);
+                    Proc.flush();       // get
+                    const pd = root.pdata();
+                    t.check("the stored choices survive", [pd.apps, pd.inactiveDurationMs, pd.seeded], [{
+                            "gtk3": {
+                                "enabled": false
+                            }
+                        }, 250, true]);
+                    t.check("a key never stored is seeded", pd.inactiveEasing, Logic.pluginDataFromSettings(root.defaults).inactiveEasing);
+                    Proc.flush();       // sync
+                    const s = root.lastSyncSettings();
+                    t.check("the sync carries them", [s.apps.gtk3.enabled, s.inactive.durationMs], [false, 250]);
+                    Proc.flush();
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
                     // a remove run again after the reload that fails: back to syncing
                     root.fresh(true, undefined, {
                         "uninstallState": "removing"

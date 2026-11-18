@@ -91,7 +91,7 @@ On confirm, the plugin:
 2. runs `appglass remove`: every file restored, the matugen hook and the user units removed;
 3. runs `appglass plugin remove`: the plugin link removed.
 
-If step 2 fails, nothing is half-removed: the page says "Uninstall stopped: <error>. Glass is set up again from the current settings", and the glass comes back from a sync. If step 3 fails, the page says: "Every file is restored, but this plugin's link stays: run 'appglass plugin remove' in a terminal to finish." The bar pill then says "uninstalled". While the plugin is still loaded after an uninstall, **Set up again** brings the glass back, as on a first start.
+If step 2 fails, nothing is half-removed: the page says "Uninstall stopped: <error>. Glass is set up again from the current settings", and the glass comes back from a sync. If step 3 fails, the page says: "Every file is restored, but this plugin's link stays: run 'appglass plugin remove' in a terminal to finish." The bar pill then says "uninstalled". While the plugin is still loaded after an uninstall, **Set up again** brings the glass back with the settings the plugin kept (per-app choices, fade, fallback: an app switched off stays off); `appglass get` fills in only a setting it never stored.
 
 If DMS reloads the plugin or restarts while step 2 runs, the plugin starts without a sync (a sync would write the glass back) and the page says "Uninstall did not finish": **Uninstall** again finishes it, **Set up again** keeps the glass.
 
