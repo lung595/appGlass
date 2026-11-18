@@ -740,6 +740,17 @@ class FeatureGifs(unittest.TestCase):
         self.assertRegex(f, r"level label[^\n]*added")
         self.assertIn("GTK4 CSS", f)
 
+    def test_the_gifs_sit_in_a_table_under_a_title_header(self):
+        # a title header cell over each GIF,
+        # the GIF linked to its full size
+        lines = section(read("README.md"), "Features").splitlines()
+        rows = [i for i, l in enumerate(lines) if re.search(r"docs/media/[\w-]+\.gif", l)]
+        self.assertEqual(len(rows), 3)
+        for i in rows:
+            self.assertRegex(lines[i], r"^\| \[!\[[^\]]+\]\((docs/media/[\w-]+\.gif)\)\]\(\1\) \|$")
+            self.assertRegex(lines[i - 1], r"^\| *-+ *\|$")
+            self.assertRegex(lines[i - 2], r"^\| [A-Z][^|]+ \|$")
+
 
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and

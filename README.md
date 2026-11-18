@@ -86,17 +86,20 @@ The widget is optional. The glass works without it.
 
 ## Features
 
-**Unfocused windows fade.** Shown at level 0.80 with a 20 % fade amount.
+| Unfocused windows fade |
+| --- |
+| [![Two tiled windows: the focus moves from one to the other, and the unfocused one gets a little more transparent while its text stays sharp](docs/media/unfocused-fade.gif)](docs/media/unfocused-fade.gif) |
+| *Shown at level 0.80 with a 20 % fade amount.* |
 
-[![Two tiled windows: the focus moves from one to the other, and the unfocused one gets a little more transparent while its text stays sharp](docs/media/unfocused-fade.gif)](docs/media/unfocused-fade.gif)
+| The level follows DMS |
+| --- |
+| [![The same three windows at DMS glass levels 0.90, 0.75 and 0.60](docs/media/levels.gif)](docs/media/levels.gif) |
+| *The DMS window rule opacity at 0.90, 0.75 and 0.60.* |
 
-**The level follows DMS.** The DMS window rule opacity at 0.90, 0.75 and 0.60.
-
-[![The same three windows at DMS glass levels 0.90, 0.75 and 0.60](docs/media/levels.gif)](docs/media/levels.gif)
-
-**A new app gets glass.** The window opens with glass. No command needed.
-
-[![A music app opens over the other windows, already with glass](docs/media/new-app.gif)](docs/media/new-app.gif)
+| A new app gets glass |
+| --- |
+| [![A music app opens over the other windows, already with glass](docs/media/new-app.gif)](docs/media/new-app.gif) |
+| *The window opens with glass. No command needed.* |
 
 The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the second GIF was added afterwards. The music window is a small libadwaita demo app: like every GTK4 app, it gets its glass from the GTK4 CSS, so it needs no routing. Apps of other toolkits are routed by the sync unit within seconds.
 
