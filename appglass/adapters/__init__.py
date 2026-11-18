@@ -126,6 +126,10 @@ HAND_FILES = (
     (".local/bin/appglass-lianli", "webkit-shim", "Lian Li launch wrapper"),
     (".local/lib/appglass/lianli/appglass-wk.so", "webkit-shim", "the WebKit shim"),
     (".local/lib/appglass/lianli/appglass-wk.c", "webkit-shim", "the WebKit shim source"),
+    # the generic WebKitGTK route's build: a gcc build carries no marker, so
+    # only a hand path lets the rescue claim it (once its family is proven)
+    (".local/lib/appglass/webkit/appglass-wk.so", "webkit-shim",
+     "the WebKit shim (generic route)"),
     (".local/lib/appglass/lianli/lianli-glass.css.tmpl", "webkit-shim", "Lian Li CSS template"),
     (".local/lib/appglass/lianli/lianli-glass.css", "webkit-shim", "Lian Li CSS (rendered)"),
     (".local/share/applications/org.localsend.localsend_app.desktop", "ck-shim",

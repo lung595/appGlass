@@ -415,6 +415,23 @@ class Route(unittest.TestCase):
         self.assertEqual(self.route()["state"], "glass")
         self.assertIn("appglass-webkit", self.sb.read(self.launcher()))
 
+    def test_rescue_after_the_state_folder_is_lost_takes_the_build(self):
+        """The whole state folder lost: adopt --rescue claims the family's
+        build at its own lib path (it renders the launcher proven there), so
+        remove takes it and a later apply is not refused by it."""
+        self.enable(True)
+        self.run_ok("apply")
+        so = os.path.join(self.sb.home, L, "appglass-wk.so")
+        self.assertTrue(os.path.isfile(so))
+        shutil.rmtree(os.path.join(self.sb.state, "appglass"))
+        self.run_ok("adopt", "--rescue")
+        self.run_ok("remove")
+        lib = os.path.join(self.sb.home, L)
+        self.assertEqual(sorted(os.listdir(lib)) if os.path.isdir(lib) else [], [])
+        out = self.run_ok("apply")
+        self.assertNotIn("is not appglass's", out)
+        self.assertEqual(self.route()["state"], "glass")
+
     def test_gtk4_webkit_stays_opaque(self):
         _w(self.exe, elf(WK6), 0o755)
         self.run_ok("apply")

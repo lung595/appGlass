@@ -827,6 +827,14 @@
       "adapter": "webkit-shim",
       "implemented": true,
       "owner": null,
+      "path": "~/.local/lib/appglass/webkit/appglass-wk.so",
+      "status": "absent",
+      "what": "the WebKit shim (generic route)"
+    },
+    {
+      "adapter": "webkit-shim",
+      "implemented": true,
+      "owner": null,
       "path": "~/.local/lib/appglass/lianli/lianli-glass.css.tmpl",
       "status": "absent",
       "what": "Lian Li CSS template"
