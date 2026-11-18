@@ -83,6 +83,20 @@ class Vencord(unittest.TestCase):
         self.enable()
         out, err = self.run_ok("apply", "--only", "vencord")
         self.assertIn("vencord: skipped: Vencord is not installed", err)
+        # status says so too, not glass "enabled by you"
+        self.w.exe("discord")
+        self.w.launcher("discord.desktop", "[Desktop Entry]\nType=Application\nName=Discord\n"
+                        "Exec=discord\n")
+        out, err = self.run_ok("status", "--json")
+        apps = {a["key"]: a for a in json.loads(out)["apps"]}
+        self.assertEqual(apps["discord"]["adapter"], "electron-vencord", apps["discord"])
+        self.assertEqual(apps["discord"]["effective"], "fallback", apps["discord"])
+        self.assertIn("Vencord is not installed", apps["discord"]["reason"])
+        self.run_ok("set", "apps.vencord.enabled", "true")
+        os.makedirs(self.w.user(".config/Vencord"))
+        out, err = self.run_ok("status", "--json")
+        apps = {a["key"]: a for a in json.loads(out)["apps"]}
+        self.assertEqual(apps["discord"]["effective"], "glass", apps["discord"])
 
     def test_level_change_rerenders(self):
         self.enable()

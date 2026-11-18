@@ -92,12 +92,26 @@ def css(ctx):
     return text
 
 
+def _no_vencord(env):
+    """Why apply skips (Vencord's folder is missing), else None."""
+    vd = vencord_dir(env)
+    if os.path.isdir(vd):
+        return None
+    return ("Vencord is not installed (%s missing): install it with the official "
+            "installer first" % env.tilde(vd))
+
+
+def skip_reason(env, rec):
+    """Why a glass Discord is plain: apply skips without Vencord (status)."""
+    return _no_vencord(env)
+
+
 def apply(ctx):
     env = ctx.env
     vd = vencord_dir(env)
-    if not os.path.isdir(vd):
-        raise Conflict("Vencord is not installed (%s missing): install it with the official "
-                       "installer first" % env.tilde(vd))
+    why = _no_vencord(env)
+    if why:
+        raise Conflict(why)
     paths = [ctx.write_owned(os.path.join(vd, "themes", "appglass-discord.css"), css(ctx))]
     sp = os.path.join(vd, "settings", "settings.json")
     try:
