@@ -788,7 +788,6 @@ class ShimDecision(unittest.TestCase):
         self.assertTrue(r["swapped"].startswith("paintable=0 "), r["swapped"])
         self.assertEqual(r["moved"], self.GLASS)
 
-
     def test_a_hidden_view_does_not_fill_the_window(self):
         """The view hidden with nothing else in the window: an empty bare
         window otherwise; opaque, and glass again once it is shown."""
@@ -796,6 +795,23 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r["glass"], self.GLASS)
         self.assertEqual(r["hidden"], self.OPAQUE)
         self.assertEqual(r["shown"], self.GLASS)
+
+    def test_views_on_one_content_manager_are_glass_together(self):
+        """A related view shares the first view's user content manager, so
+        the stylesheet styles both pages: glass only while every shown view
+        on it fills its window, opaque (the sheet out) as soon as one does
+        not; the scripts are added once per content manager."""
+        r = self.run_driver("related")
+        self.assertEqual(r["first"], self.GLASS)
+        self.assertEqual(r["one"], self.OPAQUE)
+        self.assertEqual(r["two"], self.OPAQUE)
+        self.assertEqual(r["one-nosb"], self.GLASS)
+        self.assertEqual(r["two-nosb"], self.GLASS)
+        self.assertEqual(r["one-sb"], self.OPAQUE)
+        self.assertEqual(r["one-alone"], self.GLASS)
+        r = self.run_driver("relglass")
+        self.assertEqual(r["one"], self.GLASS)
+        self.assertEqual(r["two"], self.GLASS)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@
 //      chrome is gone again, the glass comes back. The scripts stay in all along: they only mark
 //      the page (inert without the stylesheet), and a user script runs only on a document that
 //      loads after it is added, so a page loaded while opaque would come back unmarked (bare).
+//      Views on one user content manager (a related view shares the first one's) are glass
+//      together: the stylesheet on it styles all their pages.
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
 //   4. with a stylesheet: a small script that sets html.agl-inactive while the page has no focus
 //      (the stylesheet fades the content background on it)
@@ -208,10 +210,10 @@ static int add_sheet(void *view);
 // a view's glass on (the view clear, the page styled) or off (the view's own background, the
 // stylesheet out). The state is kept on the view (appglass-state: 1 glass, 2 opaque; none yet: the
 // view clear and the page styled since its first load). The window is not touched here: see
-// set_window().
-static void set_glass(void *view, int on) {
+// set_window(). 1 when the state changed.
+static int set_glass(void *view, int on) {
     long st = (long)obj_get(view, "appglass-state");
-    if (st == (on ? 1 : 2)) return;
+    if (st == (on ? 1 : 2)) return 0;
     obj_set(view, "appglass-state", (void *)(long)(on ? 1 : 2), NULL);
     if (on && st == 2) {   // opaque before: the page glass again
         obj_set(view, "appglass-off", NULL, NULL);
@@ -224,6 +226,7 @@ static void set_glass(void *view, int on) {
         real_set_bg(view, k ? k : &white);
         remove_sheet(view);
     }
+    return 1;
 }
 
 // The views of a toplevel (appglass-views on it): weak refs, so a view that goes away drops out. A
@@ -234,6 +237,23 @@ static void views_free(void *p) {
     Views *vs = p; void (*clear)(void *) = sym("g_weak_ref_clear");
     for (int i = 0; i < vs->n && clear; i++) clear(&vs->wr[i]);
     free(vs);
+}
+// view in the list, once (a slot of a view gone is reused); past VIEWS the list is "many"
+static void views_add(Views *vs, void *view) {
+    void (*init)(void *, void *) = sym("g_weak_ref_init");
+    void *(*get)(void *) = sym("g_weak_ref_get"); void (*unref)(void *) = sym("g_object_unref");
+    if (!init || !get || !unref) return;
+    int had = 0, free_slot = -1;
+    for (int i = 0; i < vs->n && !had; i++) {
+        void *v = get(&vs->wr[i]);
+        if (v == view) had = 1;
+        else if (!v && free_slot < 0) free_slot = i;
+        if (v) unref(v);
+    }
+    if (had) return;
+    if (free_slot >= 0) init(&vs->wr[free_slot], view);
+    else if (vs->n < VIEWS) init(&vs->wr[vs->n++], view);
+    else { vs->many = 1; LOG("more than %d views, left opaque", VIEWS); }
 }
 // view i of top (a ref, or NULL: gone, or now in another window)
 static void *view_at(void *top, Views *vs, int i) {
@@ -278,6 +298,50 @@ static void set_window(void *top) {
     else LOG("toplevel %p: native widgets beside the view, left opaque", top);
 }
 
+static void *content_manager(void *view);
+static void redecide_later(void *top);
+
+// The views on one user content manager (appglass-ucm-views on it): a related view
+// (webkit_web_view_new_with_related_view) shares the first one's, so the stylesheet on it styles
+// every page on it. They are glass together: a view is held opaque while another view on its
+// manager is shown in a window and does not fill it (or the list is over-full).
+static int held(void *view) {
+    void *(*get)(void *) = sym("g_weak_ref_get"); void (*unref)(void *) = sym("g_object_unref");
+    void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
+    gboolean (*is_toplevel)(void *) = sym("gtk_widget_is_toplevel");
+    gboolean (*mapped)(void *) = sym("gtk_widget_get_mapped");
+    void *ucm = content_manager(view);
+    Views *vs = ucm ? obj_get(ucm, "appglass-ucm-views") : NULL;
+    if (!vs || !get || !unref || !get_toplevel || !is_toplevel || !mapped) return 0;
+    if (vs->many) return 1;
+    int h = 0;
+    for (int i = 0; i < vs->n && !h; i++) {
+        void *p = get(&vs->wr[i]);
+        if (!p) continue;
+        void *t = get_toplevel(p);
+        if (p != view && t && is_toplevel(t) && mapped(p) && !fills(p, t)) {
+            h = 1; LOG("view %p: another view on its content manager does not fill its window", view);
+        }
+        unref(p);
+    }
+    return h;
+}
+// the other windows with a view on view's content manager decided again (but not skip)
+static void redecide_peers(void *view, void *skip) {
+    void *(*get)(void *) = sym("g_weak_ref_get"); void (*unref)(void *) = sym("g_object_unref");
+    void *(*get_toplevel)(void *) = sym("gtk_widget_get_toplevel");
+    void *ucm = content_manager(view);
+    Views *vs = ucm ? obj_get(ucm, "appglass-ucm-views") : NULL;
+    if (!vs || !get || !unref || !get_toplevel) return;
+    for (int i = 0; i < vs->n; i++) {
+        void *p = get(&vs->wr[i]);
+        if (!p) continue;
+        void *t = get_toplevel(p);
+        if (p != view && t && t != skip && obj_get(t, "appglass-views")) redecide_later(t);
+        unref(p);
+    }
+}
+
 // every view of the mapped window decided afresh (glass while it fills the window), then the
 // window: at each map of the window, whenever a widget in it maps or unmaps (a sidebar shown after
 // the map, a pane hidden after show_all, another page of a stack), and at a view's first document
@@ -289,7 +353,7 @@ static void redecide(void *top) {
     for (int i = 0; i < vs->n; i++) {
         void *v = view_at(top, vs, i);
         if (!v) continue;
-        set_glass(v, fills(v, top));
+        if (set_glass(v, fills(v, top) && !held(v))) redecide_peers(v, top);
         if (unref) unref(v);
     }
     set_window(top);
@@ -323,10 +387,7 @@ static gboolean on_widget_map(void *ihint, unsigned n, const void *params, void 
 // the view in the toplevel's list (the window's map handler once per window), the hooks once
 static void track(void *view, void *top) {
     static int hooked;
-    void (*init)(void *, void *) = sym("g_weak_ref_init");
-    void *(*get)(void *) = sym("g_weak_ref_get"); void (*unref)(void *) = sym("g_object_unref");
     unsigned long (*connect)(void *, const char *, void *, void *, void *, int) = sym("g_signal_connect_data");
-    if (!init || !get || !unref) return;
     Views *vs = obj_get(top, "appglass-views");
     if (!vs) {
         if (!(vs = calloc(1, sizeof *vs))) return;
@@ -334,18 +395,7 @@ static void track(void *view, void *top) {
         if (connect)   // G_CONNECT_AFTER: after the children are mapped
             connect(top, "map", (void *)on_top_map, NULL, NULL, 1);
     }
-    int had = 0, free_slot = -1;
-    for (int i = 0; i < vs->n && !had; i++) {
-        void *v = get(&vs->wr[i]);
-        if (v == view) had = 1;
-        else if (!v && free_slot < 0) free_slot = i;
-        if (v) unref(v);
-    }
-    if (!had) {
-        if (free_slot >= 0) init(&vs->wr[free_slot], view);
-        else if (vs->n < VIEWS) init(&vs->wr[vs->n++], view);
-        else { vs->many = 1; LOG("toplevel %p: more than %d views, left opaque", top, VIEWS); }
-    }
+    views_add(vs, view);
     if (hooked) return;
     unsigned long (*widget_type)(void) = sym("gtk_widget_get_type");
     unsigned (*lookup)(const char *, unsigned long) = sym("g_signal_lookup");
@@ -385,6 +435,7 @@ static void on_hierarchy(void *view, void *prev, void *data) {
     (void)data;
     if (prev && obj_get(prev, "appglass-views")) redecide_later(prev);
     glass_toplevel(view);
+    redecide_peers(view, NULL);   // shown there or gone: the views it held, or that held it
 }
 
 // the stylesheet and scripts added to the view's content manager, kept on the view (its data owns a
@@ -399,33 +450,51 @@ static void *content_manager(void *view) {
     return ucm;
 }
 
-// the glass stylesheet (APPGLASS_CSS) in, once: 1 when there is one
+// The glass stylesheet is on the content manager once (appglass-ucm-ss on it), with a count of the
+// views that hold it (appglass-ss-n): each holder keeps a ref of the manager as its appglass-ss,
+// given back (the count down, the sheet out at 0) when it lets go or is finalized.
+static void sheet_release(void *ucm) {
+    void (*rm_ss)(void *, void *) = sym("webkit_user_content_manager_remove_style_sheet");
+    void (*unref)(void *) = sym("g_object_unref");
+    long n = (long)obj_get(ucm, "appglass-ss-n") - 1;
+    obj_set(ucm, "appglass-ss-n", (void *)(n > 0 ? n : 0), NULL);
+    void *ss = obj_get(ucm, "appglass-ucm-ss");
+    if (n <= 0 && ss) {
+        if (rm_ss) rm_ss(ucm, ss);
+        obj_set(ucm, "appglass-ucm-ss", NULL, NULL);   // drops the ref
+        LOG("glass stylesheet removed");
+    }
+    if (unref) unref(ucm);
+}
+
+// the glass stylesheet (APPGLASS_CSS) held by the view, once: 1 when there is one
 static int add_sheet(void *view) {
     void *ucm = content_manager(view);
     if (!ucm || obj_get(view, ITEMS[0])) return ucm != NULL;
-    char *css = slurp(g_css);
-    if (!css) return 0;
-    // webkit_user_style_sheet_new(src, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES=0, WEBKIT_USER_STYLE_LEVEL_USER=0, allow, block)
-    void *(*ss_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_style_sheet_new");
-    void (*add_ss)(void *, void *) = sym("webkit_user_content_manager_add_style_sheet");
-    void (*ss_unref)(void *) = sym("webkit_user_style_sheet_unref");
-    if (ss_new && add_ss) {
-        void *ss = ss_new(css, 0, 0, NULL, NULL); add_ss(ucm, ss); obj_set(view, ITEMS[0], ss, ss_unref);
+    void *(*ref)(void *) = sym("g_object_ref");
+    if (!ref) return 0;
+    if (!obj_get(ucm, "appglass-ucm-ss")) {
+        char *css = slurp(g_css);
+        if (!css) return 0;
+        // webkit_user_style_sheet_new(src, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES=0, WEBKIT_USER_STYLE_LEVEL_USER=0, allow, block)
+        void *(*ss_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_style_sheet_new");
+        void (*add_ss)(void *, void *) = sym("webkit_user_content_manager_add_style_sheet");
+        void (*ss_unref)(void *) = sym("webkit_user_style_sheet_unref");
+        if (!ss_new || !add_ss) { free(css); return 1; }
+        void *ss = ss_new(css, 0, 0, NULL, NULL); add_ss(ucm, ss); obj_set(ucm, "appglass-ucm-ss", ss, ss_unref);
         LOG("css injected (%zu bytes)", strlen(css));
+        free(css);
     }
-    free(css);
+    obj_set(ucm, "appglass-ss-n", (void *)((long)obj_get(ucm, "appglass-ss-n") + 1), NULL);
+    obj_set(view, ITEMS[0], ref(ucm), sheet_release);
     return 1;
 }
 
-// a view left opaque: the stylesheet out (the scripts only set attributes, a class and custom
-// properties: without the stylesheet the page is as the app drew it)
+// a view left opaque: lets go of the stylesheet (the scripts only set attributes, a class and
+// custom properties: without the stylesheet the page is as the app drew it). The views on one
+// manager are glass together (held()), so the sheet goes out when the last of them lets go.
 static void remove_sheet(void *view) {
-    void (*rm_ss)(void *, void *) = sym("webkit_user_content_manager_remove_style_sheet");
-    void *ucm = content_manager(view), *ss = obj_get(view, ITEMS[0]);
-    if (!ucm || !ss) return;
-    if (rm_ss) rm_ss(ucm, ss);
-    obj_set(view, ITEMS[0], NULL, NULL);   // drops the ref
-    LOG("glass stylesheet removed");
+    obj_set(view, ITEMS[0], NULL, NULL);   // sheet_release, when it held it
 }
 
 static void first_document(void *view);
@@ -441,7 +510,15 @@ static void inject(void *view) {
     }
     void *ucm = content_manager(view);
     if (!ucm) return;
+    Views *vs = obj_get(ucm, "appglass-ucm-views");
+    if (!vs && (vs = calloc(1, sizeof *vs))) obj_set(ucm, "appglass-ucm-views", vs, views_free);
+    if (vs) views_add(vs, view);
     int had_css = add_sheet(view) && obj_get(view, ITEMS[0]);
+    // a manager shared with a view seen before (a related view): its scripts and the paint handler
+    // are in already (they run on this view's pages too); the end of the first load stands in for
+    // this view's paint message
+    if (obj_get(ucm, "appglass-scripts")) { LOG("content manager shared: scripts in already"); return; }
+    obj_set(ucm, "appglass-scripts", (void *)1, NULL);
     // webkit_user_script_new(src, ALL_FRAMES=0, INJECT_AT_DOCUMENT_START=0 / END=1, allow, block)
     void *(*sc_new)(const char *, int, int, const char *const *, const char *const *) = sym("webkit_user_script_new");
     void (*add_sc)(void *, void *) = sym("webkit_user_content_manager_add_script");
