@@ -250,14 +250,19 @@ def stage(app, rec, run):
 def seed(app, rec, home):
     """The app's own first-run state in the throwaway home (its family's
     verify_seed: {path under HOME: bytes}), so no first-run dialog covers
-    the window the check shoots. Returns why it cannot be seeded, or None."""
+    the window the check shoots. A generic family's hook takes the record
+    too (verify_seed(env, rec)): it seeds the apps it knows, the others
+    start as they are. Returns why it cannot be seeded, or None."""
     fam = app.families.get(route_of(app, rec).get("family") or "")
     fn = getattr(fam, "verify_seed", None)
     if fn is None:
         return None
-    files = fn(app.env)
-    if not files:
-        return "cannot seed the first run of %s (its version is not known)" % fam.NAME
+    if getattr(fam, "GENERIC", False):
+        files = fn(app.env, rec) or {}
+    else:
+        files = fn(app.env)
+        if not files:
+            return "cannot seed the first run of %s (its version is not known)" % fam.NAME
     for rel, data in files.items():
         dst = os.path.join(home, rel)
         os.makedirs(os.path.dirname(dst), mode=0o700, exist_ok=True)

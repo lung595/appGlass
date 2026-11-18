@@ -258,6 +258,20 @@ class Route(unittest.TestCase):
         self.assertFalse(os.path.exists(self.launcher()))
         self.assertIn("appglass-webkit", verify.launcher_exec(app, rec_, home))
 
+    def test_the_check_seeds_what_it_knows(self):
+        """Kiri's language step done in the throwaway HOME; an app it does
+        not know starts as it is (not unverifiable)."""
+        self.run_ok("apply")
+        app = core.App(self.sb.env, quiet=True)
+        home = self.sb.path("seed-home")
+        os.makedirs(home)
+        self.assertIsNone(verify.seed(app, engine.record_for(app, KEY), home))
+        self.assertEqual(os.listdir(home), [])
+        r = dict(engine.record_for(app, KEY), key="kiri")
+        self.assertIsNone(verify.seed(app, r, home))
+        with open(os.path.join(home, ".kiri", "ui.json")) as f:
+            self.assertEqual(json.load(f), {"langAsked": True})
+
     def test_stage_renders_only_the_app_checked(self):
         """The candidate plan routes the app under check as if it passed,
         not the other apps still waiting (or switched off)."""

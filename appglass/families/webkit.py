@@ -76,6 +76,15 @@ def verify_mask(rec):
     return {"hide": verify.run_paths(rec, keys=keys), "nonet": True}
 
 
+# the first-run state of the apps it knows, so the hidden check shoots the
+# app and not its first-run dialog: {key: {path under HOME: bytes}}
+SEEDS = {"kiri": {".kiri/ui.json": b'{"langAsked":true}\n'}}   # its language step
+
+
+def verify_seed(env, rec):
+    return dict(SEEDS.get(rec.get("key"), {}))
+
+
 def css(ctx):
     lv = shims.levels(ctx)
     return shims.fill(shims.source(ADAPTER, TMPL).decode("utf-8"),
