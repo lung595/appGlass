@@ -1678,6 +1678,27 @@ class Durable(Base):
         self.assertEqual(code, 1)
         self.assertIn("does not match the original recorded", out + err)
 
+    def test_a_damaged_original_stops_remove_before_anything_goes(self):
+        """w2 m3: one damaged original among several: remove checks every
+        backup it will need first, and takes nothing out."""
+        self.apply()
+        recs = self.backed_up()
+        self.assertGreater(len(recs), 1)
+        p, rec = [(p, r) for p, r in recs if p.endswith("alacritty.toml")][0]
+        with open(os.path.join(self.state_dir, rec["backup"]), "wb") as f:
+            f.write(b"not the original\n")
+        cfg = os.path.dirname(self.sb.cfg("niri"))
+        before = self.sb.tree_hash(cfg)
+        with open(self.state_json) as f:
+            owners = sorted(json.load(f)["owners"])
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 1)
+        self.assertIn(self.env.tilde(p), err)
+        self.assertIn("nothing removed", err)
+        self.assertEqual(self.sb.tree_hash(cfg), before)
+        with open(self.state_json) as f:
+            self.assertEqual(sorted(json.load(f)["owners"]), owners)
+
     def test_rescue_and_save_aside_copies_are_synced(self):
         """The originals adopt --rescue writes into backup/ and a version
         saved aside as <file>.appglass-changed are on the disk before the

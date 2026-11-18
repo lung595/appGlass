@@ -1681,6 +1681,37 @@ class App:
         except OSError:
             pass
 
+    def check_backups(self, names):
+        """Before a remove takes anything out: every original it will put
+        back (a file that does not hold it already) is in backup/ with the
+        bytes recorded for it. One missing or damaged stops the remove
+        before its first file, not half way."""
+        bad = []
+        for name in names:
+            for p, rec in sorted(self.state.owners.get(name, {}).get("files", {}).items()):
+                if not rec.get("backup") or rec.get("kind") == "created" \
+                        or self._folder_gone(p):
+                    continue
+                try:
+                    cur = _read(p) if os.path.isfile(p) else None
+                except OSError:
+                    cur = None
+                if cur is not None and sha(cur) == rec.get("orig_sha256"):
+                    continue
+                if cur is None and not rec.get("retired"):
+                    continue
+                b = _read(os.path.join(self.env.state_dir, rec["backup"]))
+                if b is None or (rec.get("orig_sha256") and sha(b) != rec["orig_sha256"]):
+                    bad.append("%s (backup %s %s)" % (
+                        self.env.tilde(p), self.env.tilde(os.path.join(
+                            self.env.state_dir, rec["backup"])),
+                        "is missing" if b is None else
+                        "does not match the original recorded for it, sha256"))
+        if bad:
+            raise AppglassError("the original of %s: nothing removed (put the original "
+                                "back in backup/ by hand, or appglass restore --list shows "
+                                "the ring)" % "; of ".join(bad))
+
     def remove_owner(self, name):
         self.no_event("remove %s's files" % name)
         owner = self.state.owners.get(name)
@@ -2010,6 +2041,7 @@ def cmd_remove(app, only=None, keep_hook=False, forget_away=False):
     refuse_orphans(app)
     if only:
         names = _selected(app, only)
+        app.check_backups(names)
         parked = app.state.data.get("parked")
         if parked:
             # glass off parked these: removed, glass on must not adopt them again
@@ -2029,6 +2061,8 @@ def cmd_remove(app, only=None, keep_hook=False, forget_away=False):
             app.state.save()
         app.sync_niri()
         return
+    app.check_backups(["niri"] + app.state.families() if keep_hook
+                      else list(app.state.owners))
     if keep_hook:
         _park_adopted(app, ["niri"] + app.state.families())
     else:
