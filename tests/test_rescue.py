@@ -390,6 +390,20 @@ class LinkedOriginal(RescueBase):
     def test_adopted_launcher_in_a_linked_dir(self):
         self.check(self.vlc)
 
+    def test_the_cp_hint_never_names_a_damaged_copy(self):
+        # w2 r2 D: the original kept for a linked file is damaged; the ring
+        # has the good one: it takes its place before the hint names it
+        sb = self.sb
+        p, mine, fams = self.dux()
+        self.ok("apply", "--only", fams, fams=fams)
+        bp = os.path.join(self.state_dir, "backup", core._bname(p))
+        with open(bp, "wb") as f:
+            f.write(mine[:30])
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        out = self.ok("adopt", "--rescue", fams=fams)
+        self.assertIn("cp %s" % core.Env(sb.env).tilde(bp), out)
+        self.assertEqual(sb.readb(bp), mine, out)
+
 
 class DamagedOriginal(RescueBase):
     """w2 B2: with only state.json lost, a damaged original in backup/ is
@@ -412,6 +426,79 @@ class DamagedOriginal(RescueBase):
         out += self.ok("remove", fams=fams)
         self.assertEqual(sb.readb(p), VLC_MINE, out)
         self.assertIn("does not match", out)
+
+
+def damage(data, how):
+    return {"empty": b"", "trunc": data[:20], "flip": data.replace(b"0.9", b"0.8")}[how]
+
+
+class UncheckedOriginal(RescueBase):
+    """w2 r2 A: the run that made a backup is the only one in the ring (a
+    first apply, an adopt): no ring state.json names the backup, but the
+    ring entry of that run holds the file as it was. A backup that does not
+    match it is never put back, and a remove after the rescue never loses
+    the user's file."""
+
+    def lose_and_remove(self, p, fams, how):
+        bp = os.path.join(self.state_dir, "backup", core._bname(p))
+        orig = self.sb.readb(bp)
+        with open(bp, "wb") as f:
+            f.write(damage(orig, how))
+        os.remove(os.path.join(self.state_dir, "state.json"))
+        out = self.ok("adopt", "--rescue", fams=fams)
+        out += self.ok("remove", fams=fams)
+        return out
+
+    def dux(self, how):
+        sb = self.sb
+        p = sb.cfg("dfiles", "ui-settings.json")
+        os.makedirs(os.path.dirname(p))
+        with open(p, "wb") as f:
+            f.write(DUX_MINE)
+        self.ok("apply", "--only", "dux", fams="dux")
+        out = self.lose_and_remove(p, "dux", how)
+        self.assertEqual(sb.readb(p), DUX_MINE, out)
+
+    def test_dux_first_apply_empty_backup(self):
+        self.dux("empty")
+
+    def test_dux_first_apply_cut_backup(self):
+        self.dux("trunc")
+
+    def test_dux_first_apply_changed_backup(self):
+        self.dux("flip")
+
+    def vlc(self, seq, how):
+        sb = self.sb
+        p = os.path.join(sb.data, "applications", "vlc.desktop")
+        sb.write("applications/vlc.desktop", VLC_MINE.decode(), base=sb.data)
+        for s in seq:
+            if s == "adopt":
+                self.ok("adopt", p, fams="qtstyle")
+            else:
+                self.ok("apply", "--only", "qtstyle", fams="qtstyle")
+        out = self.lose_and_remove(p, "qtstyle", how)
+        self.assertEqual(sb.readb(p), VLC_MINE, out)
+        # the damaged bytes are not taken for the original
+        self.assertNotIn("recorded %s" % core.Env(sb.env).tilde(p), out)
+
+    def test_adopted_launcher_cut_backup(self):
+        self.vlc(("adopt",), "trunc")
+
+    def test_adopted_after_apply_empty_backup(self):
+        self.vlc(("apply", "adopt"), "empty")
+
+    def test_gtk_css_edit_empty_backup(self):
+        sb = self.sb
+        sb.seed("gtk/dank-colors.css", "gtk-4.0/dank-colors.css")
+        p = sb.cfg("gtk-4.0", "gtk.css")
+        sb.write("gtk-4.0/gtk.css", DMS_IMPORT)
+        saved = gtk4.LIBEXEC_DIRS
+        gtk4.LIBEXEC_DIRS = ()
+        self.addCleanup(setattr, gtk4, "LIBEXEC_DIRS", saved)
+        self.ok("apply", "--only", "gtk4", fams="gtk4")
+        out = self.lose_and_remove(p, "gtk4", "empty")
+        self.assertEqual(sb.read(p), DMS_IMPORT, out)
 
 
 OBS_MINE = '{\n    "theme": "obsidian",\n    "cssTheme": "Mine"\n}\n'

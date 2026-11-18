@@ -3378,21 +3378,38 @@ def _makes(fn, orig, data):
         return False
 
 
-def _ring_original(env, p, name):
+def _ring_original(env, p, name, skip=None):
     """What the ring says of backup/name, the original of p: (record,
-    bytes). record: p's record in the newest ring entry's state.json (the
-    state before the last run that saved one), when it names that backup
-    and an orig_sha256 (else None); bytes: a ring blob with that sha256
-    (else None)."""
+    bytes). record: {"orig_sha256": the bytes the backup must hold, and
+    "sha256" when a state.json says what appglass wrote}, from the newest
+    ring entry that tells: the run that made the backup (the entry saw
+    backup/name absent and holds p as that run found it: a first apply, an
+    adopt), else the newest entry with a readable state.json, when its
+    record of p names that backup (an older state may name an older
+    backup). None when the ring cannot tell. bytes: a ring blob with that
+    sha256 (else None). skip: an entry not to read (the rescue's own)."""
+    bp = os.path.join(env.state_dir, "backup", name)
     rec = None
     for n in reversed(ring_entries(env)):
+        if n == skip:
+            continue
         d = os.path.join(ring_dir(env), n)
         m = _load_json(os.path.join(d, "manifest.json"))
-        if not (isinstance(m, dict) and m.get("state")):
+        if not isinstance(m, dict):
+            continue
+        files = m.get("files") if isinstance(m.get("files"), dict) else {}
+        made, at = files.get(bp), files.get(p)
+        if isinstance(made, dict) and made.get("absent") and isinstance(at, dict) \
+                and isinstance(at.get("sha256"), str):
+            rec = {"orig_sha256": at["sha256"]}
+            break
+        if not m.get("state"):
             continue
         st = _load_json(os.path.join(d, "state.json"))
         owners = st.get("owners") if isinstance(st, dict) else None
-        for o in (owners.values() if isinstance(owners, dict) else ()):
+        if not isinstance(owners, dict):
+            continue        # an unreadable state.json a rescue kept: no state
+        for o in owners.values():
             r = ((o.get("files") if isinstance(o, dict) else None) or {}).get(p)
             if isinstance(r, dict) and isinstance(r.get("backup"), str) \
                     and os.path.basename(r["backup"]) == name \
@@ -3571,11 +3588,11 @@ def cmd_rescue(app, dry_run=False):
         orig = _read(os.path.join(bdir, b)) if b else None
         ring_rec = None
         if b and orig is not None:
-            # the original is checked against the ring's last state.json:
-            # a damaged one is never put back (09b74b0)
-            ring_rec, good = _ring_original(env, p, b)
+            # the original is checked against the ring (the run that made
+            # it, or the last state.json): a damaged one is never put back
+            ring_rec, good = _ring_original(env, p, b, skip=entry)
+            bp = os.path.join(bdir, b)
             if ring_rec is not None and sha(orig) != ring_rec["orig_sha256"]:
-                bp = os.path.join(bdir, b)
                 if good is None:
                     app.warn("adopt --rescue: %s, the original of %s, does not match the one "
                              "recorded for it (sha256) and the ring holds no copy: %s left as "
@@ -3588,6 +3605,14 @@ def cmd_rescue(app, dry_run=False):
                 env.guard(bp)
                 _write_durable(bp, good)
                 orig = good
+            if ring_rec is None and orig != data and kind != "edit":
+                # nothing to check it against: never put back unchecked
+                app.warn("adopt --rescue: %s, the original of %s, cannot be checked (the "
+                         "ring has no record of it): %s left as is (not recorded), the "
+                         "backup kept (cp %s %s puts it back, if it is the original)"
+                         % (t(bp), t(p), t(p), t(bp), t(p)))
+                damaged.add(b)
+                continue
         o = st.owners.setdefault(owner, {"files": {}, "dirs": []})
         if kind == "retired":
             rec = {"kind": "modified", "how": "owned", "sha256": None, "adopted": True,
@@ -3635,7 +3660,7 @@ def cmd_rescue(app, dry_run=False):
                 app.warn("adopt --rescue: %s: recorded %s as appglass's keys"
                          % (t(p), ", ".join(sorted(keys))))
         elif b and orig is not None and c["fn"] is not None and _makes(c["fn"], orig, data) \
-                and (ring_rec is None or ring_rec.get("sha256") in (None, sha(data))):
+                and ring_rec is not None and ring_rec.get("sha256") in (None, sha(data)):
             # the file still holds what appglass makes of the original in
             # backup/: that original goes back byte for byte (its layout too)
             rec = {"kind": "modified", "how": "edit", "sha256": sha(data),
@@ -3700,6 +3725,19 @@ def cmd_rescue(app, dry_run=False):
         if n in damaged:
             continue        # said above
         if p is not None:
+            ring_rec, good = _ring_original(env, p, n, skip=entry)
+            if ring_rec is not None and sha(_read(bp) or b"") != ring_rec["orig_sha256"]:
+                if good is None:
+                    app.warn("adopt --rescue: %s, the original of %s, does not match the one "
+                             "recorded for it (sha256) and the ring holds no copy: kept there "
+                             "(not a copy to put back), and the state folder with it"
+                             % (t(bp), t(p)))
+                    continue
+                env.guard(bp)
+                _write_durable(bp, good)
+                app.warn("adopt --rescue: %s, the original of %s, does not match the one "
+                         "recorded for it (sha256): the ring's copy put in its place"
+                         % (t(bp), t(p)))
             kept[n] = p
             app.warn("adopt --rescue: %s holds the original of %s, which is not recorded: "
                      "kept there, and the state folder with it (a full remove too), until "
