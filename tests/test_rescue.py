@@ -442,5 +442,43 @@ class ObsidianStateJsonLost(RescueBase):
         self.assertTrue(os.path.isdir(os.path.join(vault, ".obsidian", "snippets")), out)
 
 
+class AllLinkedStateLost(RescueBase):
+    """w2 M1: every file appglass wrote is reached through a symlinked dir
+    (dotfiles) and the whole state folder is gone: nothing can be recorded,
+    but the files are still appglass's; every command names them."""
+
+    def test_named_everywhere_until_cleaned_by_hand(self):
+        sb = self.sb
+        dots = os.path.join(sb.home, "dotfiles")
+        os.makedirs(os.path.join(dots, "alacritty"))
+        mine = b'[general]\nimport = ["~/.config/alacritty/dank-theme.toml"]\n'
+        with open(os.path.join(dots, "alacritty", "alacritty.toml"), "wb") as f:
+            f.write(mine)
+        shutil.move(sb.cfg("niri"), os.path.join(dots, "niri"))
+        for d in ("alacritty", "niri"):
+            os.symlink(os.path.join(dots, d), sb.cfg(d))
+        before = sb.tree_hash(dots)
+        shutil.copytree(dots, sb.path("dots-before"), symlinks=True)
+        p = sb.cfg("alacritty", "alacritty.toml")
+        self.ok("apply", "--only", "alacritty", fams="alacritty")
+        self.assertNotEqual(sb.readb(p), mine)
+        shutil.rmtree(self.state_dir)
+        tp = core.Env(sb.env).tilde(p)
+        for argv in (("doctor",), ("remove",), ("apply", "--only", "alacritty"),
+                     ("adopt", "--rescue")):
+            code, out, err = sb.run(*argv, assume="alacritty")
+            self.assertEqual(code, 1, (argv, out + err))
+            self.assertIn(tp, out + err, argv)
+        code, out, err = sb.run("adopt", "--rescue", assume="alacritty")
+        self.assertIn("by hand", out + err)
+        self.assertFalse(os.path.exists(os.path.join(self.state_dir, "state.json")))
+        # cleaned by hand: everything runs again
+        shutil.rmtree(dots)
+        shutil.copytree(sb.path("dots-before"), dots, symlinks=True)
+        self.ok("doctor", fams="alacritty")
+        self.ok("apply", "--only", "alacritty", fams="alacritty")
+        self.ok("remove", fams="alacritty")
+        self.assertEqual(sb.tree_hash(dots), before)
+
 if __name__ == "__main__":
     unittest.main()

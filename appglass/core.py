@@ -2938,14 +2938,17 @@ def orphans(app):
     """With state.json missing: the files on disk that appglass wrote, the
     ones adopt --rescue would record (lost_claims). [] when state.json is
     there. appglass's own settings.json is not one: the user may have
-    written it."""
+    written it. A marked file reached through a symlink (or shared with
+    another path) is one too: the rescue cannot record it, but it is still
+    appglass's, so the refusal and doctor name it until it is cleaned."""
     if not app.state_missing:
         return []
     if app._orphans is None:
         from . import settings as _settings
         sp = _settings.path(app.env)
-        app._orphans = sorted(c["path"] for c in lost_claims(app)
-                              if c["kind"] != "retired" and c["path"] != sp)
+        claims, _d, _n, linked = _rescue_claims(app, app.backups_at_start)
+        app._orphans = sorted({c["path"] for c in claims
+                               if c["kind"] != "retired" and c["path"] != sp} | set(linked))
     return app._orphans
 
 
@@ -3115,14 +3118,16 @@ def _edit_created(undo, fn, text, made, mark=None):
 
 
 def _rescue_claims(app, backups=()):
-    """adopt --rescue: ([claim], [doubt], names) for the files appglass wrote,
+    """adopt --rescue: ([claim], [doubt], names, linked) for the files appglass wrote,
     edited or adopted. A claim is a dict: path, owner, kind (owned | edit |
     json | retired), data (the bytes now), undo, fn, keys (a merge's),
     backup (its original's name in backup/, when backups holds one), made
     (the ring shows appglass made the file). A doubt is a line for the user:
     a file that looks like appglass's but is left as it is. names: {name in
     backup/: path} of every path appglass may have backed up (the probe's,
-    the hand files', the ring's).
+    the hand files', the ring's). linked: the paths that look like appglass's
+    but are reached through a symlink or shared with another path (never
+    claimed; only a hand clean-up takes them out).
 
     Never claimed: a path reached through a symlinked dir or that is a
     symlink, a file that is also another path appglass writes or a file it
@@ -3181,7 +3186,9 @@ def _rescue_claims(app, backups=()):
     shared = {p for ps in inodes.values() if len(ps) > 1 for p in ps}
     names = {_bname(p): p for p in list(cand) + list(history)}
     read_bytes = {data for p, data in reads.items() if p not in cand and data}
-    out, doubts, weak, edits, merged = [], [], [], [], []
+    real = {os.path.realpath(p) for p in list(cand) + list(reads)
+            if not (os.path.islink(p) or _through_link(env, p))}
+    out, doubts, weak, edits, merged, linked_marked = [], [], [], [], [], []
 
     def looks(kind, undo, planned, data):
         return (bool(MARK.search(data)) or ADOPTED_MARK in data or HOOK_MARK in data
@@ -3208,6 +3215,11 @@ def _rescue_claims(app, backups=()):
         claim["data"] = data
         if linked or p in shared:
             if data and looks(kind, undo, planned, data):
+                if looks(kind, undo, None, data) and data not in read_bytes \
+                        and os.path.realpath(p) not in real:
+                    # appglass's own lines, in no file it writes or reads
+                    # at its real path (that one speaks for it)
+                    linked_marked.append(p)
                 doubts.append("%s %s: left as is (not recorded)" % (
                     t(p), "is reached through a symlink" if linked else
                     "is the same file as another path appglass writes or reads"))
@@ -3321,7 +3333,7 @@ def _rescue_claims(app, backups=()):
             doubts.append("%s holds a line like appglass's but nothing else proves it is: "
                           "left as is (not recorded)" % t(c["path"]))
     out.sort(key=lambda c: c["path"])
-    return out, doubts, names
+    return out, doubts, names, sorted(linked_marked)
 
 
 def _makes(fn, orig, data):
@@ -3459,9 +3471,22 @@ def cmd_rescue(app, dry_run=False):
     except OSError:
         backups = []
     history = _ring_history(env)
-    claims, doubts, names = _rescue_claims(app, backups)
+    claims, doubts, names, linked = _rescue_claims(app, backups)
     for d in doubts:
         app.warn("adopt --rescue: %s" % d)
+    from . import settings as _settings
+    if linked and not backups and not app.state_unreadable and all(
+            c["path"] == _settings.path(env) for c in claims):
+        # only files no record can prove: a state.json naming nothing would
+        # hide them, and apply would write over them as if they were yours
+        raise AppglassError(
+            "adopt --rescue: nothing to record: %s %s like appglass's but reached through a "
+            "symlink or shared with another path, so nothing proves it; take appglass's "
+            "lines out of %s (or delete %s) by hand, then apply and remove run again "
+            "(nothing written)" % (", ".join(t(p) for p in linked),
+                                   "looks" if len(linked) == 1 else "look",
+                                   "it" if len(linked) == 1 else "them",
+                                   "it" if len(linked) == 1 else "them"))
 
     def what(c):
         if c["kind"] == "edit" and c.get("from_backup"):
