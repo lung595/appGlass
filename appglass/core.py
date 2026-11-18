@@ -1267,15 +1267,18 @@ class App:
         if self.dry_run or self.state.dry or p in self._ring_files:
             return
         entry = self._ring_entry()
-        if os.path.islink(p):
-            rec = {"link": os.readlink(p)}
-        elif os.path.isfile(p):
+        rec = {"link": os.readlink(p)} if os.path.islink(p) else {}
+        if os.path.isfile(p):
+            # a link to a file (dotfiles): the bytes behind it too, the
+            # edits and merges write through it
             data = _read(p)
             blob = hashlib.sha1(p.encode()).hexdigest()[:16]
             bpath = os.path.join(entry, blob)
             self.env.guard(bpath)
             _write_durable(bpath, data)
-            rec = {"sha256": sha(data), "blob": blob, "mode": _mode(p)}
+            rec.update({"sha256": sha(data), "blob": blob, "mode": _mode(p)})
+        elif rec:
+            pass                # a link to no file: the link alone
         elif os.path.lexists(p):
             return              # not a file: appglass writes none there
         else:
@@ -3035,6 +3038,20 @@ def _ring_history(env):
     return out
 
 
+def _bname_paths(app, plan=()):
+    """{backup name: path} for every path appglass knows (the ring, the
+    state, the restore's plan): which file an original in backup/ is of."""
+    st = app.state
+    paths = set(plan) | set(_ring_history(app.env))
+    for o in st.owners.values():
+        paths.update((o.get("files") or {}).keys() if isinstance(o, dict) else ())
+    out = {_bname(p): p for p in paths}
+    for n, p in (st.data.get("originals") or {}).items():
+        if isinstance(p, str):
+            out.setdefault(n, p)
+    return out
+
+
 def _bname(p):
     """The name of p's original in backup/ (App.backup)."""
     return hashlib.sha1(p.encode()).hexdigest()[:16] + ".orig"
@@ -3796,23 +3813,36 @@ def cmd_restore(app, ident=None, list_only=False):
     blobs = {}
     for p, (n, d, rec) in plan.items():
         env.guard(p)
-        if not rec.get("absent") and "link" not in rec:
+        if rec.get("blob"):
             with open(os.path.join(d, rec["blob"]), "rb") as f:
                 data = f.read()
             if sha(data) != rec.get("sha256"):
                 raise AppglassError("restore: %s in %s is damaged" % (rec["blob"], n))
             blobs[p] = data
     app.ring_keep = ident
+    bdir = app.backup_dir()
+    held = []       # originals in backup/ the restore would take out
     for p, (n, d, rec) in sorted(plan.items()):
+        if rec.get("absent") and os.path.dirname(p) == bdir and os.path.isfile(p):
+            held.append(os.path.basename(p))
+            continue    # below, once the files are back
         app.snapshot(p)
         if rec.get("absent"):
             if os.path.lexists(p):
                 os.remove(p)
         elif "link" in rec:
-            if os.path.lexists(p):
-                os.remove(p)
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            os.symlink(rec["link"], p)
+            if not (os.path.islink(p) and os.readlink(p) == rec["link"]):
+                if os.path.lexists(p):
+                    os.remove(p)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                os.symlink(rec["link"], p)
+            if p in blobs:
+                # the bytes behind the link, written through it
+                env.guard(p)
+                os.makedirs(os.path.dirname(os.path.realpath(p)), exist_ok=True)
+                _inplace_write(p, blobs[p])
+                if rec.get("mode") is not None:
+                    os.chmod(p, rec["mode"])
         else:
             os.makedirs(os.path.dirname(p), exist_ok=True)
             _atomic_write(p, blobs[p])
@@ -3832,22 +3862,40 @@ def cmd_restore(app, ident=None, list_only=False):
     st = app.state.path
     env.guard(st)
     saved = os.path.join(src, "state.json")
-    if m.get("state") and os.path.isfile(saved):
+    has_state = bool(m.get("state") and os.path.isfile(saved))
+    if not has_state and os.path.isdir(bdir):
+        # before appglass had a state: every original in backup/ goes
+        held = sorted(set(held) | set(os.listdir(bdir)))
+    # an original goes only once its file holds it again: one the entry
+    # did not put back (a ring record of a link with no bytes, an entry
+    # without that file) stays, the only copy
+    where = _bname_paths(app, plan)
+    kept = {}
+    for n in sorted(held):
+        bp = os.path.join(bdir, n)
+        env.guard(bp)
+        b = _read(bp)
+        q = where.get(n)
+        if b is not None and not (q and os.path.isfile(q) and _read(q) == b):
+            kept[n] = q
+            continue
+        app.snapshot(bp)
+        os.remove(bp)
+    if os.path.isdir(bdir) and not os.listdir(bdir):
+        os.rmdir(bdir)
+    if has_state:
         with open(saved, "rb") as f:
             _atomic_write(st, f.read())
-    else:
-        # before appglass had a state: an original no entry of the chain
-        # knew (a ring older than that) goes into the ring with it
-        bdir = app.backup_dir()
-        for n in sorted(os.listdir(bdir)) if os.path.isdir(bdir) else []:
-            bp = os.path.join(bdir, n)
-            env.guard(bp)
-            app.snapshot(bp)
-            os.remove(bp)
-        if os.path.isdir(bdir):
-            os.rmdir(bdir)
-        if os.path.lexists(st):
-            os.remove(st)
+    elif os.path.lexists(st):
+        os.remove(st)
+    t = env.tilde
+    for n, q in sorted(kept.items()):
+        bp = os.path.join(bdir, n)
+        app.warn("restore: %s holds the original of %s, which this entry did not put back: "
+                 "kept there, and the state folder with it, until that file holds it again%s"
+                 % (t(bp), t(q) if q else "a file the ring does not name",
+                    " (cp %s %s puts it back)" % (t(bp), t(q)) if q else
+                    " (appglass restore --list shows the ring)"))
     app.state = State(env)
     app.state.event_guard = app.no_event
     if not os.path.lexists(st):
@@ -3860,6 +3908,11 @@ def cmd_restore(app, ident=None, list_only=False):
             except (AttributeError, ValueError, KeyError, TypeError):
                 parents = []
             app.state.data["state_parents"] = list(parents or [])
+            app.state.save()
+    if kept and os.path.lexists(st):
+        named = {k: v for k, v in kept.items() if v}
+        if named:
+            app.state.data["originals"] = dict(app.state.data.get("originals") or {}, **named)
             app.state.save()
     app.keep_state_dir = True
     app.info("restore: %s put back (%d file%s%s%s); the state before it is %s"

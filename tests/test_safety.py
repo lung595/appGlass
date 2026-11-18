@@ -773,6 +773,103 @@ class RestoreOlder(Base):
             self.assertTrue(os.path.isfile(os.path.join(self.ring, e, "manifest.json")), e)
 
 
+class RestoreThroughALink(Base):
+    """w2 r2 B/C: a config file that is a symlink into dotfiles (stow):
+    apply edits it through the link, so the ring holds the bytes behind the
+    link and restore puts them back there."""
+
+    def dotfiles(self, rels):
+        dots = os.path.join(self.sb.home, "dotfiles")
+        os.makedirs(dots)
+        for rel in rels:
+            src = self.sb.cfg(rel)
+            dst = os.path.join(dots, os.path.basename(rel))
+            shutil.move(src, dst)
+            os.symlink(dst, src)
+        return dots
+
+    def test_restore_oldest_undoes_the_edits_behind_the_links(self):
+        dots = self.dotfiles(("alacritty/alacritty.toml", "niri/config.kdl"))
+        before = self.sb.tree_hash(dots)
+        self.apply()
+        self.assertNotEqual(self.sb.tree_hash(dots), before)
+        self.sb.set_level(0.5)
+        self.apply()
+        code, out, err = self.sb.run("restore", self.entries()[0])
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.tree_hash(dots), before)
+        for rel in ("alacritty/alacritty.toml", "niri/config.kdl"):
+            self.assertTrue(os.path.islink(self.sb.cfg(rel)), rel)
+        for argv in (("doctor",), ("apply", "--only", "alacritty"), ("remove",)):
+            code, out, err = self.sb.run(*argv, assume="alacritty")
+            self.assertEqual(code, 0, (argv, out + err))
+        self.assertEqual(self.sb.tree_hash(dots), before)
+
+    def test_restore_newest_after_a_lost_state_json(self):
+        dots = self.dotfiles(("alacritty/alacritty.toml", "niri/config.kdl"))
+        before = self.sb.tree_hash(dots)
+        self.apply()
+        os.remove(self.state_json)
+        code, out, err = self.sb.run("restore")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.tree_hash(dots), before)
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.sb.tree_hash(dots), before)
+
+    def test_a_dux_file_behind_a_link_keeps_the_users_values(self):
+        mine = (b'{\n    "floatingWindowTransparency": 0.9,\n    "blurEnabled": false,\n'
+                b'    "sidebarWidth": 240\n}')
+        dots = os.path.join(self.sb.home, "dotfiles")
+        os.makedirs(dots)
+        with open(os.path.join(dots, "ui-settings.json"), "wb") as f:
+            f.write(mine)
+        p = self.sb.cfg("dfiles", "ui-settings.json")
+        os.makedirs(os.path.dirname(p))
+        os.symlink(os.path.join(dots, "ui-settings.json"), p)
+        for lose in (False, True):
+            with self.subTest(lose=lose):
+                code, out, err = self.sb.run("apply", "--only", "dux", assume="dux")
+                self.assertEqual(code, 0, out + err)
+                self.assertNotEqual(self.sb.readb(p), mine)
+                if lose:
+                    os.remove(self.state_json)
+                code, out, err = self.sb.run("restore", assume="dux")
+                self.assertEqual(code, 0, out + err)
+                self.assertEqual(self.sb.readb(p), mine, out + err)
+                code, out, err = self.sb.run("apply", "--only", "dux", assume="dux")
+                self.assertEqual(code, 0, out + err)
+                code, out, err = self.sb.run("remove", assume="dux")
+                self.assertEqual(code, 0, out + err)
+                self.assertEqual(self.sb.readb(p), mine, out + err)
+                self.assertTrue(os.path.islink(p))
+
+    def test_restore_keeps_an_original_it_did_not_put_back(self):
+        # an entry that cannot give a file back (its record taken out): the
+        # original in backup/ stays, and the state folder with it
+        main = self.sb.cfg("alacritty", "alacritty.toml")
+        mine = self.sb.readb(main)
+        self.apply()
+        first = self.entries()[0]
+        mp = os.path.join(self.ring, first, "manifest.json")
+        m = self.manifest(first)
+        del m["files"][main]
+        with open(mp, "w") as f:
+            json.dump(m, f)
+        code, out, err = self.sb.run("restore", first)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn(self.env.tilde(main), out + err)
+        bdir = os.path.join(self.state_dir, "backup")
+        self.assertIn(mine, [self.sb.readb(os.path.join(bdir, n)) for n in os.listdir(bdir)])
+        # no state.json before that entry: the rescue records the edit
+        # again from that original, remove takes it out
+        for argv in (("adopt", "--rescue"), ("remove",)):
+            code, out, err = self.sb.run(*argv)
+            self.assertEqual(code, 0, (argv, out + err))
+        self.assertEqual(self.sb.readb(main), mine)
+        self.assertFalse(os.path.exists(self.state_dir))
+
+
 class DoctorRound2(Base):
     def doctor(self, *extra):
         return self.sb.run("doctor", *extra, assume="alacritty")
