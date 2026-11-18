@@ -687,6 +687,18 @@ class Requirements(unittest.TestCase):
             self.assertIn(tool, req, tool)
 
 
+class Privacy(unittest.TestCase):
+    def test_privacy_says_where_edits_and_runtime_files_go(self):
+        p = section(read("README.md"), "Privacy")
+        self.assertNotIn("your edit stays when you remove it", p)
+        self.assertNotIn("writes only under your home folder and", p)
+        self.assertIn(".appglass-changed", p)
+        self.assertIn("created whole", p)
+        self.assertIn("XDG_RUNTIME_DIR", p)
+        self.assertIn('private_dir "${XDG_RUNTIME_DIR:-}"',
+                      read("shims", "electron-hook", "appglass-feishin"))
+
+
 class FadeRoutes(unittest.TestCase):
     """inactive.py lists the routes that fade; the CHANGELOG names them and
     the README Roadmap names the ones that do not."""
