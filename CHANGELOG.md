@@ -39,7 +39,8 @@ The first release.
   for the app's current version (`appglass verify`). An update sends them back to the check.
   The check runs at your level (it copies the DMS glass rule and `foregroundLayerTransparency`)
   and in your colour scheme, and measures the app's own main window, never a helper dialog
-  such as zenity. A check that cannot judge is "unverifiable" and changes nothing. A Native
+  such as zenity, with no network (its own network namespace). A check that cannot judge is
+  "unverifiable" and changes nothing: a pass or fail stored for that version is kept. A Native
   route is never paused by a failed check: it is shown in `appglass status`, the glass stays.
   An app with a window open on the desktop is not checked until it is closed.
 - **Detection.** `appglass detect` finds the toolkit of each installed app.

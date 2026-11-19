@@ -1658,7 +1658,9 @@ class Harness(unittest.TestCase):
                 os.makedirs(os.path.join(run, "h"))
                 return os.path.join(run, "h")
             verify.stage = bare
-            r = verify.run_harness(app, {"key": "x", "fp": "1"}, 0.8)
+            from unittest import mock
+            with mock.patch.object(verify, "mask_argv", lambda *a, **k: ["/x/bwrap", "--"]):
+                r = verify.run_harness(app, {"key": "x", "fp": "1"}, 0.8)
             self.assertEqual(r["result"], "unverifiable")
             self.assertIn("level 0.60, not 0.80", r["reason"])
             self.assertFalse(os.path.exists(mark))

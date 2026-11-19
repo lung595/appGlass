@@ -1103,10 +1103,45 @@ class HiddenScope(unittest.TestCase):
         self.assertEqual(seen, {})
         self.assertEqual(os.listdir(self.base), [])          # nothing left behind
 
-    def test_a_host_app_without_the_mask_still_runs(self):
+    def test_a_host_app_without_the_mask_is_not_started(self):
+        """Every check runs with no network: without bwrap's namespace a
+        host app is not started either (it would reach the network)."""
         r, seen = self.harness({"key": "gedit", "fp": "1"}, None)
+        self.assertEqual(r["result"], "unverifiable")
+        self.assertIn("the network", r["reason"])
+        self.assertEqual(seen, {})
+
+    def test_a_family_that_needs_the_network_opts_out(self):
+        from unittest import mock
+        app = core.App(self.sb.env, quiet=True)
+        with mock.patch.object(verify, "RESOLVE", self.sb.path("no-resolve")):
+            self.assertEqual(verify.verify_mask(app, {"key": "gedit"}),
+                             {"hide": [], "nonet": True})
+        fam = mock.Mock(verify_mask=lambda rec: {"nonet": False})
+        with mock.patch.object(verify, "route_of", lambda a, r: {"family": "netfam"}), \
+                mock.patch.dict(app.families, {"netfam": fam}):
+            self.assertEqual(verify.verify_mask(app, {"key": "x"}), {"hide": [], "nonet": False})
+        with mock.patch.object(verify, "verify_mask", lambda a, r: {"hide": [], "nonet": False}):
+            r, seen = self.harness({"key": "x", "fp": "1"}, None)
         self.assertIsNone(r)
         self.assertEqual(seen["argv"][0], "dbus-run-session")
+
+    def test_no_network_hides_the_resolver(self):
+        """resolved answers DNS over its varlink socket from out of the
+        network namespace: with no network its dir is hidden too, unless
+        the family hides a dir above it already."""
+        from unittest import mock
+        app = core.App(self.sb.env, quiet=True)
+        res = self.sb.path("run", "systemd", "resolve")
+        os.makedirs(res)
+        with mock.patch.object(verify, "RESOLVE", res):
+            self.assertEqual(verify.verify_mask(app, {"key": "gedit"})["hide"], [res])
+            fam = mock.Mock(verify_mask=lambda rec: {"hide": [os.path.dirname(res)],
+                                                     "nonet": True})
+            with mock.patch.object(verify, "route_of", lambda a, r: {"family": "f"}), \
+                    mock.patch.dict(app.families, {"f": fam}):
+                self.assertEqual(verify.verify_mask(app, {"key": "x"})["hide"],
+                                 [os.path.dirname(res)])
 
     def test_the_mask_argv(self):
         env = core.App(self.sb.env, quiet=True).env

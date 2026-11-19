@@ -1060,16 +1060,17 @@ class HiddenCheckNeeds(unittest.TestCase):
 
 class NetworkPrivacy(unittest.TestCase):
     """appglass downloads nothing itself, but the Vencord installer the sync
-    unit re-runs does, and the hidden check runs the app with the network."""
+    unit re-runs does; the hidden check runs the app with no network."""
 
     def test_privacy_owns_up_to_the_vencord_download_and_the_check(self):
         self.assertIn("VencordInstallerCli-linux\" -install", read("bin", "appglass-sync"))
-        self.assertIn("no `--unshare-net`", doc("engine.md"))
+        self.assertIn("Every check also gets its own network namespace (`--unshare-net`",
+                      doc("engine.md"))
         p = section(read("README.md"), "Privacy")
         self.assertNotIn("Nothing is downloaded", p)
         self.assertNotIn("**No network.**", p)
         self.assertRegex(p, r"Vencord installer[^\n]*downloads")
-        self.assertRegex(p, r"hidden check[^\n]*network")
+        self.assertRegex(p, r"hidden check[^\n]*with no network")
 
 
 class FallbackOpacity(unittest.TestCase):

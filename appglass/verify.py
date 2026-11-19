@@ -583,13 +583,25 @@ def session_paths(rt=None, prefix=None):
     return out
 
 
+# resolved's varlink sockets: they answer DNS from out of a network namespace
+RESOLVE = "/run/systemd/resolve"
+
+
 def verify_mask(app, rec):
-    """The app's family's verify_mask(rec): {"hide": [paths], "nonet": bool},
-    or nothing more than the base mask."""
+    """The app's family's verify_mask(rec) over the base mask: {"hide":
+    [paths], "nonet": bool}. Every check runs with no network (an app with
+    a fresh HOME would announce itself on the LAN, or sync); a family that
+    truly needs it says "nonet": False. With no network, resolved's dir is
+    hidden too (unless a dir above it is)."""
     fam = app.families.get(route_of(app, rec).get("family") or "")
     fn = getattr(fam, "verify_mask", None)
-    m = fn(rec) if fn else None
-    return {"hide": list((m or {}).get("hide") or ()), "nonet": bool((m or {}).get("nonet"))}
+    m = (fn(rec) if fn else None) or {}
+    hide = list(m.get("hide") or ())
+    nonet = m.get("nonet", True) is not False
+    if nonet and os.path.isdir(RESOLVE) and \
+            not any(RESOLVE == h or RESOLVE.startswith(h.rstrip(os.sep) + os.sep) for h in hide):
+        hide.append(RESOLVE)
+    return {"hide": hide, "nonet": nonet}
 
 
 def verify_alphas(app, rec, level):
@@ -722,7 +734,7 @@ def run_harness(app, rec, level):
     if mask is None and (want["hide"] or want["nonet"]):
         return {"result": "unverifiable",
                 "reason": "no bwrap mount namespace: the app would reach %s"
-                          % (", ".join(want["hide"]) or "the network")}
+                          % ", ".join(want["hide"] + (["the network"] if want["nonet"] else []))}
     if mask is None and is_flatpak(rec):
         return {"result": "unverifiable", "reason": NO_MASK}
     base = private_base(env)
