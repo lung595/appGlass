@@ -14,8 +14,10 @@ By default the levels follow DMS (`levels.content` and `levels.bar` in `~/.confi
 `appglass levels` prints them. At a content level of 0.60:
 
 ```json
-{"content": 0.6, "bar": 0.65, "popup": 1.0, "bar_over_content": 0.125, "content8": 153, "bar8": 166, "popup8": 255}
+{"content": 0.6, "bar": 0.65, "popup": 1.0, "bar_over_content": 0.125, "content8": 153, "bar8": 166, "popup8": 255, "inactive": 0.6, "fade_ms": 0, "fade_easing": "ease-out-cubic", "fade": "0ms cubic-bezier(0.33, 1, 0.68, 1)"}
 ```
+
+`inactive` is the background level of an unfocused window, and `fade_ms`, `fade_easing` and `fade` (the same as a CSS transition) are its fade. At 0.60 the unfocused level is the content level, so there is no fade.
 
 `bar_over_content` is there because alphas stack. A bar drawn on top of the 0.60 content must itself be painted at `(0.65 - 0.60) / (1 - 0.60) = 0.125` to end at 0.65. Painting it at 0.65 gives 0.86.
 

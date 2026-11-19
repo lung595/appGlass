@@ -1361,3 +1361,23 @@ class ContentLevelSetting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LevelsExample(unittest.TestCase):
+    """engine.md's `appglass levels` example is what the command prints at
+    0.60 (every key, every value)."""
+
+    def test_the_example_is_the_real_output(self):
+        sb = Sandbox()
+        try:
+            sb.seed_dms()
+            sb.seed_niri()
+            code, out, err = sb.run("levels")
+        finally:
+            sb.cleanup()
+        self.assertEqual(code, 0, err)
+        t = read("docs", "engine.md")
+        m = re.search(r"`appglass levels` prints them\. At a content level of 0\.60:\n\n"
+                      r"```json\n(.*)\n```", t)
+        self.assertIsNotNone(m)
+        self.assertEqual(json.loads(m.group(1)), json.loads(out))
