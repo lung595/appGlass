@@ -1021,6 +1021,11 @@ class HiddenCheckNeeds(unittest.TestCase):
         row = next(l for l in req.splitlines() if "`bwrap`" in l)
         self.assertIn("flatpak", row)
         self.assertRegex(req, r"hidden check")
+        # every check runs off the network and the system bus (verify_mask):
+        # without bwrap no Forced or Mod app is checked, not only a flatpak
+        self.assertIn("every hidden check", row.lower())
+        guide = read("docs", "guide.md")
+        self.assertIn("`bwrap` (with user namespaces) for every hidden check", guide)
 
     def test_the_requirements_name_jq_for_the_discord_update(self):
         self.assertIn("jq -e '.owners.vencord'", read("bin", "appglass-sync"))

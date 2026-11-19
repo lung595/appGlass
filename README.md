@@ -32,7 +32,7 @@ The glass level follows your DMS window opacity.
 | Host Qt | 6.11 or newer | Jellyfin Desktop only |
 | A DMS window rule with an opacity | No match, blur on | The glass level itself (optional, see below) |
 | `gamescope`, `niri`, `dbus-run-session` and `ffmpeg` | Any | The hidden check of the Forced and Mod routes. Without them the check cannot run, and those routes stay plain |
-| `bwrap` (bubblewrap), with user namespaces | Any | The hidden check of a flatpak app, and of the WebKitGTK apps (Lian Li, Kiri, ...), on a Forced or Mod route. Without it those checks cannot run, and those apps stay plain |
+| `bwrap` (bubblewrap), with user namespaces | Any | Every hidden check (host and flatpak apps alike): each one runs with no network, no system bus and no session bus of yours, in a bwrap namespace. Without it no Forced or Mod app is checked, and those routes stay plain unless you switch them on |
 | `jq` | Any | The glass launchers of the Forced routes: Feishin, VSCodium, Lian Li and the other WebKitGTK apps (Kiri, ...), LocalSend, ArtCraft and Jellyfin. Also putting Vencord back after a Discord update, with the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` ([how](docs/routes.md#discord-vencord)) |
 | `notify-send` (libnotify) | Any | The notifications (a failed check, a Discord update). Optional: without it you get none, and the app rows still say what happened |
 
@@ -112,7 +112,7 @@ The GIFs are crossfades between real screenshots, taken in a separate test sessi
 - **Colours follow DMS.** A wallpaper or scheme change re-renders the app colours through the matugen hook.
 - **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin and the WebKitGTK apps (Kiri; Lian Li has it built in but stays opaque unless you switch it on). Recorded in a session: the fade of GTK3, VLC, Feishin and Jellyfin; for Kiri, the focused and unfocused levels (204 and 184 at 0.80, `tests/e2e/webkit.sh`), not the steps of the fade; the others are unit-tested only ([routes.md](docs/routes.md) says so per app). Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
 - **New and updated apps are found on their own.** A new app is routed within seconds.
-- **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts every file back as it was: the files it created are deleted, the ones it edited get their original bytes back, and an edit you made after appglass is kept. A file appglass owns whole that you edited by hand is saved as `<file>.appglass-changed` before the next apply writes it again, and a link you put over a file it created is left as is.
+- **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts every file back as it was: the files it created are deleted, the ones it edited get their original bytes back, and an edit you made after appglass is kept. A file appglass owns whole that you edited by hand is saved as `<file>.appglass-changed` before the next apply or hook run writes it again. A link you put over a file it created (to a dotfiles folder) is yours: apply, hook runs and remove leave it as is, and its colours no longer follow DMS.
 - **Never touched:** games, root GUIs, the windows DMS draws itself, and Firefox-family browsers (those belong to [browserGlass](https://github.com/lung595/browserGlass)).
 
 ### Which apps get glass
@@ -130,7 +130,7 @@ The status chip on the right of the row tells you what the app has now:
 - **Stale**: the app was updated, so its old check no longer counts. The app runs plain until the next check passes.
 - **Paused**: the glass is paused, or you switched a Native app off.
 - **Conflict**: a hand-made file that appGlass does not own is in the way.
-- **Fallback**: no route for this app, its family is not installed or skipped (a `~/.config/gtk-4.0/gtk.css` of your own without the glass import, Obsidian with no vault), the hidden check of a Forced or Mod app failed, or you switched a Forced or Mod app off. It gets the fallback look from **Settings → Fallback**: opaque by default, translucent (text too), or the DMS opacity.
+- **Fallback**: no route for this app, its family is not installed or skipped (a `~/.config/gtk-4.0/gtk.css` of your own without the glass import, Obsidian with no vault), the hidden check of a Forced or Mod app failed, its hidden check could not run (could not be checked), or you switched a Forced or Mod app off. It gets the fallback look from **Settings → Fallback**: opaque by default, translucent (text too), or the DMS opacity.
 - **Opaque**: kept opaque on purpose, in every fallback mode. The window stays opaque and sharp.
 - **Game: never touched**: a game. Opaque, with blur off.
 - **Delegated**: owned by someone else: Firefox-family browsers belong to browserGlass. Windows DMS draws itself show as Delegated too. appGlass never touches them.
@@ -189,7 +189,7 @@ dms ipc call appGlass app gtk3 on
 appglass remove && appglass plugin remove
 ```
 
-Every file is put back as it was (files appglass created are deleted, your later edits are kept). The hook and the user units go too. Your other DMS plugins are not touched. Then delete the clone if you like, and the link you made in Install:
+Every file is put back as it was (files appglass created are deleted, your edits to them too; your later edits to files appglass edited are kept). The hook and the user units go too. Your other DMS plugins are not touched. Then delete the clone if you like, and the link you made in Install:
 
 ```sh
 rm ~/.local/bin/appglass

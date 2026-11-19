@@ -38,8 +38,12 @@ Measured in a nested test session (see [apps.md](apps.md) for the numbers):
 - Forced routes, after their hidden check: Feishin, VSCodium, Kiri (generic WebKit shim),
   Jellyfin Desktop, LocalSend, ArtCraft Launcher.
 - Unfocused fade, DMS level follow, matugen colour follow, automatic routing of new apps.
-- `appglass remove` puts every file back. Created files are deleted, edited files get their
-  original back, and edits you made after appglass are kept.
+- `appglass remove` puts every file back. Created files are deleted (with any edits you made
+  to them), edited files get their original back, and your later edits to files appglass
+  edited are kept.
+- A file appglass owns whole that you edited by hand is saved as `<file>.appglass-changed`
+  before the next apply or hook run writes it again (once, `doctor --fix` included). A symlink
+  you put over a file appglass created is yours: apply, hook runs and remove leave it as is.
 - Games, root GUIs, DMS windows and Firefox-family browsers are never touched.
 
 ## What does not work, or is not tested
@@ -78,11 +82,6 @@ From the last review. They are minor, and none of them blocks a release:
   an unnamed `.orig` when a commit only backs up (the next apply refuses with a `.damaged` hint);
   a cut inside remove's undo write of a file you edited (the original comes back, the cut
   bytes are saved aside).
-- If you replace a file appglass created with a symlink of your own, `appglass remove` deletes
-  that link (its target is kept). Fix: treat an owned path that became a link as yours.
-- A hook run (`apply --from-hook`) rewrites a generated file you edited by hand (for example a
-  flatpak's `dank-colors.css`) without saving your edit aside, while `doctor --fix` does save it.
-  Fix: save it aside on hook runs too.
 - Roadmap items: `appglass setup`, `appglass pause/resume`, a per-app off for Native apps that
   takes their files out, `appglass set` with dotted app ids, a generic Electron route, fade for
   more routes. See the README.
