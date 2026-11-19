@@ -141,6 +141,14 @@ def _dump(obj):
     return json.dumps(obj, indent=2) + "\n"
 
 
+def verify_seed(env):
+    """The hidden check's first run: Herdr's onboarding marked finished in
+    the throwaway shared.json (merged over the staged glass keys), or its
+    Welcome dialog covers about 75 % of the window and the shot measures
+    the dialog. The hidden session's Herdr home is the XDG default."""
+    return {os.path.join(".config", "herdr-app", "shared.json"): {"frame.welcomed": "finished"}}
+
+
 def apply(ctx):
     home = app_home(ctx.env)
     main_path = os.path.join(home, "layouts", "main.json")

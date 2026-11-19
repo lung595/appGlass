@@ -338,9 +338,11 @@ def staged_level(home):
 def seed(app, rec, home):
     """The app's own first-run state in the throwaway home (its family's
     verify_seed: {path under HOME: bytes}), so no first-run dialog covers
-    the window the check shoots. A generic family's hook takes the record
-    too (verify_seed(env, rec)): it seeds the apps it knows, the others
-    start as they are. Returns why it cannot be seeded, or None."""
+    the window the check shoots. A dict instead of bytes is merged into
+    the JSON object staged there (Herdr's shared.json holds glass keys). A
+    generic family's hook takes the record too (verify_seed(env, rec)): it
+    seeds the apps it knows, the others start as they are. Returns why it
+    cannot be seeded, or None."""
     fam = app.families.get(route_of(app, rec).get("family") or "")
     fn = getattr(fam, "verify_seed", None)
     if fn is None:
@@ -354,6 +356,14 @@ def seed(app, rec, home):
     for rel, data in files.items():
         dst = os.path.join(home, rel)
         os.makedirs(os.path.dirname(dst), mode=0o700, exist_ok=True)
+        if isinstance(data, dict):
+            try:
+                with open(dst, "rb") as f:
+                    cur = json.loads(f.read().decode("utf-8"))
+            except (OSError, ValueError):
+                cur = None
+            data = (json.dumps(dict(cur if isinstance(cur, dict) else {}, **data),
+                               indent=1) + "\n").encode("utf-8")
         with open(dst, "wb") as f:
             f.write(data)
     return None

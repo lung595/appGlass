@@ -414,5 +414,39 @@ class Herdr(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class VerifySeed(unittest.TestCase):
+    """Herdr's onboarding (its Welcome dialog over 75 % of the window) is
+    marked finished in the throwaway shared.json, merged over the staged
+    glass keys: the check shoots the glass, not the dialog."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        self.sb.seed_dms()
+        self.sb.seed_niri()
+        self.sb.seed("herdr/main.json", os.path.join("herdr-app", "layouts", "main.json"))
+        self.sb.write(os.path.join("herdr-app", "shared.json"),
+                      '{"layout": "main", "space.colors": {"sp1": "ansi6"}}\n')
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def test_the_welcome_is_seeded_finished(self):
+        from unittest import mock
+        from appglass import verify
+        code, out, err = self.sb.run("apply", "--only", "herdr", assume="herdr")
+        self.assertEqual(code, 0, err)
+        app = core.App(self.sb.env, quiet=True)
+        rec = {"key": "herdr-app", "fp": "1"}
+        with mock.patch.object(verify, "route_of", lambda a, r: {"family": "herdr"}):
+            home = verify.stage(app, rec, self.sb.path("run"))
+            self.assertIsNone(verify.seed(app, rec, home))
+        with open(os.path.join(home, ".config", "herdr-app", "shared.json")) as f:
+            got = json.load(f)
+        self.assertEqual(got, {"layout": "appglass", "frame.welcomed": "finished",
+                               "space.colors": {"sp1": "ansi6"}})
+        # the user's own shared.json is not touched
+        self.assertNotIn("frame.welcomed", self.sb.read(self.sb.cfg("herdr-app", "shared.json")))
+
+
 if __name__ == "__main__":
     unittest.main()
