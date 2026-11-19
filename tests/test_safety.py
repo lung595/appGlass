@@ -695,6 +695,45 @@ class UserLinkOverOwned(Base):
         self.assertEqual(code, 0, err)
         self._assert_link_kept(mine, data)
 
+    def test_restore_leaves_a_link_you_put_over_a_created_file(self):
+        # the pre-apply entry (the file was absent), with or without state.json
+        for drop_state in (False, True):
+            with self.subTest(drop_state=drop_state):
+                self.tearDown()
+                self.setUp()
+                mine, data = self._link_over_owned()
+                first = self.entries()[0]
+                if drop_state:
+                    os.remove(self.state_json)
+                code, out, err = self.sb.run("restore", first, assume="alacritty")
+                self.assertEqual(code, 0, err)
+                self.assertTrue(os.path.islink(self.owned()))
+                self.assertEqual(os.readlink(self.owned()), mine)
+                self.assertEqual(self.sb.readb(mine), data)
+                self.assertIn("is a link now", err)
+
+    def test_restore_of_a_newer_entry_leaves_the_link_too(self):
+        self.apply()
+        code, out, err = self.sb.run("set", "levels.content", "0.7", "--apply",
+                                     assume="alacritty")
+        self.assertEqual(code, 0, err)
+        mine = os.path.join(self.sb.home, "dotfiles", "appglass.toml")
+        os.makedirs(os.path.dirname(mine))
+        shutil.move(self.owned(), mine)
+        os.symlink(mine, self.owned())
+        with open(mine, "ab") as f:
+            f.write(b"# my tweak\n")
+        data = self.sb.readb(mine)
+        code, out, err = self.sb.run("restore", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.islink(self.owned()))
+        self.assertEqual(self.sb.readb(mine), data)
+        self.assertIn("is a link now", err)
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.islink(self.owned()))
+        self.assertEqual(self.sb.readb(mine), data)
+
     def test_doctor_does_not_report_a_link_you_put_over_a_created_file(self):
         mine, data = self._link_over_owned()
         with open(mine, "ab") as f:

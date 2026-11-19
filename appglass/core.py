@@ -4440,6 +4440,12 @@ def cmd_restore(app, ident=None, list_only=False):
         if rec.get("absent") and os.path.dirname(p) == bdir and os.path.isfile(p):
             held.append(os.path.basename(p))
             continue    # below, once the files are back
+        if os.path.islink(p) and "link" not in rec:
+            # a link now where the entry saw a plain file (or none): yours
+            # (to a dotfiles folder), put there since; appglass makes none
+            app.warn("%s is a link now (it was not when the ring entry was taken); "
+                     "left as is" % env.tilde(p))
+            continue
         app.snapshot(p)
         if rec.get("absent"):
             if os.path.lexists(p):

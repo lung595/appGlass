@@ -43,7 +43,7 @@ Measured in a nested test session (see [apps.md](apps.md) for the numbers):
   edited are kept.
 - A file appglass owns whole that you edited by hand is saved as `<file>.appglass-changed`
   before the next apply or hook run writes it again (once, `doctor --fix` included). A symlink
-  you put over a file appglass created is yours: apply, hook runs and remove leave it as is.
+  you put over a file appglass created is yours: apply, hook runs, restore and remove leave it as is.
 - Games, root GUIs, DMS windows and Firefox-family browsers are never touched.
 
 ## What does not work, or is not tested
