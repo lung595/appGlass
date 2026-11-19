@@ -112,8 +112,13 @@ def _no_vencord(env):
 
 
 def skip_reason(env, rec):
-    """Why a glass Discord is plain: apply skips without Vencord (status)."""
-    return _no_vencord(env)
+    """Why a glass Discord is plain (status): apply skips without Vencord,
+    and gives no glass rule while Vencord is not in the newest host dir."""
+    why = _no_vencord(env)
+    if why or injected(env):
+        return why
+    return ("Vencord is not in %s (a Discord update?): no glass until the sync unit "
+            "re-injects it" % env.tilde(host_dir(env) or discord_dir(env)))
 
 
 def apply(ctx):

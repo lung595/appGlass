@@ -76,6 +76,14 @@ class Vencord(unittest.TestCase):
         self.assertIn("Vencord is not in", err)
         self.assertNotIn("discord", self.niri())
         self.assertTrue(os.path.exists(self.w.user(THEME)))
+        # status says so too: plain until it is re-injected, not glass
+        self.w.exe("discord")
+        self.w.launcher("discord.desktop", "[Desktop Entry]\nType=Application\nName=Discord\n"
+                        "Exec=discord\n")
+        out, err = self.run_ok("status", "--json")
+        d = {a["key"]: a for a in json.loads(out)["apps"]}["discord"]
+        self.assertEqual(d["effective"], "fallback", d)
+        self.assertIn("Vencord is not in", d["reason"])
 
     def test_no_vencord(self):
         import shutil
