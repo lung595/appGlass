@@ -796,6 +796,24 @@ def _scrub(run):
     for m in sorted(mounts, key=len, reverse=True):
         subprocess.run([fm, "-u", "-z", m], stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
+    # an app can leave read-only dirs (Dux unpacks its QML 0555 into the
+    # runtime dir): rm cannot empty them. Make every dir of the tree ours
+    # writable first (no link followed, this file system only)
+    try:
+        dev = os.lstat(run).st_dev
+    except OSError:
+        dev = None
+    for dp, dns, _ in os.walk(run):
+        for n in list(dns):
+            q = os.path.join(dp, n)
+            try:
+                st = os.lstat(q)
+                if st.st_dev != dev or not stat.S_ISDIR(st.st_mode):
+                    dns.remove(n)
+                elif st.st_mode & 0o700 != 0o700:
+                    os.chmod(q, 0o700)
+            except OSError:
+                dns.remove(n)
     subprocess.run(["rm", "-rf", "--one-file-system", run], stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL)
 

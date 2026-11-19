@@ -922,6 +922,36 @@ class Cleanup(unittest.TestCase):
         self.assertTrue(os.path.exists(new))
         self.assertTrue(os.path.exists(other))
 
+    def test_a_read_only_tree_is_scrubbed(self):
+        """Dux unpacks its QML read-only into $XDG_RUNTIME_DIR/<app>-shell:
+        the private dir still goes, a link out of it is not followed."""
+        run = os.path.join(self.base, "agv.ro1")
+        d = os.path.join(run, "rt", "dankcal-shell", "1695", "Widgets")
+        os.makedirs(d)
+        _w(os.path.join(d, "a.qml"), "x")
+        outside = self.sb.path("outside")
+        os.makedirs(outside)
+        _w(os.path.join(outside, "keep"), "x")
+        os.chmod(outside, 0o555)
+        os.symlink(outside, os.path.join(run, "rt", "link"))
+        for p in (os.path.join(d, "a.qml"), d, os.path.dirname(d)):
+            os.chmod(p, 0o555 if os.path.isdir(p) else 0o444)
+        try:
+            verify._scrub(run)
+            self.assertFalse(os.path.exists(run))
+            self.assertTrue(os.path.exists(os.path.join(outside, "keep")))
+            self.assertEqual(os.stat(outside).st_mode & 0o777, 0o555)
+        finally:
+            os.chmod(outside, 0o755)
+        old = os.path.join(self.base, "agv.ro2")
+        ro = os.path.join(old, "rt", "dfiles-shell", "x")
+        os.makedirs(ro)
+        os.chmod(ro, 0o555)
+        t = time.time() - 3600
+        os.utime(old, (t, t))
+        verify.sweep(self.base)
+        self.assertFalse(os.path.exists(old))
+
     def test_kill_session_by_runtime_dir(self):
         run = os.path.join(self.base, "agv.k1")
         rt = os.path.join(run, "rt")
