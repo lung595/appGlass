@@ -79,7 +79,8 @@ The first release.
   Discord's check measured the bootstrap's zenity updater (Discord cannot be checked: unverifiable).
 - **Lian Li's check is unverifiable, never a fail:** with its daemon hidden (as the check must)
   its "Waiting for daemon" dialog covers the page, so a shot measures the dialog's scrim. No plain
-  marker is written; Lian Li stays opaque unless you switch it on, then it stays glass.
+  marker is written; Lian Li stays opaque unless you switch it on, then it stays glass. A marker
+  an older check left on Lian Li or Discord goes at the next apply or hook run.
 - **The hidden check leaves no private dir behind** when the app left read-only dirs in it
   (Dux unpacks its QML read-only into the runtime dir).
 

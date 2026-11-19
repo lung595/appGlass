@@ -465,6 +465,40 @@ def gate(st, rec, injected, explicit):
     return "glass", None
 
 
+def drop_unjudged(app):
+    """A family that says it cannot be checked at all (verify_skip:
+    Discord, Lian Li) never had a fail to stand by: a plain marker and a
+    fail record an older check left on one of its apps go, the check is
+    unverifiable (an injected route then stays off, your own on stays on).
+    Run before the families' gates (apply), so this run already follows it.
+    A transient unverifiable (no window, a timeout) keeps a real fail."""
+    st = store(app)
+    changed = []
+    for name, fam in sorted(app.families.items()):
+        skip = getattr(fam, "verify_skip", None)
+        if not skip:
+            continue
+        for key in family_keys(app, name):
+            a = st.get(key)
+            p, v = a.get("plain") or {}, a.get("verify") or {}
+            failed = (p.get("reason") or "").startswith("check failed")
+            if not failed and v.get("result") != "fail":
+                continue
+            rec = record_for(app, key) or {"key": key, "fp": None}
+            why = skip(app.env, rec)
+            if not why:
+                continue
+            if failed:
+                st.clear_plain(key)
+            if v.get("result") == "fail":
+                st.app(key)["verify"] = dict(v, result="unverifiable", reason=why,
+                                             fp=rec.get("fp") or v.get("fp"))
+            changed.append(key)
+    if changed:
+        st.save()
+    return changed
+
+
 def Gate(app):
     """resolve()'s gate for this run: fn(rec, injected, explicit)."""
     st = store(app)

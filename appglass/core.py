@@ -2344,6 +2344,8 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
             app.state.data["user_removed"] = [n for n in app.state.data["user_removed"]
                                               if n not in names]
     from . import engine
+    if not dry_run:
+        engine.drop_unjudged(app)
     planned = []
     for name in names:
         fam = app.families[name]

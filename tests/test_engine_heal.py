@@ -640,6 +640,39 @@ class ExplicitInjected(Stubbed):
         self.run_ok("verify", "--queue")
         self.assertEqual(len(self.notes()), 1)
 
+    def test_a_fail_the_family_cannot_stand_by_goes_at_the_next_apply(self):
+        """A family that says it cannot be checked (verify_skip: Discord,
+        Lian Li) drops the plain marker and the fail record an older check
+        left, at the next apply and before its files are written: the check
+        is unverifiable, so your on keeps the glass."""
+        from unittest import mock
+        from appglass.families import localsend
+        self.run_ok("set", "apps.localsend.enabled", "true")
+        self.run_ok("apply")
+        self.result("fail", "background alpha 224, expected 204+-13")
+        self.run_ok("verify", "--queue")
+        self.assertEqual(self.state()["state"], "opaque")
+        self.assertTrue(os.path.exists(self.marker(LS)))
+        with mock.patch.object(localsend, "verify_skip", create=True,
+                               new=lambda env, rec: "it cannot run hidden"):
+            self.run_ok("apply", "--from-hook")
+            st = self.state()
+        self.assertEqual(st["state"], "glass")
+        self.assertIn("could not be checked: it cannot run hidden", st["reason"])
+        self.assertFalse(os.path.exists(self.marker(LS)))
+        a = self.store()["apps"][LS]
+        self.assertNotIn("plain", a)
+        self.assertEqual(a["verify"]["result"], "unverifiable")
+        self.assertIn("localsend_app", self.kdl().split("// games")[0])
+        # a transient unverifiable (no window) keeps a real fail's marker
+        self.result("fail", "background alpha 224, expected 204+-13")
+        self.run_ok("verify", LS)
+        self.result("unverifiable", "no window within 10 s")
+        self.run_ok("verify", LS)
+        self.run_ok("apply", "--from-hook")
+        self.assertTrue(os.path.exists(self.marker(LS)))
+        self.assertEqual(self.state()["state"], "opaque")
+
     def test_unverifiable_without_your_on_runs_plain(self):
         """E3: your on taken back by hand (no longer in settings.json) after
         a check that could not run: opaque, and its wrapper still on disk
