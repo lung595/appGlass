@@ -1402,6 +1402,53 @@ class Heal(unittest.TestCase):
         self.assertFalse(os.path.exists(p) and LS in self.sb.json(p)["queue"])
 
 
+class LauncherExec(unittest.TestCase):
+    """The command the hidden check runs: the throwaway HOME stands in for
+    the real one in the arguments, but a program installed under the real
+    HOME (Herdr's ~/.local/bin/herdr-app) is not copied there: it runs from
+    where it is."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        self.tmp = tempfile.mkdtemp()
+        real = os.path.join(self.tmp, "real")
+        self.home = os.path.join(self.tmp, "run", "h")
+        apps = os.path.join(real, ".local", "share", "applications")
+        os.makedirs(apps)
+        os.makedirs(os.path.join(real, ".local", "bin"))
+        self.prog = os.path.join(real, ".local", "bin", "herdr-app")
+        _w(self.prog, "#!/bin/sh\n", 0o755)
+        self.desk = os.path.join(apps, "herdr.desktop")
+        e = SimpleNamespace(home=real, data_home=os.path.join(real, ".local", "share"),
+                            config_home=os.path.join(real, ".config"),
+                            state_home=os.path.join(real, ".local", "state"),
+                            cache_home=os.path.join(real, ".cache"))
+        self.app = SimpleNamespace(env=e)
+        self.real = real
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def cmd(self, ex):
+        _w(self.desk, "[Desktop Entry]\nType=Application\nName=H\nExec=%s\n" % ex, 0o644)
+        return verify.launcher_exec(self.app, {"desktop_id": "herdr.desktop", "path": self.desk},
+                                    self.home)
+
+    def test_a_program_under_home_runs_from_where_it_is(self):
+        cmd = self.cmd("%s --config %s/.config/herdr %%U" % (self.prog, self.real))
+        self.assertEqual(cmd, "%s --config %s/.config/herdr" % (self.prog, self.home))
+
+    def test_a_staged_program_runs_from_the_throwaway_home(self):
+        staged = os.path.join(self.home, ".local", "bin", "herdr-app")
+        _w(staged, "#!/bin/sh\n", 0o755)
+        self.assertEqual(self.cmd(self.prog), staged)
+        self.assertEqual(self.cmd("env A=1 " + self.prog), "env A=1 " + staged)
+
+    def test_a_program_after_env_runs_from_where_it_is(self):
+        self.assertEqual(self.cmd("env A=%s/x %s" % (self.real, self.prog)),
+                         "env A=%s/x %s" % (self.home, self.prog))
+
+
 class Judge(unittest.TestCase):
     """verify.judge: the window shot against the content level."""
 

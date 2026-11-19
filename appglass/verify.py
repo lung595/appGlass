@@ -187,7 +187,18 @@ def launcher_exec(app, rec, home):
         return None
     ex = detect.parse_desktop(p).get("Exec") or ""
     ex = re.sub(r"\s%[fFuUdDnNickvm]\b", "", ex).replace("@@u", "").replace("@@", "")
-    return ex.replace(app.env.home, home)
+    words = ex.split(" ")
+    out = [w.replace(app.env.home, home) for w in words]
+    # the program (after env and its VAR=value words): one installed under
+    # the real HOME (~/.local/bin/herdr-app) is not copied to the throwaway
+    # one, and the mask keeps / as it is: it runs from where it is
+    i = 0
+    while i < len(words) and (words[i] in ("", "env") or "=" in words[i]):
+        i += 1
+    if i < len(words) and out[i] != words[i] and not os.path.exists(out[i]) \
+            and os.path.isfile(words[i]):
+        out[i] = words[i]
+    return " ".join(out)
 
 
 def candidate(app, owner, key=None):
