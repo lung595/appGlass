@@ -1899,6 +1899,10 @@ class App:
         tmp = _tmp_name(p)
         if os.path.isfile(tmp) and not os.path.islink(tmp):
             os.remove(tmp)     # the new bytes of a write a kill cut before its replace
+        if rec.get("kind") == "created" and os.path.islink(p):
+            # appglass made a plain file there: the link is yours now
+            self.warn("%s is a link now (appglass created a file there); left as is" % p)
+            return
         if os.path.lexists(p) and not os.path.isfile(p):
             self.warn("%s is no longer a regular file; left as is" % p)
             return

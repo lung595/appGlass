@@ -644,6 +644,26 @@ class LostStaysLost(Base):
         self.assertIn("0123456789abcdef.orig", err)
 
 
+class UserLinkOverOwned(Base):
+    """A file appglass created, replaced since by a link of yours (to a
+    dotfiles folder): remove leaves the link and what it points to."""
+
+    def test_remove_keeps_a_link_you_put_over_a_created_file(self):
+        self.apply()
+        mine = os.path.join(self.sb.home, "dotfiles", "appglass.toml")
+        os.makedirs(os.path.dirname(mine))
+        with open(mine, "w") as f:
+            f.write("# mine\n")
+        os.remove(self.owned())
+        os.symlink(mine, self.owned())
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.islink(self.owned()))
+        self.assertEqual(os.readlink(self.owned()), mine)
+        self.assertEqual(self.sb.read(mine), "# mine\n")
+        self.assertIn("is a link now", err)
+
+
 class EditMarkers(Base):
     """The files appglass edits (not only the ones it writes) count as its
     files when their record is gone."""
