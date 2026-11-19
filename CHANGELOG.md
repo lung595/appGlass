@@ -4,7 +4,7 @@ All notable changes to appGlass are listed here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The project uses [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-19
 
 The first release.
 
@@ -90,4 +90,4 @@ The first release.
 - **The hidden check leaves no private dir behind** when the app left read-only dirs in it
   (Dux unpacks its QML read-only into the runtime dir).
 
-[0.1.0]: https://github.com/lung595/appGlass/commits/master
+[0.1.0]: https://github.com/lung595/appGlass/releases/tag/v0.1.0

@@ -5,7 +5,7 @@ Read this first when you come back to the project.
 
 ## Where it is
 
-- Version **0.1.0, unreleased**. There is no tag and no release yet. `master` is the only branch.
+- Version **0.1.0**, released 2026-11-19 (tag `v0.1.0`, a GitHub release). `master` is the only branch.
 - The engine (`bin/appglass`, `appglass/`), the shims (`shims/`), the DMS plugin (`dms-plugin/`)
   and the docs are in place. Every route listed in the README is written, tested and reviewed.
 - The last work round fixed a background flicker. Some apps tell the compositor that their
@@ -23,6 +23,9 @@ Read this first when you come back to the project.
   [engine.md](engine.md#what-a-check-judges-and-what-it-never-does). In a throwaway HOME at 0.80
   these pass: Kiri, ArtCraft, Feishin, Jellyfin, LocalSend, Nautilus, Dux Files, Obsidian,
   Alacritty (204) and Dux Calendar (237, its panes); VLC finds no window (unverifiable).
+- The last fix: on the live desktop, hovering Kiri's sidebar left the page bare but for the
+  hovered item (WebKitGTK 2.54 repaints only the damaged rects of a frame). The WebKit shim now
+  turns WebKit's damage tracking off on a glass view. See [routes.md](routes.md).
 - `docs/issue-dms.md` is a draft issue for DankMaterialShell. It has not been posted.
 
 ## What works
@@ -71,7 +74,7 @@ Measured in a nested test session (see [apps.md](apps.md) for the numbers):
 
 ## Open items
 
-From the last review. They are minor, and none of them blocks a release:
+From the last review. They are minor, and none of them blocked 0.1.0:
 
 - The hero image shows clipped text at the terminal's right edge. The screenshots and GIFs use a
   third-party wallpaper. Retake them on a wallpaper you may publish before a release.
@@ -114,5 +117,6 @@ From the last review. They are minor, and none of them blocks a release:
    - [apps.md](apps.md) and `apps.json`: every tested app and its result.
    - `CHANGELOG.md`: what 0.1.0 holds.
 
-4. **Next steps that make sense:** retake the media, clear the open items above, tag 0.1.0,
-   then the Roadmap's **Next** list.
+4. **Next steps that make sense:** retake the media, clear the open items above, then the
+   Roadmap's **Next** list. Bump the version in `appglass/__init__.py`, `dms-plugin/plugin.json`,
+   `dms-plugin/components/logic.js` and `CHANGELOG.md` together (`tests/test_docs.py` checks it).
