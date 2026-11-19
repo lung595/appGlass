@@ -1720,6 +1720,15 @@ class App:
                     rec = dict(self.backup(p, cur, before_write=pend), kind="modified",
                                how=op.kind)
                     backed = not had
+            elif (rec.get("how") == "owned" and cur is not None and cur != op.data
+                  and sha(cur) != rec.get("sha256") and not rec.get("cut")
+                  and not (rec.get("meta") or {}).get("artifact")):
+                # a file appglass owns whole, edited by hand since: written
+                # again, the hand version saved beside it first (doctor --fix)
+                keep = _aside_name(self.env, p)
+                _write_durable(keep, cur)
+                self.warn("%s changed by hand since apply; written again, your version "
+                          "saved as %s" % (self.env.tilde(p), self.env.tilde(keep)))
             elif (rec.get("how") in ("json", "edit") and cur is not None
                   and sha(cur) != rec.get("sha256") and not rec.get("cut")):
                 # the app or the user rewrote the file since the last apply:

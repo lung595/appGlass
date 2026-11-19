@@ -664,6 +664,26 @@ class UserLinkOverOwned(Base):
         self.assertIn("is a link now", err)
 
 
+class HandEditOfOwned(Base):
+    """A file appglass owns whole, edited by hand since apply: the next
+    apply (or hook run) writes it again, the hand version saved beside it
+    first, as doctor --fix does."""
+
+    def test_apply_saves_a_hand_edit_aside(self):
+        self.apply()
+        render = self.sb.readb(self.owned())
+        with open(self.owned(), "ab") as f:
+            f.write(b"# my tweak\n")
+        mine = self.sb.readb(self.owned())
+        code, out, err = self.apply()
+        self.assertEqual(self.sb.readb(self.owned()), render)
+        self.assertEqual(self.sb.readb(self.owned() + ".appglass-changed"), mine)
+        self.assertIn("your version saved as", err)
+        # once: the next run finds its own bytes again
+        self.apply()
+        self.assertFalse(os.path.exists(self.owned() + ".appglass-changed.1"))
+
+
 class EditMarkers(Base):
     """The files appglass edits (not only the ones it writes) count as its
     files when their record is gone."""
