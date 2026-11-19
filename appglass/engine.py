@@ -450,6 +450,9 @@ def gate(st, rec, injected, explicit):
                 if injected:
                     return "opaque", "could not be checked: %s" % v.get("reason", "?")
                 return "glass", None
+            if not injected:
+                # a Native route is never held opaque by its check
+                return "glass", "check failed, glass kept (Native): %s" % v.get("reason", "?")
             return "opaque", "check failed: %s" % v.get("reason", "?")
         if injected:
             return "stale", "updated since the last check: opaque until it is checked again"
@@ -669,9 +672,12 @@ def notify_once(app, key, fp, title, body, tag=""):
     return True
 
 
-def verified(app, key, fp, result, reason="", app_id=None):
+def verified(app, key, fp, result, reason="", app_id=None, injected=True):
     """Record a check result for (key, fp). app_id: the app-id of the
-    window the check found (records() adds it to the app's app-ids)."""
+    window the check found (records() adds it to the app's app-ids).
+    injected False (a Native route: on at once, README): a FAIL is recorded
+    and shown, never paused (no plain marker, no notification), and a plain
+    marker an earlier failed check left goes."""
     st = store(app)
     a = st.app(key)
     prev = a.get("verify")
@@ -686,6 +692,9 @@ def verified(app, key, fp, result, reason="", app_id=None):
                 (a.get("plain") or {}).get("why") in UNJUDGED:
             st.clear_plain(key)
         a.pop("fails", None)
+    elif not injected:
+        if ((a.get("plain") or {}).get("reason") or "").startswith("check failed"):
+            st.clear_plain(key)
     else:
         _pause(app, key, fp, "check failed: %s" % reason,
                "update" if prev and prev.get("fp") != fp else "check")

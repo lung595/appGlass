@@ -394,9 +394,10 @@ def resolve(rec, families, settings=None, gate=None):
                 _settings.app_enabled(settings, key, True)
             state, why = gate(rec, False, None) if on else ("off", "off in settings")
         if on and state == "glass":
-            why = why if injected and why else (
-                "family %s (any %s app)" % (fam, rec.get("toolkit")) if generic
-                else "family %s" % fam)
+            base = ("family %s (any %s app)" % (fam, rec.get("toolkit")) if generic
+                    else "family %s" % fam)
+            # a Native route keeps its glass on a failed check: say so
+            why = why if injected and why else ("%s; %s" % (base, why) if why else base)
         live = on and state == "glass"
         return out(a.NAME if a else "niri-fallback", "glass" if live else FALLBACK,
                    why, family=fam, enabled=on, state=state if on else "off",

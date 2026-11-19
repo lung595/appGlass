@@ -597,6 +597,38 @@ class Routing(unittest.TestCase):
         self.assertEqual(r, {"result": "unverifiable", "reason": "the app cannot run hidden"})
         self.assertFalse(os.path.exists(mark))
 
+    def test_a_native_fail_never_pauses_the_glass(self):
+        """Native routes are on at once (README): a failed check of one is
+        recorded and shown, but writes no plain marker, sends no
+        notification and keeps the glass (only Forced and Mod routes are
+        held opaque by their check)."""
+        g = bin_elf(self.w, "gtkapp", GTK3)
+        self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
+        self.run_ok("apply", "--only", "gtk3")
+        nlog = self.sb.path("notify")
+        stub = self.sb.write("stub-notify", "#!/bin/sh\necho \"$*\" >> %s\n" % nlog)
+        harness = self.sb.write("stub-harness", "#!/bin/sh\n"
+                                "echo '{\"result\": \"fail\", \"reason\": \"background 255\"}'\n")
+        for f in (stub, harness):
+            os.chmod(f, 0o755)
+        self.sb.env.update(APPGLASS_VERIFY_HARNESS=harness, APPGLASS_NOTIFY=stub,
+                           APPGLASS_POWER_SUPPLY=self.sb.path("no-power"),
+                           APPGLASS_NIRI_WINDOWS=self.sb.write("no-windows.json", "[]",
+                                                               base=self.sb.root))
+        out = self.run_ok("verify", "gtkapp")
+        self.assertIn("gtkapp: fail", out)
+        st = self.sb.json(os.path.join(self.sb.state, "appglass", "engine.json"))
+        self.assertEqual(st["apps"]["gtkapp"]["verify"]["result"], "fail")
+        self.assertNotIn("plain", st["apps"]["gtkapp"])
+        self.assertFalse(os.path.exists(os.path.join(self.sb.state, "appglass", "plain", "gtkapp")))
+        self.assertFalse(os.path.exists(nlog))
+        a = routes(self.sb)["gtkapp"]
+        self.assertEqual(a["effective"], "glass")
+        self.assertIn("check failed", a["reason"])
+        self.run_ok("apply", "--from-hook")
+        self.assertEqual(routes(self.sb)["gtkapp"]["effective"], "glass")
+        self.assertFalse(os.path.exists(os.path.join(self.sb.state, "appglass", "plain", "gtkapp")))
+
     def test_xdg_data_home_outside_home_is_staged_under_the_throwaway_home(self):
         """XDG_DATA_HOME outside HOME: the theme goes to the default data dir
         under the throwaway HOME, where the hidden session looks for it."""

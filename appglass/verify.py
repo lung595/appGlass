@@ -951,7 +951,8 @@ def record(a, key, rec, route, res):
     if res.get("result") in ("pass", "fail"):
         seen = res.get("app_id")
         engine.verified(a, key, rec.get("fp"), res["result"], res.get("reason", ""),
-                        app_id=seen if isinstance(seen, str) and seen else None)
+                        app_id=seen if isinstance(seen, str) and seen else None,
+                        injected=bool(route.get("injected")))
     else:
         st = engine.store(a)
         seen = (st.get(key).get("verify") or {}).get("app_id")

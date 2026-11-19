@@ -111,7 +111,9 @@ class Stubbed(unittest.TestCase):
 
 class NativePlain(Stubbed):
     """S7: a native route (GTK_THEME, the Qt style, the GTK4 flatpak flag)
-    that fails its check goes back to the plain app, on its launcher too."""
+    whose launches fail twice goes back to the plain app, on its launcher
+    too. A failed hidden check never does that to a Native route (on at
+    once): it is recorded and shown, the glass stays."""
 
     def setUp(self):
         super().setUp()
@@ -134,9 +136,40 @@ class NativePlain(Stubbed):
         self.assertIn("GTK_THEME=", self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
         self.assertIn("QT_STYLE_OVERRIDE=", self.sb.read(self.user_launcher("org.example.QtThing.desktop")))
         self.assertIn("GTK_THEME=", self.sb.read(self.sb.cfg("autostart", "solaar.desktop")))
+        for k in ("org.example.GtkThing", "org.example.QtThing", "solaar"):
+            for _ in range(2):
+                self.run_ok("fail", k, "white window")
+
+    def test_a_failed_check_keeps_the_native_glass(self):
+        self.run_ok("apply")
         self.result("fail", "no opaque text on screen")
-        out = self.run_ok("verify", "--queue")
-        self.assertIn("fail", out)
+        self.assertIn("fail", self.run_ok("verify", "--queue"))
+        for k in ("org.example.GtkThing", "org.example.QtThing", "solaar"):
+            self.assertFalse(os.path.exists(self.marker(k)), k)
+            self.assertEqual(self.store()["apps"][k]["verify"]["result"], "fail")
+        self.assertEqual(self.notes(), [])
+        self.run_ok("apply", "--from-hook")
+        self.assertIn("GTK_THEME=AppGlass", self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
+        self.assertIn("QT_STYLE_OVERRIDE=", self.sb.read(self.user_launcher("org.example.QtThing.desktop")))
+        self.assertIn("GtkThing", self.kdl())
+        r = routes(self.sb)["org.example.GtkThing"]
+        self.assertEqual(r["state"], "glass")
+        self.assertIn("check failed, glass kept", r["reason"])
+        # a plain marker an older failed check left goes with the next result
+        self.result("fail", "no opaque text on screen")
+        st = os.path.join(self.sb.state, "appglass", "engine.json")
+        doc = self.sb.json(st)
+        doc["apps"]["org.example.GtkThing"]["plain"] = {
+            "fp": doc["apps"]["org.example.GtkThing"]["verify"]["fp"],
+            "reason": "check failed: no opaque text on screen"}
+        with open(st, "w") as f:
+            json.dump(doc, f)
+        self.assertEqual(routes(self.sb)["org.example.GtkThing"]["state"], "opaque")
+        self.run_ok("verify", "org.example.GtkThing")
+        self.assertNotIn("plain", self.store()["apps"]["org.example.GtkThing"])
+        self.assertFalse(os.path.exists(self.marker("org.example.GtkThing")))
+        self.assertEqual(routes(self.sb)["org.example.GtkThing"]["state"], "glass")
+        self.assertIn("GTK_THEME=AppGlass", self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
 
     def assert_plain(self):
         for p in (self.user_launcher("org.example.GtkThing.desktop"),
@@ -215,13 +248,12 @@ class NativePlain(Stubbed):
         self.assertIn("GtkThing", self.kdl())
 
     def test_notice_says_why(self):
-        """A first check that fails does not say 'after an update'; one
-        after an update does."""
+        """Two failed launches say so, once; a failed check of a Native
+        route sends nothing, after an update neither."""
         self.glass_then_fail()
         first = [n for n in self.notes() if "Gtk Thing" in n]
         self.assertEqual(len(first), 1)
-        self.assertNotIn("after an update", first[0])
-        self.assertIn("check failed", first[0])
+        self.assertIn("two failed launches", first[0])
         self.result("pass", "ok")
         bin_elf(self.w, "gtkthing", GTK3 + ["libm.so.6"])
         self.run_ok("apply", "--from-hook")
@@ -230,20 +262,18 @@ class NativePlain(Stubbed):
         bin_elf(self.w, "gtkthing", GTK3 + ["libz.so.1"])
         self.run_ok("apply", "--from-hook")
         self.run_ok("verify", "--queue")
-        second = [n for n in self.notes() if "Gtk Thing" in n]
-        self.assertEqual(len(second), 2)
-        self.assertIn("after an update", second[1])
+        self.assertEqual(len([n for n in self.notes() if "Gtk Thing" in n]), 1)
 
     def test_user_launcher_edited_by_typed_apply_goes_plain(self):
         """A launcher of the user's (shadowing the system one) that a typed
-        apply edited: a FAIL takes our prefix out again, theirs stays."""
+        apply edited: going plain takes our prefix out again, theirs stays."""
         mine = self.w.hand(".local/share/applications/org.example.GtkThing.desktop",
                            desktop("My Thing", "env FOO=1 " + self.g))
         before = self.sb.read(mine)
         self.run_ok("apply")
         self.assertIn("GTK_THEME=AppGlass", self.sb.read(mine))
-        self.result("fail", "no opaque text on screen")
-        self.run_ok("verify", "--queue")
+        for _ in range(2):
+            self.run_ok("fail", "org.example.GtkThing", "white window")
         self.assertEqual(self.sb.read(mine), before)
         self.run_ok("remove")
         self.assertEqual(self.sb.read(mine), before)
@@ -271,7 +301,10 @@ class NativePlain(Stubbed):
         p = self.user_launcher("org.example.Gtk4App.desktop")
         self.assertIn("--filesystem=xdg-config/gtk-4.0:ro", self.sb.read(p))
         self.result("fail", "background alpha 255")
-        self.run_ok("verify", "--queue")
+        self.run_ok("verify", "--queue")             # Native: the glass stays
+        self.assertIn("--filesystem=xdg-config/gtk-4.0:ro", self.sb.read(p))
+        for _ in range(2):
+            self.run_ok("fail", "org.example.Gtk4App", "white window")
         self.assertNotIn("--filesystem=xdg-config/gtk-4.0", self.sb.read(p))
 
 
@@ -701,12 +734,13 @@ class Budget(Stubbed):
         self.assertLess(n, 3)
         self.assertEqual(len(self.store()["queue"]), 3 - n)
         self.assertIn("left queued", out)
-        # what was checked is applied already (plain launchers)
+        # what was checked is recorded already (Native: the glass stays)
         done = [k for k in ("org.example.G0", "org.example.G1", "org.example.G2")
                 if k not in self.store()["queue"]]
         for k in done:
+            self.assertEqual(self.store()["apps"][k]["verify"]["result"], "fail")
             ex = execs(self.sb.read(self.user_launcher(k + ".desktop")))
-            self.assertNotIn("GTK_THEME", ex[0])
+            self.assertIn("GTK_THEME", ex[0])
 
     def test_unit_timeout_fits_the_budget(self):
         with open(os.path.join(REPO, "shims", "sync", "appglass-verify.service")) as f:
@@ -830,10 +864,10 @@ class WindowOfTheApp(Stubbed):
         # the launch check knows it too: a window "gtkfn" is a good launch
         app = core.App(self.sb.env, quiet=True)
         self.assertIn("^gtkfn$", engine.record_for(app, "org.example.FnGtk2")["app_ids"])
-        # a failed check takes the seen app-id out of the glass rule as well
-        with open(self.res, "w") as f:
-            f.write(json.dumps({"result": "fail", "reason": "opaque", "app_id": "gtkfn"}) + "\n")
-        self.run_ok("verify", "org.example.FnGtk2")
+        # going plain (two failed launches) takes the seen app-id out of the
+        # glass rule as well
+        for _ in range(2):
+            self.run_ok("fail", "org.example.FnGtk2", "white window")
         glass = self.kdl().split("// glass:", 1)[1].split("// games")[0] \
             if "// glass:" in self.kdl() else ""
         self.assertNotIn("gtkfn", glass)
