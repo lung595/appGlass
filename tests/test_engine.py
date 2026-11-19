@@ -1695,7 +1695,7 @@ class Harness(unittest.TestCase):
                 os.makedirs(d)
             log = os.path.join(run, "gs.log")
             with open(os.path.join(fake, "gamescope"), "w") as f:
-                f.write('#!/bin/sh\necho "core=$(ulimit -c)" >>"%s"\n'
+                f.write('#!/bin/sh\necho "core=$(awk \'/^Max core/{print $5}\' /proc/self/limits)" >>"%s"\n'
                         'trap \'echo TERM >>"%s"; exit 139\' TERM\n'
                         'while [ "$1" != "--" ]; do shift; done; shift\n'
                         '"$@" &\nwait $!\necho own-shutdown >>"%s"\nexit 139\n' % (log, log, log))
@@ -1715,7 +1715,9 @@ class Harness(unittest.TestCase):
             self.assertIn("window=none", r.stdout)
             with open(log) as f:
                 got = f.read()
-            self.assertIn("core=0", got)
+            # RLIMIT_CORE 1 byte: the kernel aborts the core before the system's
+            # pipe handler (systemd-coredump) starts; 0 stops only a core file
+            self.assertIn("core=1\n", got)
             self.assertNotIn("TERM", got)
             self.assertNotIn("own-shutdown", got)
             npid = int(re.search(r"niri=(\d+)", got).group(1))

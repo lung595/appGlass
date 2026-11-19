@@ -16,8 +16,12 @@ case "$XDG_RUNTIME_DIR" in "$RUN"/*) ;; *) echo "refusing: runtime dir not priva
 unset NIRI_SOCKET WAYLAND_DISPLAY DISPLAY AGV_REAL_NIRI
 # headless gamescope segfaults when it is stopped (SIGTERM, or its own
 # shutdown once niri ends): this script and verify only SIGKILL it, and the
-# unit (KillMode=mixed) sends its SIGTERM to verify alone; no core is dumped
-ulimit -c 0
+# unit (KillMode=mixed) sends its SIGTERM to verify alone; no core is dumped.
+# RLIMIT_CORE is 1 byte (ulimit -c counts in blocks): at 1 the kernel aborts
+# the core before the system's pipe handler (systemd-coredump) starts, so an
+# app that crashes in the check (Feishin) leaves no crash record; 0 would stop
+# only a core file
+prlimit --pid $$ --core=1 2>/dev/null || ulimit -c 0
 gamescope --backend headless -W 1280 -H 800 -w 1280 -h 800 -r 30 --expose-wayland -- \
     niri -c "$RUN/niri.kdl" >"$RUN/niri.log" 2>&1 </dev/null &
 GPID=$!

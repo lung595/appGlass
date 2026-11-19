@@ -282,6 +282,18 @@ ag_journal_since() {
     [ -n "$c" ] || return 0
     journalctl -q --no-pager --after-cursor="$c" -o json _PID=1 2>/dev/null | ag_journal_select UNIT "$@"
 }
+# ag_coredumps_since <cursor> <comm regex> -> "<comm> <pid>: <message>" for
+# each crash record systemd-coredump wrote after it for a process of that
+# name (the hidden check keeps RLIMIT_CORE at 1: the kernel then starts no
+# systemd-coredump at all, so there is none)
+ag_coredumps_since() {
+    local c=$1 re=$2
+    [ -n "$c" ] || return 0
+    journalctl -q --no-pager --after-cursor="$c" -o json SYSLOG_IDENTIFIER=systemd-coredump \
+        2>/dev/null | jq -r --arg re "$re" 'select((.COREDUMP_COMM | type == "string")
+            and (.COREDUMP_COMM | test($re))) | "\(.COREDUMP_COMM) \(.COREDUMP_PID): \(.MESSAGE)"' \
+        2>/dev/null || true
+}
 # ag_user_journal_mark / ag_user_journal_since <cursor> <unit glob>...: the
 # same in the user journal (the user manager's lines about its units)
 ag_user_journal_mark() {

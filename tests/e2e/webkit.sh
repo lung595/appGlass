@@ -102,12 +102,16 @@ gate_check() {
     # the private runtime dir of the check: a short path (sun_path)
     VB=$(mktemp -d "${TMPDIR:-/tmp}/agv.XXXX")
     chmod 700 "$VB"
+    JM=$(ag_journal_mark)
     # niri: the nested one (verify asks it whether a game runs)
     VOUT=$(env -u WAYLAND_DISPLAY -u NIRI_CONFIG NIRI_SOCKET="$AG_SOCK" \
         APPGLASS_VERIFY_HARNESS=builtin APPGLASS_VERIFY_BASE="$VB" APPGLASS_VERIFY_KEEP="$AG_OUT" \
         APPGLASS_SANDBOX="$V" HOME="$V/home" XDG_CONFIG_HOME="$V/config" XDG_DATA_HOME="$V/data" \
         XDG_STATE_HOME="$V/state" XDG_CACHE_HOME="$V/cache" "$AG_BIN" verify kiri 2>&1) || true
     printf '%s\n' "$VOUT" > "$AG_OUT/verify${lv:+-$lv}.log"
+    # a process of the check that crashed leaves no crash record (RLIMIT_CORE 1)
+    CORES=$(ag_coredumps_since "$JM" '^(kiri|WebKit|gamescope|niri|Xwayland|dbus)')
+    [ -z "$CORES" ] || ag_die "gate: systemd-coredump ran for the check: $CORES"
     LEFTV=$(ls -A "$VB"); rmdir "$VB" 2>/dev/null || true
     [ -z "$LEFTV" ] || ag_die "gate: the check left $LEFTV behind"
     printf '%s\n' "$VOUT" | grep -q '^verify: kiri: pass ' || ag_die "gate${lv:+ at $lv}: verify: $VOUT"
