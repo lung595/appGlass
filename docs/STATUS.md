@@ -44,8 +44,9 @@ Measured in a nested test session (see [apps.md](apps.md) for the numbers):
 
 ## What does not work, or is not tested
 
-- **Lian Li Linux:** the shim paints the glass, but the hidden check fails (with its daemon
-  hidden it shows a "Waiting for daemon" dialog), so it stays opaque.
+- **Lian Li Linux:** the shim paints the glass, but the hidden check cannot judge it (with its
+  daemon hidden it shows a "Waiting for daemon" dialog): unverifiable, so it stays opaque
+  unless you switch it on (then it stays glass).
   Also, in the test session its window opened as `lianli-gui`, while the family matches
   `^com\.sgtaziz\.lianlilinux$`. Check the app id on a real install and add it if it differs.
 - **Discord (Vencord):** written and unit-tested, not measured (it needs a signed-in account).

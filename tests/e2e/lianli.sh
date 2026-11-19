@@ -26,15 +26,13 @@
 #    sha256), the rule file for the nested niri
 # 2. the gate: a sandbox with the default settings (Lian Li not switched
 #    on): apply leaves it waiting for its check, the real `appglass verify
-#    com.sgtaziz.lianlilinux` (the hidden session: headless gamescope, its own
-#    niri, no network, the family's mask: /run/lianli*, the system bus,
-#    /run/systemd, the session bus and locks hidden) comes to a measured
-#    verdict and leaves nothing behind; the next apply follows it (pass: the
-#    glass launcher; fail: still no glass launcher). With its daemon hidden
-#    the app lays its "Check your installation" dialog and a scrim over the
-#    page within the 2 s the check waits, so the verdict seen is a fail
-#    (background about 202 for 153 on 1.3.0): Lian Li goes glass when you switch it
-#    on. The journals below cover the check too.
+#    com.sgtaziz.lianlilinux` is unverifiable up front and starts no hidden
+#    session: the check must hide the daemon, and with its daemon hidden the
+#    app lays its "Check your installation" dialog and a scrim over the page
+#    (background about 202 for 153 on 1.3.0, 224 for 204 at 0.80), so a shot
+#    could only measure the scrim. It leaves nothing behind, writes no plain
+#    marker, and the next apply keeps Lian Li off (no glass launcher): Lian Li
+#    goes glass when you switch it on. The journals below cover the check too.
 # 2b. harness sandbox: apps.lianli.enabled, appglass apply: the launcher
 #    override starts lianli-gui through appglass-lianli
 # 3. shoot, measure the content level (153), the bars and cards (166) and
@@ -124,21 +122,16 @@ gate_check
 case "$GATE" in "unverifiable (the session timed out"*)
     echo "gate: $GATE: checking once more" >&2; gate_check ;; esac
 case "$GATE" in
-    # the judge's verdicts on a shot (not "unverifiable", not a harness error)
-    "pass "*|"fail (the window is opaque"*|"fail ("*"% of the window at alpha 0"*| \
-    "fail (a hole of "*|"fail (background alpha "*|"fail (only "*|"fail (no opaque text"*) ;;
-    *) ag_die "gate: verify gave no measured verdict: $VOUT" ;;
+    # the family's own up-front verdict: no session, never a fail
+    "unverifiable (Lian Li covers its window"*) ;;
+    *) ag_die "gate: verify is not unverifiable up front: $VOUT" ;;
 esac
 ag_appglass "$V" apply --only lianli --quiet || ag_die "gate: apply after the check failed"
-if [ "${GATE%% *}" = pass ]; then
-    [ "$(lianli_state)" = glass ] || ag_die "gate: lianli is $(lianli_state) after its check passed"
-    grep -q "^Exec=.*$V/home/.local/bin/appglass-lianli" "$V/data/applications/$DID" \
-        || ag_die "gate: no glass launcher after the check passed"
-else
-    [ "$(lianli_state)" != glass ] || ag_die "gate: lianli is glass after its check failed"
-    grep -q appglass-lianli "$V/data/applications/$DID" 2>/dev/null \
-        && ag_die "gate: a glass launcher after the check failed"
-fi
+[ "$(lianli_state)" != glass ] || ag_die "gate: lianli is glass after an unverifiable check"
+grep -q appglass-lianli "$V/data/applications/$DID" 2>/dev/null \
+    && ag_die "gate: a glass launcher after an unverifiable check"
+[ -z "$(ls -A "$V/state/appglass/plain" 2>/dev/null)" ] \
+    || ag_die "gate: an unverifiable check wrote a plain marker: $(ls "$V/state/appglass/plain")"
 
 # 2b. the harness sandbox
 SB=$AG_TMP

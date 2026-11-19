@@ -579,6 +579,8 @@ class Routing(unittest.TestCase):
         session starts, the result is unverifiable (never a fail)."""
         from appglass.families import vencord
         self.assertIn("~/.config/discord", vencord.verify_skip(None, {"key": "discord"}))
+        from appglass.families import lianli
+        self.assertIn("daemon", lianli.verify_skip(None, {"key": "com.sgtaziz.lianlilinux"}))
         g = bin_elf(self.w, "gtkapp", GTK3)
         self.w.launcher("gtkapp.desktop", desktop("Gtk App", g))
         self.run_ok("apply", "--only", "gtk3")

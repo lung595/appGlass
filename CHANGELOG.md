@@ -77,5 +77,10 @@ The first release.
   Obsidian opened its vault chooser (the check now copies the vault list), LocalSend, Nautilus
   and Dux Calendar opened in light mode (the hidden session now has your colour scheme), and
   Discord's check measured the bootstrap's zenity updater (Discord cannot be checked: unverifiable).
+- **Lian Li's check is unverifiable, never a fail:** with its daemon hidden (as the check must)
+  its "Waiting for daemon" dialog covers the page, so a shot measures the dialog's scrim. No plain
+  marker is written; Lian Li stays opaque unless you switch it on, then it stays glass.
+- **The hidden check leaves no private dir behind** when the app left read-only dirs in it
+  (Dux unpacks its QML read-only into the runtime dir).
 
 [0.1.0]: https://github.com/lung595/appGlass/commits/master

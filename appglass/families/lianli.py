@@ -36,6 +36,17 @@ def installed(env):
     return bool(env.which(COMMAND))
 
 
+def verify_skip(env, rec):
+    """The hidden check cannot judge Lian Li: it must hide the daemon (the
+    fans and lights of the real machine, see verify_mask), and without it
+    the app lays its "Check your installation / Waiting for daemon" dialog
+    and a scrim over the page, so the shot measures the scrim (about 224
+    at 0.80, 202 at 0.60), not the glass. Unverifiable, never a fail: it
+    stays opaque unless you switch it on yourself."""
+    return ("Lian Li covers its window with its \"Waiting for daemon\" dialog "
+            "when the daemon is hidden, as the hidden check must: Lian Li is not checked")
+
+
 def verify_mask(rec):
     """The hidden check keeps the app away from its daemon (/run/lianli:
     the fans and lights of the real machine), from the system manager (the
