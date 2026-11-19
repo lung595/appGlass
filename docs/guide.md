@@ -47,7 +47,7 @@ TODO(engine): `appglass setup` will do the four steps above in one command, and 
 
 - `apply` writes the glass files for the apps it finds, and one niri rule file, `~/.config/niri/appglass.kdl`, included right after `dms/windowrules.kdl`. That rule sets `opacity 1.0` for every app that paints its own glass, and blur stays on.
 - Every other window also gets `opacity 1.0` by default: opaque and sharp, never faded. You can change this in Settings > Fallback.
-- Apps on a native route are glass the next time they start. Alacritty, Herdr and Dux Files reload live. GTK apps and Dux Calendar need a restart. Quit Obsidian before the first `appglass apply`: Obsidian needs a restart on the first enable (or the snippet toggled off and on in Obsidian), and reloads live after that.
+- Apps on a native route are glass the next time they start. Alacritty, Herdr and Dux Files reload live. GTK4 apps and Dux Calendar need a restart. GTK3 apps re-read their theme at the sync unit's GTK theme flip (a DMS colour or level change); after a typed `appglass apply`, restart them. Quit Obsidian before the first `appglass apply`: Obsidian needs a restart on the first enable (or the snippet toggled off and on in Obsidian), and reloads live after that.
 - Apps on a Forced or Mod route (a shim, a hook or a client mod) are on, but they wait for a hidden check first: Settings > Apps shows "Waiting for check", and the app runs plain until the check passes in a headless session, off your screen ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)). To keep one off, switch it off (see [Per-app switch](#per-app-switch)).
 - Games and root GUIs are never touched, and password managers never get an injected route. Games get opaque windows with no blur behind them.
 

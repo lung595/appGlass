@@ -18,7 +18,7 @@
 #  2. appglass apply --from-hook: re-render every applied family with the new
 #     level and colours (launchers, CSS, the Discord theme, the niri rules)
 #  3. only when one of their files changed: reload Herdr's theme, nudge the
-#     running GTK apps to re-read their CSS (a GTK theme flip)
+#     running GTK3 apps to re-read their theme (a GTK theme flip)
 # Undo: appglass hook remove.
 set -u
 AG="${APPGLASS_BIN:-$(dirname "$(readlink -f "$0")")/appglass}"
@@ -106,7 +106,8 @@ fi
 if touched '/gtk-[34]\.0/'; then
     if ! real; then
         log "GTK CSS changed (no theme flip in a sandbox)"
-    # GTK re-reads gtk.css when the theme name changes
+    # GTK3 re-reads its theme (AppGlass) when the theme name changes; GTK4
+    # reads gtk.css at start only
     elif t=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null) && [ -n "$t" ]; then
         # back to the theme read; a key the user never set (no dconf value)
         # is reset to its default, not pinned to the name read

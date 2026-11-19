@@ -1381,3 +1381,19 @@ class LevelsExample(unittest.TestCase):
                       r"```json\n(.*)\n```", t)
         self.assertIsNotNone(m)
         self.assertEqual(json.loads(m.group(1)), json.loads(out))
+
+
+class GtkReload(unittest.TestCase):
+    """The sync unit's theme flip makes running GTK3 apps re-read their
+    theme; GTK4 apps pick a change up at restart (measured in a nested
+    niri). Every doc says the same."""
+
+    def test_the_docs_agree_on_what_the_flip_reloads(self):
+        e = read("docs", "engine.md")
+        self.assertNotIn("makes the running GTK apps re-read", e)
+        self.assertIn("GTK4 apps read `gtk.css` only at start", e)
+        for path in (("README.md",), ("docs", "guide.md"), ("docs", "engine.md")):
+            t = read(*path)
+            self.assertNotRegex(t, r"(?<!GTK4 )GTK apps and Dux Calendar", path)
+            self.assertIn("GTK4 apps and Dux Calendar", t, path)
+        self.assertIn("theme flip", section(read("docs", "routes.md"), "GTK3"))

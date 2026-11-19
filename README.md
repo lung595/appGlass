@@ -181,7 +181,7 @@ dms ipc call appGlass app gtk3 off
 dms ipc call appGlass app gtk3 on
 ```
 
-**Restart needs.** GTK apps and Dux Calendar pick up a change when they restart. Alacritty, Herdr and Dux Files reload live.
+**Restart needs.** GTK4 apps and Dux Calendar pick up a change when they restart. GTK3 apps re-read their theme when the sync unit flips the GTK theme (at a DMS colour or level change); after a typed `appglass apply`, restart them. Alacritty, Herdr and Dux Files reload live.
 
 **Uninstall.** **Settings → Advanced → Uninstall appGlass**, then confirm. Or from a terminal:
 

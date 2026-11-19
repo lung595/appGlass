@@ -119,7 +119,7 @@ This template and entry were not run. Only the static file was tested.
 
 ### Reload
 
-GTK does not live-reload `gtk.css`. Editing it while Nautilus ran changed nothing. Restart the app after DMS rewrites colours, same as today for `dank-colors.css`.
+GTK does not live-reload `gtk.css`. Editing it while Nautilus ran changed nothing, and the sync unit's GTK theme flip does not reload it either (measured in a nested niri: a libadwaita role window kept 153 through the flip after a change from 0.60 to 0.90). Restart the app after DMS rewrites colours, same as today for `dank-colors.css`.
 
 ### niri rule
 

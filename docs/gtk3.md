@@ -158,7 +158,7 @@ Add `thunar` (and any other GTK3 app you opt in) to the regex. Do **not** add XW
 
 ### Reload
 
-GTK3 reads the CSS when the app starts. After a DMS colour or wallpaper change, restart the app. Solaar is a long-running tray process, so it keeps stale colours until it is restarted (live reload untested). niri reloads its rules automatically.
+GTK3 reads the CSS when the app starts, and again when the GTK theme name changes: the sync unit's theme flip after a DMS colour or level change makes a running app re-read the AppGlass theme (measured in a nested niri: a role window went from 153 to 230 at the flip after a change from 0.60 to 0.90, and kept 153 without it). After a typed `appglass apply`, restart the app. Solaar is a long-running tray process, so it keeps stale colours until it is restarted (live reload untested). niri reloads its rules automatically.
 
 ## Measured results (tested in a nested niri session)
 
