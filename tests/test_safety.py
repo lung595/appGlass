@@ -663,6 +663,45 @@ class UserLinkOverOwned(Base):
         self.assertEqual(self.sb.read(mine), "# mine\n")
         self.assertIn("is a link now", err)
 
+    def _link_over_owned(self):
+        self.apply()
+        mine = os.path.join(self.sb.home, "dotfiles", "appglass.toml")
+        os.makedirs(os.path.dirname(mine))
+        shutil.move(self.owned(), mine)
+        os.symlink(mine, self.owned())
+        data = self.sb.readb(mine)
+        self.sb.seed_dms(light=True)       # the colours change after the link
+        return mine, data
+
+    def _assert_link_kept(self, mine, data):
+        self.assertTrue(os.path.islink(self.owned()))
+        self.assertEqual(os.readlink(self.owned()), mine)
+        self.assertEqual(self.sb.readb(mine), data)
+        self.assertEqual([n for n in os.listdir(os.path.dirname(self.owned()))
+                          if "appglass-changed" in n], [])
+
+    def test_apply_and_hook_runs_leave_a_link_you_put_over_a_created_file(self):
+        mine, data = self._link_over_owned()
+        code, out, err = self.sb.run("apply", "--from-hook", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self._assert_link_kept(mine, data)
+        code, out, err = self.apply()
+        self._assert_link_kept(mine, data)
+        self.assertIn("is a link now", err)
+        code, out, err = self.sb.run("apply", "--only", "alacritty", "--dry-run",
+                                     assume="alacritty")
+        self.assertNotIn(self.env.tilde(self.owned()), out)
+        code, out, err = self.sb.run("remove", assume="alacritty")
+        self.assertEqual(code, 0, err)
+        self._assert_link_kept(mine, data)
+
+    def test_doctor_does_not_report_a_link_you_put_over_a_created_file(self):
+        mine, data = self._link_over_owned()
+        with open(mine, "ab") as f:
+            f.write(b"# my tweak\n")
+        code, out, err = self.sb.run("doctor", assume="alacritty")
+        self.assertNotIn(self.env.tilde(self.owned()), out + err)
+
 
 class HandEditOfOwned(Base):
     """A file appglass owns whole, edited by hand since apply: the next

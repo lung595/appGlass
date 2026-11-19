@@ -1614,6 +1614,8 @@ class App:
         if dry_run:
             for p in ctx.order:
                 op = ctx.ops[p]
+                if self._link_of_yours(owner["files"].get(p), p):
+                    continue
                 cur = _read(p)
                 if op.kind == "retire":
                     if os.path.lexists(p):
@@ -1677,6 +1679,12 @@ class App:
                 rec.pop("pending", None)
                 owner["files"][p] = rec
                 st.save()
+                continue
+            if self._link_of_yours(rec, p):
+                # a file appglass created, a link of yours now (to a dotfiles
+                # folder): yours, not written through nor replaced
+                self.warn("%s is a link now (appglass created a file there); left as is"
+                          % self.env.tilde(p))
                 continue
             if rec is not None:
                 rec.pop("retired", None)
@@ -1780,6 +1788,11 @@ class App:
         for p in changed:
             self._note(p)
         return changed
+
+    @staticmethod
+    def _link_of_yours(rec, p):
+        """p, a file appglass created, is a link now: the user's."""
+        return rec is not None and rec.get("kind") == "created" and os.path.islink(p)
 
     def _unpend(self, name, p, rec, prev, backed):
         """A write of p that failed (a read-only file): when p still holds
@@ -4657,7 +4670,8 @@ def doctor_drift(app):
                 drift.append((p, "was cut half way by a stopped run (appglass remove gives "
                                  "the original back, apply writes it again)"))
                 continue
-            if rec.get("how") != "owned" or rec.get("retired") or rec.get("unplanned"):
+            if rec.get("how") != "owned" or rec.get("retired") or rec.get("unplanned") \
+                    or app._link_of_yours(rec, p):
                 # (unplanned: an event run found its target gone, a vault on
                 # a drive not mounted; kept for remove, not re-rendered)
                 continue
