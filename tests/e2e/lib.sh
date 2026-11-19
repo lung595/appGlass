@@ -9,6 +9,13 @@
 
 set -euo pipefail
 
+# no bus for anything the e2e starts: the nested niri, the python helpers
+# (gi, Gtk) and the apps get both addresses on a missing socket (as the
+# harness's NOBUS=1), so none of them reaches the real session or system bus
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/nonexistent/appglass-e2e-nobus"
+export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/nonexistent/appglass-e2e-nobus"
+export GSETTINGS_BACKEND=memory
+
 AG_E2E=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 AG_REPO=$(cd "$AG_E2E/../.." && pwd)
 AG_BIN=$AG_REPO/bin/appglass

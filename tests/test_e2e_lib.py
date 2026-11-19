@@ -21,6 +21,7 @@ FAKE = textwrap.dedent("""\
         printf 'PID=1\\nSOCK=x\\nWL=%s\\nTMP=%s\\nCFG=x\\n' "$wl" "$t";;
     stop) echo "stopped $2";;
     esac
+    echo "$DBUS_SESSION_BUS_ADDRESS $DBUS_SYSTEM_BUS_ADDRESS" > "$d/bus"
     """)
 
 
@@ -60,6 +61,30 @@ class AgStart(unittest.TestCase):
         self.assertIn("no wayland display", r.stderr)
         self.assertIn("WL=wayland-9 TMP=%s/tmp-2 SESSIONS=s1" % self.dir, r.stdout)
         self.assertEqual(calls, ["start", "s1", "stop", "s1", "start", "s1"])
+
+    def test_the_nested_niri_and_the_helpers_get_no_bus(self):
+        """The nested niri (harness start) and the e2e's own helpers (python3
+        importing Gtk) run with both bus addresses on a missing socket, never
+        the real session's or system's bus."""
+        real = "unix:path=" + self.sb.path("bus")
+        open(self.sb.path("bus"), "w").close()
+        script = ('. "%s"; ag_cleanup() { :; }; ag_start s1 "";'
+                  ' echo "HELPERS=$DBUS_SESSION_BUS_ADDRESS $DBUS_SYSTEM_BUS_ADDRESS"' % LIB)
+        with open(os.path.join(self.dir, "misses"), "w") as f:
+            f.write("0")
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                           env=dict(os.environ, APPGLASS_HARNESS=self.h,
+                                    DBUS_SESSION_BUS_ADDRESS=real, DBUS_SYSTEM_BUS_ADDRESS=real))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.dir, "bus")) as f:
+            niri = f.read().split()
+        helpers = r.stdout.split("HELPERS=")[1].split()
+        for addr in niri + helpers:
+            self.assertNotEqual(addr, real)
+            self.assertTrue(addr.startswith("unix:path="), addr)
+            self.assertFalse(os.path.exists(addr[len("unix:path="):]), addr)
+        self.assertEqual(len(niri), 2)
+        self.assertEqual(len(helpers), 2)
 
     def test_empty_wl_twice_fails_clearly(self):
         r, calls = self.start(2)
