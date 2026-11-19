@@ -1129,6 +1129,18 @@ class HiddenScope(unittest.TestCase):
         r = self.no_window("started\n")
         self.assertEqual(r["reason"], "no window within 10 s")
 
+    def test_an_app_that_needs_the_system_bus_says_so(self):
+        """GNOME Software opens no window without the system bus (PackageKit,
+        fwupd), which every check hides: the reason says so."""
+        for line in ("(gnome-software:12): Gs-WARNING **: Error getting system bus: "
+                     "Could not connect: No such file or directory\n",
+                     "Failed to connect to the system bus: x\n",
+                     "Could not connect to system bus\n"):
+            r = self.no_window(line)
+            self.assertEqual(r["result"], "unverifiable")
+            self.assertEqual(r["reason"], "no window within 10 s: it needs the system bus "
+                                          "(the hidden check hides it)", line)
+
     def test_the_session_starts_inside_the_mask(self):
         mask = ["/x/bwrap", "--dev-bind", "/", "/", "--tmpfs", "/run/user/1/systemd", "--"]
         r, seen = self.harness({"key": "org.x.App", "fp": "1", "flatpak": "org.x.App"}, mask)

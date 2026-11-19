@@ -15,7 +15,7 @@ libadwaita 1.10 (GTK 4.24) apps get real glass from `~/.config/gtk-4.0/gtk.css` 
 | Zenity | Documented (installed, not launched) | expected yes | inherits `gtk.css` | `org.gnome.Zenity` → `opacity 1.0` |
 | Flatseal (flatpak) | Documented (not installed, no GNOME runtime) | partial | `gtk.css` + `flatpak override --filesystem=xdg-config/gtk-4.0:ro` | `com.github.tchx84.Flatseal` → `opacity 1.0` |
 
-GNOME Software was not launched because it talks to the system packagekitd and fwupd and refreshes metadata over the network.
+GNOME Software was not launched because it talks to the system packagekitd and fwupd and refreshes metadata over the network. The hidden check cannot judge it either: every check hides the system bus, and without it GNOME Software opens no window, so its check is always unverifiable ("it needs the system bus"). It is Native, so its glass stays on.
 
 ## Levels
 
@@ -184,7 +184,7 @@ Contrast: to re-measure. The composites used for the ratios in the first test ru
 
 ## Documented only (unverified)
 
-- **GNOME Software** (`org.gnome.Software`): same libadwaita 1.10, same `gtk.css`. Expected 0.60 / 0.65 / 1.0 like Nautilus. App icons are full colour and opaque. Needs the niri rule.
+- **GNOME Software** (`org.gnome.Software`): same libadwaita 1.10, same `gtk.css`. Expected 0.60 / 0.65 / 1.0 like Nautilus. App icons are full colour and opaque. Needs the niri rule. The hidden check cannot measure it (it opens no window without the system bus, which every check hides).
 - **xdg-desktop-portal-gnome** (file chooser, default portal per niri-portals.conf) and **Zenity** (`org.gnome.Zenity`): libadwaita, inherit `gtk.css` automatically. Need the niri rule.
 - **Epiphany web apps** (epiphany-runtime is installed): libadwaita, covered by `Epiphany.*` in the rule. Not looked at further.
 - **Flatseal** (`com.github.tchx84.Flatseal`): not installed, and no `org.gnome.Platform` runtime is present. Commonly documented route, expose the host GTK4 config read-only (per app, or drop the id for all flatpaks):

@@ -803,8 +803,11 @@ def run_harness(app, rec, level):
         log = log.decode("utf-8", "replace")
         if "window=none" in log or not os.path.isfile(shot):
             why = "no window within %d s" % WINDOW_WAIT
-            if _wants_x11(os.path.join(run, "app.log")):
+            app_log = os.path.join(run, "app.log")
+            if _log_has(app_log, X11_NEED):
                 why += ": an X11 app (the hidden session has no X server)"
+            elif _log_has(app_log, SYSBUS_NEED):
+                why += ": it needs the system bus (the hidden check hides it)"
             return {"result": "unverifiable", "reason": why, "log": log[-400:]}
         res = judge(env, shot, level, panes=verify_alphas(app, rec, level))
         seen = parse_window(log)[1]
@@ -834,13 +837,19 @@ X11_NEED = re.compile(r"cannot initialize OSFactory|could not connect to display
                       r"could not connect to any X display", re.I)
 
 
-def _wants_x11(app_log):
+# what an app that cannot go on without the system bus prints (GNOME
+# Software: PackageKit and fwupd); every check hides that bus
+SYSBUS_NEED = re.compile(r"(error getting|failed to connect to|could not connect to|"
+                         r"unable to connect to) (the )?system bus", re.I)
+
+
+def _log_has(app_log, rx):
     try:
         with open(app_log, "rb") as f:
             text = f.read(1 << 20).decode("utf-8", "replace")
     except OSError:
         return False
-    return bool(X11_NEED.search(text))
+    return bool(rx.search(text))
 
 
 def _scrub(run):
