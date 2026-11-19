@@ -1088,6 +1088,47 @@ class HiddenScope(unittest.TestCase):
                 r = None
         return r, seen
 
+    def no_window(self, app_log):
+        """run_harness with a session that shows no window, the app having
+        written app_log."""
+        from unittest import mock
+
+        class Done:
+            pid, returncode = 0, 0
+
+            def __init__(self, argv):
+                run = argv[argv.index("--") + 2]
+                with open(os.path.join(run, "app.log"), "w") as f:
+                    f.write(app_log)
+
+            def communicate(self, timeout=None):
+                return b"window=none\n", None
+
+            def poll(self):
+                return 0
+        real = subprocess.Popen
+        app = core.App(self.sb.env, quiet=True)
+        with mock.patch.object(verify, "mask_argv", lambda env, *a, **k: []), \
+                mock.patch.object(verify, "launcher_exec", lambda a, r, h: "true"), \
+                mock.patch.object(verify.subprocess, "Popen",
+                                  lambda argv, *a, **kw: Done(argv) if argv[0] == "dbus-run-session"
+                                  else real(argv, *a, **kw)):
+            return verify.run_harness(app, {"key": "vlc", "fp": "1"}, 0.6)
+
+    def test_an_x11_app_says_the_hidden_session_has_no_x_server(self):
+        """VLC 3 needs an X server, and niri starts no xwayland-satellite
+        there: the reason says so, not only "no window"."""
+        r = self.no_window("main interface error: no suitable interface module\n"
+                           "skins2 interface error: cannot initialize OSFactory\n")
+        self.assertEqual(r["result"], "unverifiable")
+        self.assertIn("X11 app", r["reason"])
+        self.assertIn("no X server", r["reason"])
+        for line in ("qt.qpa.xcb: could not connect to display \n",
+                     "Gtk-WARNING **: cannot open display: \n"):
+            self.assertIn("no X server", self.no_window(line)["reason"])
+        r = self.no_window("started\n")
+        self.assertEqual(r["reason"], "no window within 10 s")
+
     def test_the_session_starts_inside_the_mask(self):
         mask = ["/x/bwrap", "--dev-bind", "/", "/", "--tmpfs", "/run/user/1/systemd", "--"]
         r, seen = self.harness({"key": "org.x.App", "fp": "1", "flatpak": "org.x.App"}, mask)

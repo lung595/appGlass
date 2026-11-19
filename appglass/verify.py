@@ -802,8 +802,10 @@ def run_harness(app, rec, level):
             return {"result": "unverifiable", "reason": "the session timed out"}
         log = log.decode("utf-8", "replace")
         if "window=none" in log or not os.path.isfile(shot):
-            return {"result": "unverifiable",
-                    "reason": "no window within %d s" % WINDOW_WAIT, "log": log[-400:]}
+            why = "no window within %d s" % WINDOW_WAIT
+            if _wants_x11(os.path.join(run, "app.log")):
+                why += ": an X11 app (the hidden session has no X server)"
+            return {"result": "unverifiable", "reason": why, "log": log[-400:]}
         res = judge(env, shot, level, panes=verify_alphas(app, rec, level))
         seen = parse_window(log)[1]
         if seen:
@@ -822,6 +824,23 @@ def run_harness(app, rec, level):
                 pass
         kill_session(run)
         _scrub(run)
+
+
+# what an app that needs an X server prints with no DISPLAY (VLC 3's skins2
+# and Qt interfaces, Qt's xcb plugin, GTK3 on X11 only); the hidden niri
+# starts no xwayland-satellite
+X11_NEED = re.compile(r"cannot initialize OSFactory|could not connect to display|"
+                      r"cannot open display|can't open display|unable to open (the )?X display|"
+                      r"could not connect to any X display", re.I)
+
+
+def _wants_x11(app_log):
+    try:
+        with open(app_log, "rb") as f:
+            text = f.read(1 << 20).decode("utf-8", "replace")
+    except OSError:
+        return False
+    return bool(X11_NEED.search(text))
 
 
 def _scrub(run):
