@@ -434,6 +434,8 @@ def gate(st, rec, injected, explicit):
     key, fp = rec.get("key"), rec.get("fp")
     a = st.get(key)
     p = a.get("plain")
+    if p and not injected and (p.get("reason") or "").startswith("check failed"):
+        p = None        # a Native route is never paused by its check (refresh drops it)
     if p and (p.get("fp") == fp and p.get("why") not in UNJUDGED or p.get("why") == "kept"):
         return "opaque", p["reason"]
     v = a.get("verify")
@@ -542,6 +544,12 @@ def refresh(app, dry=False, families=None):
         route = adapters.resolve(r, app.families, app.settings, gate=g)
         if families is not None and route.get("family") not in families:
             continue
+        if route.get("family") and not route.get("injected") and not dry and \
+                ((st.get(key).get("plain") or {}).get("reason") or "").startswith("check failed"):
+            # a Native route is never paused by its check: a marker an
+            # older failed check left goes (on at once, README)
+            st.clear_plain(key)
+            changed.append(key)
         a = st.get(key)
         state = route.get("state")
         injected = route.get("injected")

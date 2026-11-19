@@ -155,8 +155,7 @@ class NativePlain(Stubbed):
         r = routes(self.sb)["org.example.GtkThing"]
         self.assertEqual(r["state"], "glass")
         self.assertIn("check failed, glass kept", r["reason"])
-        # a plain marker an older failed check left goes with the next result
-        self.result("fail", "no opaque text on screen")
+        # a plain marker an older failed check left goes at the next run
         st = os.path.join(self.sb.state, "appglass", "engine.json")
         doc = self.sb.json(st)
         doc["apps"]["org.example.GtkThing"]["plain"] = {
@@ -164,9 +163,16 @@ class NativePlain(Stubbed):
             "reason": "check failed: no opaque text on screen"}
         with open(st, "w") as f:
             json.dump(doc, f)
-        self.assertEqual(routes(self.sb)["org.example.GtkThing"]["state"], "opaque")
-        self.run_ok("verify", "org.example.GtkThing")
+        self.assertEqual(routes(self.sb)["org.example.GtkThing"]["state"], "glass")
+        self.run_ok("apply", "--from-hook")
+        self.assertIn("GTK_THEME=AppGlass", self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
         self.assertNotIn("plain", self.store()["apps"]["org.example.GtkThing"])
+        self.assertFalse(os.path.exists(self.marker("org.example.GtkThing")))
+        # and over an engine.json reset (read back from the marker file)
+        _w(self.marker("org.example.GtkThing"), "check failed: no opaque text on screen\n")
+        with open(st, "w") as f:
+            f.write("{broken")
+        self.run_ok("apply", "--from-hook")
         self.assertFalse(os.path.exists(self.marker("org.example.GtkThing")))
         self.assertEqual(routes(self.sb)["org.example.GtkThing"]["state"], "glass")
         self.assertIn("GTK_THEME=AppGlass", self.sb.read(self.user_launcher("org.example.GtkThing.desktop")))
