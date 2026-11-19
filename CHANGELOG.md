@@ -71,6 +71,11 @@ The first release.
 
 ### Fixed
 
+- **A WebKitGTK page went bare on hover** (Kiri, WebKitGTK 2.54, NVIDIA): WebKit's damage tracking
+  repainted only the hovered rects of a frame into a buffer that does not keep the last one, and on
+  the clear view the rest of the page vanished down to the blur. The shim turns WebKit's two damage
+  features (`PropagateDamagingInformation`, `UseDamagingInformationForCompositing`) off on a glass
+  view, so every frame is drawn whole.
 - **False fails of the hidden check** on a desktop at level 0.80: the check ran at 0.60
   (the DMS level sources were not copied) and judged at 0.80, so every app failed and went plain.
   Also fixed: Nautilus' empty folder stacked a second fill (a status page in the window

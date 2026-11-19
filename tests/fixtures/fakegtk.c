@@ -191,6 +191,21 @@ const char *webkit_web_view_get_uri(void *v) { return ((W *)v)->shown || ((W *)v
 void *webkit_web_view_get_user_content_manager(void *v) { return ((W *)v)->ucm ? ((W *)v)->ucm : v; }
 void *webkit_web_view_get_settings(void *v) { return v; }
 void webkit_settings_set_enable_write_console_messages_to_stdout(void *s, int on) { (void)s; (void)on; }
+// the feature list: three features, all on; fk_features prints which are off
+static struct { const char *id; int on; } feats[] = {
+    { "DeveloperExtras", 1 }, { "PropagateDamagingInformation", 1 }, { "UseDamagingInformationForCompositing", 1 } };
+static int feat_lists;
+void *webkit_settings_get_all_features(void) { feat_lists++; return feats; }
+size_t webkit_feature_list_get_length(void *l) { (void)l; return sizeof feats / sizeof *feats; }
+void *webkit_feature_list_get(void *l, size_t i) { (void)l; return &feats[i]; }
+const char *webkit_feature_get_identifier(void *f) { return *(const char **)f; }
+void webkit_settings_set_feature_enabled(void *s, void *f, int on) { (void)s; for (size_t i = 0; i < 3; i++) if ((void *)&feats[i] == f) feats[i].on = on; }
+void webkit_feature_list_unref(void *l) { (void)l; feat_lists--; }
+void fk_features(void) {
+    printf("features");
+    for (size_t i = 0; i < 3; i++) if (!feats[i].on) printf(" %s", feats[i].id);
+    printf(" lists=%d\n", feat_lists);
+}
 static int item;
 void *webkit_user_style_sheet_new(const char *s, int a, int b, const char *const *c, const char *const *d) {
     (void)s; (void)a; (void)b; (void)c; (void)d; return &item;

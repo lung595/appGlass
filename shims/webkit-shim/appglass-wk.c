@@ -586,11 +586,37 @@ static void on_load_changed(void *view, int ev, void *data) {
     if (ev == 3 && !obj_get(view, "appglass-paint-msg")) first_document(view);
 }
 
+// WebKitGTK 2.5x damage tracking: a partial frame (a hover) repaints only its damaged rects into a
+// buffer that does not keep the last frame, and the rest is cleared: on an opaque view that is
+// hidden by the view's background, on a clear one the whole page but the damaged rects goes bare
+// (measured on Kiri, WebKitGTK 2.54, NVIDIA). Off on the glass view's settings: every frame whole.
+// The features are looked up by name (a WebKit without them has nothing to turn off).
+static void no_damage(void *view) {
+    static const char *const OFF[] = { "PropagateDamagingInformation", "UseDamagingInformationForCompositing" };
+    void *(*get_settings)(void *) = sym("webkit_web_view_get_settings");
+    void *(*all)(void) = dlsym(RTLD_DEFAULT, "webkit_settings_get_all_features");   // 2.42+
+    size_t (*len)(void *) = dlsym(RTLD_DEFAULT, "webkit_feature_list_get_length");
+    void *(*get)(void *, size_t) = dlsym(RTLD_DEFAULT, "webkit_feature_list_get");
+    const char *(*ident)(void *) = dlsym(RTLD_DEFAULT, "webkit_feature_get_identifier");
+    void (*set)(void *, void *, gboolean) = dlsym(RTLD_DEFAULT, "webkit_settings_set_feature_enabled");
+    void (*unref)(void *) = dlsym(RTLD_DEFAULT, "webkit_feature_list_unref");
+    void *s = get_settings ? get_settings(view) : NULL;
+    void *l = s && all && len && get && ident && set ? all() : NULL;
+    if (!l) return;
+    for (size_t i = 0, n = len(l); i < n; i++) {
+        void *f = get(l, i); const char *id = ident(f);
+        for (size_t k = 0; id && k < sizeof OFF / sizeof *OFF; k++)
+            if (strcmp(id, OFF[k]) == 0) { set(s, f, 0); LOG("feature %s off", id); }
+    }
+    if (unref) unref(l);
+}
+
 static void glassify(void *view) {
     if (obj_get(view, "appglass")) return;
     obj_set(view, "appglass", (void *)1, NULL);
     GdkRGBA clear = { 0, 0, 0, 0 };
     real_set_bg(view, &clear);
+    no_damage(view);
     unsigned long (*connect)(void *, const char *, void *, void *, void *, int) = sym("g_signal_connect_data");
     gboolean (*is_loading)(void *) = sym("webkit_web_view_is_loading");
     const char *(*get_uri)(void *) = sym("webkit_web_view_get_uri");

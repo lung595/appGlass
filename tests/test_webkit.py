@@ -577,6 +577,7 @@ void fk_hold(void *, int); void fk_commit(void *); void fk_nopaint(void *, int);
 void fk_remove(void *); void fk_add(void *, void *); void fk_related(void *, void *);
 void webkit_web_view_load_html(void *, const char *, const char *);
 void fk_allocate(void *); void fk_restyle(void *); void fk_region(const char *, void *);
+void fk_features(void);
 // box[sidebar (hidden), stack[A (hidden page, loaded), B (shown, its page slow)]]; reported: B,
 // then A on its page and B again
 static int twoview(void) {
@@ -654,6 +655,12 @@ static int region(void) {
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
     if (!strcmp(mode, "region")) return region();
+    if (!strcmp(mode, "features")) {   // the damage features of a glass view
+        void *win = fk_widget("window", 0, 1), *view = fk_widget("view", win, 0);
+        webkit_web_view_load_html(view, "<p>page</p>", 0);
+        fk_map(win); fk_idle(); fk_features();
+        return 0;
+    }
     if (!strcmp(mode, "twoview")) return twoview();
     if (!strcmp(mode, "swap") || !strcmp(mode, "move")) return swap(mode[0] == 'm');
     if (!strcmp(mode, "viewhide")) return viewhide();
@@ -845,6 +852,15 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r["opaque"], "opaque=1")
         self.assertEqual(r["again"], "opaque=0")
         self.assertEqual(r["again-resized"], "opaque=0")
+
+    def test_damage_tracking_is_off(self):
+        """WebKitGTK 2.5x damage tracking repaints only the damaged rects of a
+        partial frame (a hover) into a buffer that does not keep the last
+        frame: on a clear view the rest of the page went bare (Kiri, 2.54,
+        NVIDIA). The shim turns both damage features off; others stay on."""
+        r = self.run_driver("features")
+        self.assertEqual(r["features"],
+                         "PropagateDamagingInformation UseDamagingInformationForCompositing lists=0")
 
     def test_views_on_one_content_manager_are_glass_together(self):
         """A related view shares the first view's user content manager, so
