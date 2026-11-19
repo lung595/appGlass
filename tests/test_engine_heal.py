@@ -1114,6 +1114,11 @@ class HiddenScope(unittest.TestCase):
     def test_a_family_that_needs_the_network_opts_out(self):
         from unittest import mock
         app = core.App(self.sb.env, quiet=True)
+        nosys = (mock.patch.object(verify, "system_paths", lambda run="/run": []),
+                 mock.patch.object(verify, "session_paths", lambda rt=None, prefix=None: []))
+        for m in nosys:
+            m.start()
+            self.addCleanup(m.stop)
         with mock.patch.object(verify, "RESOLVE", self.sb.path("no-resolve")):
             self.assertEqual(verify.verify_mask(app, {"key": "gedit"}),
                              {"hide": [], "nonet": True})
@@ -1126,12 +1131,39 @@ class HiddenScope(unittest.TestCase):
         self.assertIsNone(r)
         self.assertEqual(seen["argv"][0], "dbus-run-session")
 
+    def test_every_check_hides_the_system_manager_and_the_session_bus(self):
+        """Every family, not only webkit and lianli: the system bus and
+        /run/systemd (a root unit, dnf5daemon, geoclue started over it) and
+        the real session bus socket are out of reach, a family's own hide
+        added once."""
+        from unittest import mock
+        app = core.App(self.sb.env, quiet=True)
+        with mock.patch.object(verify, "RESOLVE", self.sb.path("no-resolve")), \
+                mock.patch.object(verify, "system_paths",
+                                  lambda run="/run": ["/run/dbus/system_bus_socket",
+                                                      "/run/systemd"]), \
+                mock.patch.object(verify, "session_paths", lambda rt=None, prefix=None: ["/rt/bus"]):
+            self.assertEqual(verify.verify_mask(app, {"key": "gedit"}),
+                             {"hide": ["/run/dbus/system_bus_socket", "/run/systemd", "/rt/bus"],
+                              "nonet": True})
+            fam = mock.Mock(verify_mask=lambda rec: {"hide": ["/run/kiri", "/run/systemd"],
+                                                     "nonet": False})
+            with mock.patch.object(verify, "route_of", lambda a, r: {"family": "f"}), \
+                    mock.patch.dict(app.families, {"f": fam}):
+                self.assertEqual(verify.verify_mask(app, {"key": "x"}),
+                                 {"hide": ["/run/dbus/system_bus_socket", "/run/systemd",
+                                           "/rt/bus", "/run/kiri"], "nonet": False})
+
     def test_no_network_hides_the_resolver(self):
         """resolved answers DNS over its varlink socket from out of the
         network namespace: with no network its dir is hidden too, unless
         the family hides a dir above it already."""
         from unittest import mock
         app = core.App(self.sb.env, quiet=True)
+        for m in (mock.patch.object(verify, "system_paths", lambda run="/run": []),
+                  mock.patch.object(verify, "session_paths", lambda rt=None, prefix=None: [])):
+            m.start()
+            self.addCleanup(m.stop)
         res = self.sb.path("run", "systemd", "resolve")
         os.makedirs(res)
         with mock.patch.object(verify, "RESOLVE", res):

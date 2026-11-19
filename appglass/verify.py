@@ -589,14 +589,21 @@ RESOLVE = "/run/systemd/resolve"
 
 def verify_mask(app, rec):
     """The app's family's verify_mask(rec) over the base mask: {"hide":
-    [paths], "nonet": bool}. Every check runs with no network (an app with
-    a fresh HOME would announce itself on the LAN, or sync); a family that
-    truly needs it says "nonet": False. With no network, resolved's dir is
-    hidden too (unless a dir above it is)."""
+    [paths], "nonet": bool}. Every check hides the system manager (the
+    system bus and /run/systemd: an app with a fresh HOME starts root
+    services over them, dnf5daemon, geoclue, localed) and the real session
+    bus socket (the check runs its own bus); an app that cannot show a
+    window without them is unverifiable. Every check runs with no network
+    (an app with a fresh HOME would announce itself on the LAN, or sync); a
+    family that truly needs it says "nonet": False. With no network,
+    resolved's dir is hidden too (unless a dir above it is)."""
     fam = app.families.get(route_of(app, rec).get("family") or "")
     fn = getattr(fam, "verify_mask", None)
     m = (fn(rec) if fn else None) or {}
-    hide = list(m.get("hide") or ())
+    hide = []
+    for h in system_paths() + session_paths() + list(m.get("hide") or ()):
+        if h not in hide:
+            hide.append(h)
     nonet = m.get("nonet", True) is not False
     if nonet and os.path.isdir(RESOLVE) and \
             not any(RESOLVE == h or RESOLVE.startswith(h.rstrip(os.sep) + os.sep) for h in hide):
