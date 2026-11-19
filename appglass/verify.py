@@ -973,7 +973,16 @@ def record(a, key, rec, route, res):
                         injected=bool(route.get("injected")))
     else:
         st = engine.store(a)
-        seen = (st.get(key).get("verify") or {}).get("app_id")
+        prev = st.get(key).get("verify") or {}
+        if prev.get("fp") == rec.get("fp") and prev.get("result") in ("pass", "fail"):
+            # unverifiable is never a fail (engine.md): a check that could
+            # not judge (a timeout, no window) keeps the verdict stored for
+            # this fingerprint and changes nothing else
+            st.dequeue(key)
+            st.save()
+            res["kept"] = prev["result"]
+            return res
+        seen = prev.get("app_id")
         st.app(key)["verify"] = {"fp": rec.get("fp"), "result": "unverifiable",
                                  "reason": res.get("reason", ""), "route": engine.ROUTE_VERSION,
                                  "at": time.strftime("%Y-%m-%d %H:%M")}
@@ -1087,7 +1096,8 @@ def _verify_keys(app, key, queue):
                      % (len(keys) - i))
             break
         res = verify_one(app, k)
-        app.info("verify: %s: %s (%s)" % (k, res.get("result"), res.get("reason", "")))
+        kept = "; the %s stored for this version is kept" % res["kept"] if res.get("kept") else ""
+        app.info("verify: %s: %s (%s)%s" % (k, res.get("result"), res.get("reason", ""), kept))
     return 0
 
 

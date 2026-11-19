@@ -1037,6 +1037,32 @@ class Heal(unittest.TestCase):
         self.assertEqual(self.state()["state"], "glass")
         self.assertFalse(os.path.exists(self.marker()))
 
+    def test_a_check_that_cannot_judge_keeps_a_stored_pass(self):
+        """Unverifiable is never a fail (engine.md): a later check that
+        could not judge (a timeout, no window) keeps the pass stored for
+        this fingerprint, by app key and by family name."""
+        self.live()
+        for target, why in ((LS, "the session timed out"),
+                            ("localsend", "no window within 10 s")):
+            self.result("unverifiable", why)
+            self.assertIn("the pass stored for this version is kept", self.run_ok("verify", target))
+            self.assertEqual(self.store()["apps"][LS]["verify"]["result"], "pass")
+            self.run_ok("apply", "--from-hook")
+            self.assertEqual(self.state()["state"], "glass")
+            self.assertFalse(os.path.exists(self.marker()))
+            self.assertIn("LD_PRELOAD", self.wrapper_argv())
+            self.assertIn("localsend_app", self.glass_rule())
+
+    def test_a_check_that_cannot_judge_keeps_a_stored_fail(self):
+        """The same for a fail: still paused, the fail kept."""
+        self.result("fail", "the window is opaque (no glass)")
+        self.run_ok("apply")
+        self.run_ok("verify", "--queue")
+        self.result("unverifiable", "the session timed out")
+        self.run_ok("verify", LS)
+        self.assertEqual(self.store()["apps"][LS]["verify"]["result"], "fail")
+        self.assertIn("check failed", self.state()["reason"])
+
     def test_verify_fail_pauses_with_one_notification(self):
         """B5c Accept 2: a broken shim."""
         self.result("fail", "the window is opaque (no glass)")
