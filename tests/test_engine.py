@@ -1485,6 +1485,21 @@ class Judge(unittest.TestCase):
                          panes=(0.93,))
         self.assertEqual(r["result"], "fail")
 
+    def test_the_bar_level_is_not_the_content_level_at_0_60(self):
+        """At 0.60 the bar level (0.65, 166) is within the tolerance of the
+        content level (153): a window all at the bar level is no pass, a
+        window with real content at 153 and big bars still is."""
+        r = self.j({166: 9000, 255: 400}, level=0.6)
+        self.assertEqual(r["result"], "fail", r)
+        self.assertIn("at the level", r["reason"])
+        r = self.j({160: 9000, 255: 400}, level=0.6)
+        self.assertEqual(r["result"], "fail", r)
+        r = self.j({166: 6000, 153: 3000, 159: 500, 255: 400}, level=0.6)
+        self.assertEqual(r["result"], "pass", r)
+        self.assertEqual(r["share"], round(3500 / 9900.0, 3))
+        # at or over the bar level both are one: nothing changes
+        self.assertEqual(self.j({166: 9000, 255: 400}, level=0.65)["result"], "pass")
+
     def test_text_faded_with_the_window(self):
         r = self.j({204: 9000, 200: 300})
         self.assertIn("no opaque text", r["reason"])

@@ -929,13 +929,22 @@ def judge(env, png, level, hist=None, plane=None, panes=()):
     if hist is None:
         plane = alpha_plane(env, png) if plane is None else plane
         hist = collections.Counter(plane[2])
+    from .core import BAR_MIN
     want = int(round(level * 255))
     tol = int(round(TOL * 255))
     wants = [want] + [int(round(a * 255)) for a in panes]
+    # under the bar level (0.65) the bars are a level of their own, maybe
+    # within the tolerance (166 at 0.60, 153 wanted): an alpha counts for
+    # the content only when it is nearer a wanted level than the bar one
+    bar = int(round(max(level, BAR_MIN) * 255))
+
+    def at_level(k):
+        return any(abs(k - w) <= tol and (bar in wants or abs(k - w) < abs(k - bar))
+                   for w in wants)
     visible = sum(v for k, v in hist.items() if k)
     trans = {k: v for k, v in hist.items() if 0 < k < 255}
     mode = max(trans, key=trans.get) if trans else None
-    near = sum(v for k, v in trans.items() if any(abs(k - w) <= tol for w in wants))
+    near = sum(v for k, v in trans.items() if at_level(k))
     opaque = hist.get(255, 0)
     bare = hist.get(0, 0) / max(sum(hist.values()), 1)
     rep = {"alpha_mode": mode, "expected": want, "share": round(near / max(visible, 1), 3),
