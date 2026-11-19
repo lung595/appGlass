@@ -27,7 +27,7 @@ Requirements:
 - `gcc` for the C shims, and `g++` with the Qt 6 headers for VLC (its style plugin is built from source and is on by default) and the Qt shims; Jellyfin needs host Qt 6.11 or newer (see [routes.md](routes.md)).
 
 ```sh
-git clone <repo> ~/.local/share/appglass
+git clone https://github.com/lung595/appGlass ~/.local/share/appglass
 cd ~/.local/share/appglass
 bin/appglass plugin install         # links the DMS plugin into the DMS plugins folder
 bin/appglass hook install           # matugen hook + user units: re-apply on every DMS theme or level change, route new apps

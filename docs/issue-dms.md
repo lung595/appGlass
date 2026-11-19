@@ -87,7 +87,7 @@ Measured from window screenshots composited over black and white, in nested niri
 ## Install / uninstall
 
 ```sh
-git clone <repo> ~/.local/share/appglass
+git clone https://github.com/lung595/appGlass ~/.local/share/appglass
 cd ~/.local/share/appglass
 bin/appglass plugin install         # links the plugin
 bin/appglass hook install           # matugen hook + user units
