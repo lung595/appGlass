@@ -722,6 +722,31 @@ class HandEditOfOwned(Base):
         self.apply()
         self.assertFalse(os.path.exists(self.owned() + ".appglass-changed.1"))
 
+    def test_doctor_fix_saves_a_hand_edit_once(self):
+        self.apply()
+        with open(self.owned(), "ab") as f:
+            f.write(b"# my tweak\n")
+        mine = self.sb.readb(self.owned())
+        code, out, err = self.sb.run("doctor", "--fix", assume="alacritty")
+        self.assertEqual(self.sb.readb(self.owned() + ".appglass-changed"), mine)
+        self.assertFalse(os.path.exists(self.owned() + ".appglass-changed.1"), err)
+        self.assertEqual(err.count("your version saved as"), 1, err)
+
+    def test_a_hand_edit_of_settings_is_no_aside(self):
+        self.assertEqual(self.sb.run("set", "fallback.mode", "off")[0], 0)
+        sp = self.sb.cfg("appglass", "settings.json")
+        obj = json.loads(self.sb.read(sp))
+        obj["fallback"]["value"] = 0.75
+        with open(sp, "w") as f:
+            json.dump(obj, f)
+        code, out, err = self.sb.run("set", "fallback.mode", "value")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("written again", err)
+        self.assertEqual(json.loads(self.sb.read(sp))["fallback"]["value"], 0.75)
+        self.assertFalse(os.path.exists(sp + ".appglass-changed"))
+        self.assertEqual(self.sb.run("remove")[0], 0)
+        self.assertFalse(os.path.lexists(sp + ".appglass-changed"))
+
 
 class EditMarkers(Base):
     """The files appglass edits (not only the ones it writes) count as its

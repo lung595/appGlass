@@ -1730,9 +1730,12 @@ class App:
                     backed = not had
             elif (rec.get("how") == "owned" and cur is not None and cur != op.data
                   and sha(cur) != rec.get("sha256") and not rec.get("cut")
-                  and not (rec.get("meta") or {}).get("artifact")):
+                  and not (rec.get("meta") or {}).get("artifact")
+                  and ctx.owner != "settings" and not _saved_aside(p, cur)):
                 # a file appglass owns whole, edited by hand since: written
-                # again, the hand version saved beside it first (doctor --fix)
+                # again, the hand version saved beside it first (doctor --fix
+                # saved it already: not twice). settings.json is no render:
+                # appglass set writes it from the hand version, edit kept
                 keep = _aside_name(self.env, p)
                 _write_durable(keep, cur)
                 self.warn("%s changed by hand since apply; written again, your version "
@@ -4567,11 +4570,23 @@ def _aside_name(env, p):
     return keep
 
 
+def _saved_aside(p, data):
+    """The newest <file>.appglass-changed[.N] holds data already."""
+    keep, n, last = p + ".appglass-changed", 0, None
+    while os.path.lexists(keep if n == 0 else "%s.%d" % (keep, n)):
+        last = keep if n == 0 else "%s.%d" % (keep, n)
+        n += 1
+    try:
+        return last is not None and not os.path.islink(last) and _read(last) == data
+    except OSError:
+        return False
+
+
 def _save_aside(app, paths):
     """doctor --fix re-renders files appglass owns: a hand version is saved
     as <file>.appglass-changed (or the first free .appglass-changed.N) first."""
     for p in paths:
-        if not os.path.isfile(p) or os.path.islink(p):
+        if not os.path.isfile(p) or os.path.islink(p) or _saved_aside(p, _read(p)):
             continue
         keep = _aside_name(app.env, p)
         _write_durable(keep, _read(p))
