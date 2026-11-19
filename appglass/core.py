@@ -2759,7 +2759,7 @@ def _inactive_doc(app):
 
 
 def status_doc(app):
-    from . import adapters
+    from . import adapters, engine
     st, lv = app.state, app.levels
     fams, renders = {}, {}
     for name in sorted(app.families):
@@ -2790,6 +2790,11 @@ def status_doc(app):
         hand = route.pop("hand", None)
         if hand and hand not in conflicts:
             conflicts.append(hand)
+        if route.get("injected") and route.get("state") == "opaque" and \
+                (route.get("reason") or "").startswith(engine.COULD_NOT):
+            # the check cannot judge it and you did not switch it on: the
+            # switch shows off, switching it on gives the glass (your on)
+            route["enabled"] = False
         apps.append(dict({"key": r["key"], "name": r["name"], "toolkit": r["toolkit"],
                           "app_ids": r["app_ids"], "source": r.get("source", "desktop"),
                           "routes": adapters.routes(r, app.families), "route": own or None,

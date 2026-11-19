@@ -53,7 +53,7 @@ The first release.
 - **Unfocused fade.** Unfocused windows fade a little more (10 % by default, 180 ms, ease out).
   Only the background fades. It is built into the GTK4, GTK3 and Qt Widgets routes, Alacritty,
   Obsidian, Discord (Vencord), Feishin, Jellyfin and the WebKitGTK apps (Kiri; Lian Li has it
-  built in but stays opaque while its check fails);
+  built in but stays opaque unless you switch it on, then it stays glass);
   recorded in a session for GTK3, VLC, Feishin, Jellyfin and Kiri, unit-tested for the others.
   The other routes do not fade yet;
   **Dim apps that cannot fade** (off by default) gives them an instant niri rule that dims
