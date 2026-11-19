@@ -1397,3 +1397,22 @@ class GtkReload(unittest.TestCase):
             self.assertNotRegex(t, r"(?<!GTK4 )GTK apps and Dux Calendar", path)
             self.assertIn("GTK4 apps and Dux Calendar", t, path)
         self.assertIn("theme flip", section(read("docs", "routes.md"), "GTK3"))
+
+
+class LeftLinksAndPluginSettings(unittest.TestCase):
+    """A link left over an appglass file after remove blocks every later
+    command until it goes; the plugin saves over a hand edit of its
+    settings.json. The docs say both."""
+
+    def test_the_guide_says_a_left_link_blocks_until_it_goes(self):
+        g = read("docs", "guide.md")
+        self.assertNotIn('it only prints "hook: not installed"', g)
+        self.assertRegex(g, r"link you put over a file appglass created[^\n]*that writes, `hook remove` included, refuses")
+
+    def test_the_state_is_lost_entry_names_left_links(self):
+        r = read("README.md")
+        i = r.index("appglass says its state is lost")
+        self.assertIn("links you put over appglass files", r[i:r.index("</details>", i)])
+
+    def test_the_safety_line_names_the_plugins_settings(self):
+        self.assertRegex(read("README.md"), r"plugin is on it owns appglass's `settings.json`[^\n]*no aside")

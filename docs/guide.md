@@ -139,7 +139,7 @@ From a terminal:
 appglass remove && appglass plugin remove
 ```
 
-`appglass remove` restores every file and removes the matugen hook and the user units too, so `appglass hook remove` is not needed afterwards (it only prints "hook: not installed"). Then delete the clone if you like, and the PATH link if you made one: `rm ~/.local/bin/appglass`. Your other DMS plugins are not touched.
+`appglass remove` restores every file and removes the matugen hook and the user units too, so `appglass hook remove` is not needed afterwards. A link you put over a file appglass created is left as is (remove warns about it). Delete that link, or move it away, before you use appglass again: until then every command that writes, `hook remove` included, refuses with "state.json is missing ... but appglass files are on disk", because the link still reaches an appglass file. Then delete the clone if you like, and the PATH link if you made one: `rm ~/.local/bin/appglass`. Your other DMS plugins are not touched.
 
 ## Command line
 

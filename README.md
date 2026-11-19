@@ -112,7 +112,7 @@ The GIFs are crossfades between real screenshots, taken in a separate test sessi
 - **Colours follow DMS.** A wallpaper or scheme change re-renders the app colours through the matugen hook.
 - **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin and the WebKitGTK apps (Kiri; Lian Li has it built in but stays opaque unless you switch it on). Recorded in a session: the fade of GTK3, VLC, Feishin and Jellyfin; for Kiri, the focused and unfocused levels (204 and 184 at 0.80, `tests/e2e/webkit.sh`), not the steps of the fade; the others are unit-tested only ([routes.md](docs/routes.md) says so per app). Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
 - **New and updated apps are found on their own.** A new app is routed within seconds.
-- **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts every file back as it was: the files it created are deleted, the ones it edited get their original bytes back, and an edit you made after appglass is kept. A file appglass owns whole that you edited by hand is saved as `<file>.appglass-changed` before the next apply or hook run writes it again. A link you put over a file it created (to a dotfiles folder) is yours: apply, hook runs, `restore` and remove leave it as is, and its colours no longer follow DMS.
+- **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts every file back as it was: the files it created are deleted, the ones it edited get their original bytes back, and an edit you made after appglass is kept. A file appglass owns whole that you edited by hand is saved as `<file>.appglass-changed` before the next apply or hook run writes it again. One exception: while the DMS plugin is on it owns appglass's `settings.json`, and its sync saves the page's settings over a hand edit with no aside (change settings on the plugin's page, or switch the plugin off and use `appglass set`). A link you put over a file it created (to a dotfiles folder) is yours: apply, hook runs, `restore` and remove leave it as is, and its colours no longer follow DMS.
 - **Never touched:** games, root GUIs, the windows DMS draws itself, and Firefox-family browsers (those belong to [browserGlass](https://github.com/lung595/browserGlass)).
 
 ### Which apps get glass
@@ -290,7 +290,7 @@ Forced and Mod routes run a hidden check first, in a headless session off your s
 <details>
 <summary><b>appglass says its state is lost</b></summary>
 
-If its state file is gone but its files are still there, appGlass writes nothing and tells you what it found. Run `appglass restore` first. If there is nothing to restore, `appglass adopt --rescue` records the files again.
+If its state file is gone but its files are still there, appGlass writes nothing and tells you what it found. Run `appglass restore` first. If there is nothing to restore, `appglass adopt --rescue` records the files again. After `appglass remove`, the files it names can be links you put over appglass files (remove leaves them and warns): delete those links, or move them away, and appglass works again.
 </details>
 
 <details>
