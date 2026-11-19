@@ -97,7 +97,10 @@ From the last review. They are minor, and none of them blocks a release:
    ```
 
    Run them with a throwaway `HOME`, so no test can reach your real config.
-   About 8 tests skip when gcc, g++, moc, Qt 6 or gjs is missing.
+   Some tests skip when an optional tool is missing: gcc, g++, moc, Qt 6, gjs, node, luac, niri,
+   bwrap, ffmpeg, jq, the Vulkan headers, lavapipe, SPIRV-Tools or shaderc, and a few more. Six
+   always skip: shared shim tests that do not apply to a family ("no rendered CSS", "nothing
+   built"). On the last full run 8 skipped: those six, plus luac and node missing.
 
 2. **End-to-end tests** (`tests/e2e/<family>.sh`) run the real apps in a nested niri session.
    They need `APPGLASS_HARNESS` set to the nested-session script, `tests/e2e/harness.sh`

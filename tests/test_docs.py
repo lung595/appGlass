@@ -1416,3 +1416,12 @@ class LeftLinksAndPluginSettings(unittest.TestCase):
 
     def test_the_safety_line_names_the_plugins_settings(self):
         self.assertRegex(read("README.md"), r"plugin is on it owns appglass's `settings.json`[^\n]*no aside")
+
+
+class SkipCauses(unittest.TestCase):
+    def test_status_names_the_tools_the_skips_come_from(self):
+        s = read("docs", "STATUS.md")
+        i = s.index("Some tests skip when an optional tool is missing")
+        line = s[i:s.index("\n\n", i)]
+        for tool in ("gcc", "gjs", "node", "luac", "niri", "bwrap", "nothing\n   built", "no rendered CSS"):
+            self.assertIn(tool, line)
