@@ -207,6 +207,9 @@ class ArtCraft(ShimCase, unittest.TestCase):
         self.assertEqual(e["VK_INSTANCE_LAYERS"], "VK_LAYER_APPGLASS_glass:VK_LAYER_MINE")
         self.assertEqual(e["VK_ADD_LAYER_PATH"], self.w.user(L + "vk"))
         self.assertNotIn("__EGL_VENDOR_LIBRARY_FILENAMES", e)
+        # status and apply ask the device only: the probe gets no system bus
+        bus = e["DBUS_SYSTEM_BUS_ADDRESS"]
+        self.assertTrue(bus.startswith("unix:path=/nonexistent/"), bus)
 
     def test_status_knob(self):
         """APPGLASS_ARTCRAFT in the env status runs with is what the wrapper would see"""

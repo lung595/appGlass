@@ -123,6 +123,8 @@ def vulkan_device(env, d):
     e["VK_ADD_LAYER_PATH"] = d + (":" + e["VK_ADD_LAYER_PATH"] if e.get("VK_ADD_LAYER_PATH") else "")
     e["VK_INSTANCE_LAYERS"] = LAYER + (":" + e["VK_INSTANCE_LAYERS"]
                                        if e.get("VK_INSTANCE_LAYERS") else "")
+    # the device is all it asks: a driver's system bus calls go nowhere
+    e["DBUS_SYSTEM_BUS_ADDRESS"] = "unix:path=/nonexistent/appglass-vkprobe-nobus"
     try:
         r = env.run([os.path.join(d, PROBE)], env=e, timeout=10)
     except subprocess.TimeoutExpired:
