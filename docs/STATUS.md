@@ -13,6 +13,16 @@ Read this first when you come back to the project.
   drawing what is behind them, so the background goes stale or black. Those apps (Feishin,
   VSCodium, Obsidian, the WebKitGTK apps) now get `opacity 0.999`. The WebKit shim also clears
   the opaque region itself. See the blend block in [routes.md](routes.md).
+- The round after that fixed false fails of the hidden check on a real desktop at level 0.80.
+  The check ran at 0.60 (the DMS level sources were not copied) and judged at 0.80, so every
+  checked app failed and went plain. Now the check copies the DMS glass rule and
+  `foregroundLayerTransparency`, has your colour scheme, measures the app's own main window
+  (never zenity or another dialog), knows Dux Calendar's pane level and Obsidian's vault list,
+  and does not judge Discord or an app open on the desktop. A Native route is never paused by
+  a failed check, and a check that cannot judge (unverifiable) changes nothing. See
+  [engine.md](engine.md#what-a-check-judges-and-what-it-never-does). In a throwaway HOME at 0.80
+  these pass: Kiri, ArtCraft, Feishin, Jellyfin, LocalSend, Nautilus, Dux Files, Obsidian,
+  Alacritty (204) and Dux Calendar (237, its panes); VLC finds no window (unverifiable).
 - `docs/issue-dms.md` is a draft issue for DankMaterialShell. It has not been posted.
 
 ## What works
@@ -39,6 +49,10 @@ Measured in a nested test session (see [apps.md](apps.md) for the numbers):
   Also, in the test session its window opened as `lianli-gui`, while the family matches
   `^com\.sgtaziz\.lianlilinux$`. Check the app id on a real install and add it if it differs.
 - **Discord (Vencord):** written and unit-tested, not measured (it needs a signed-in account).
+  The hidden check cannot run it (the client, its patch and the login are in `~/.config/discord`,
+  not copied), so it is always unverifiable and goes live only when you switch it on yourself.
+- **Apps you keep open** (a terminal, say) are not checked while a window of them is open: the
+  check waits in the queue until they are closed.
 - **Untested, same route as a tested app:** kitty, Ghostty, WezTerm, other libadwaita apps,
   other GTK3 and Qt 6 Widgets apps, other WebKitGTK 4.x and Tauri apps.
 - **No route (fallback, opaque by default):** Steam, Chrome, Java, Tk, X11 apps,

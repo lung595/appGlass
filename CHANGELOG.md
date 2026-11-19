@@ -37,6 +37,11 @@ The first release.
   - ArtCraft Launcher through an explicit Vulkan layer that keys opaque frames on the GPU.
 - **Hidden check.** Forced and Mod routes go live only after a headless check passes
   for the app's current version (`appglass verify`). An update sends them back to the check.
+  The check runs at your level (it copies the DMS glass rule and `foregroundLayerTransparency`)
+  and in your colour scheme, and measures the app's own main window, never a helper dialog
+  such as zenity. A check that cannot judge is "unverifiable" and changes nothing. A Native
+  route is never paused by a failed check: it is shown in `appglass status`, the glass stays.
+  An app with a window open on the desktop is not checked until it is closed.
 - **Detection.** `appglass detect` finds the toolkit of each installed app.
   `appglass learn` records the toolkit of each open window.
   GTK3, GTK4 and Qt 6 apps that no family lists are routed by their toolkit.
@@ -62,5 +67,15 @@ The first release.
   `plugin`, `adopt`, `doctor`, `restore`, `verify` and `fail`.
 - **Docs.** A user guide, the engine, the routes, the plugin pages, and an app table
   generated from `docs/apps.json`.
+
+### Fixed
+
+- **False fails of the hidden check** on a desktop at level 0.80: the check ran at 0.60
+  (the DMS level sources were not copied) and judged at 0.80, so every app failed and went plain.
+  Also fixed: Nautilus' empty folder stacked a second fill (a status page in the window
+  background is now clear), Dux Calendar's panes are judged at their own level (237 at 0.80),
+  Obsidian opened its vault chooser (the check now copies the vault list), LocalSend, Nautilus
+  and Dux Calendar opened in light mode (the hidden session now has your colour scheme), and
+  Discord's check measured the bootstrap's zenity updater (Discord cannot be checked: unverifiable).
 
 [0.1.0]: https://github.com/lung595/appGlass/commits/master

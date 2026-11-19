@@ -7,7 +7,7 @@ A route is the way one kind of app is made to paint its own background with alph
 - popups at 1.0;
 - text at 255.
 
-Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by switching its family off, with the family name from the table below: `dms ipc call appGlass app <family> off` while the plugin is installed and enabled (for example `dms ipc call appGlass app gtk3 off`), or `appglass set apps.<family>.enabled false --apply` without it. `appglass remove --only <family>` takes the files out too, but only until the next sync or `appglass apply --all` while the family is still on in settings. The switch in Settings > Apps takes the files out only for a Forced or Mod app; for a Native app it shows Paused and the files stay (see [guide.md](guide.md#per-app-switch)). A Forced or Mod route is on by default, but goes live only once its hidden check passes ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)).
+Every route also adds the app's app-id to the `opacity 1.0` rule in `~/.config/niri/appglass.kdl`. Every route is undone by switching its family off, with the family name from the table below: `dms ipc call appGlass app <family> off` while the plugin is installed and enabled (for example `dms ipc call appGlass app gtk3 off`), or `appglass set apps.<family>.enabled false --apply` without it. `appglass remove --only <family>` takes the files out too, but only until the next sync or `appglass apply --all` while the family is still on in settings. The switch in Settings > Apps takes the files out only for a Forced or Mod app; for a Native app it shows Paused and the files stay (see [guide.md](guide.md#per-app-switch)). A Forced or Mod route is on by default, but goes live only once its hidden check passes ([engine.md](engine.md#the-gate-glass-waiting-stale-opaque-off-excluded)). A Native route is on at once and stays on: its check is recorded and shown, a failed one never pauses it, and a check that cannot judge (unverifiable) changes nothing ([engine.md](engine.md#what-a-check-judges-and-what-it-never-does)).
 
 The "Measured" lines come from window screenshots taken in a nested niri session (or, where noted, on the real desktop), with the alpha read per pixel. "0.80" means the measurement was taken at a DMS level of 0.80, where the content target is alpha 204. The per-toolkit pages have the full results.
 
@@ -55,7 +55,7 @@ TODO(adapters): a generic Electron route through `NODE_OPTIONS`, for Electron ap
 
 - **Writes:** `~/.config/gtk-4.0/dank-glass.css` (alpha on the background colour roles, from the DMS colours), and adds `@import url("dank-glass.css");` after the DMS import in `~/.config/gtk-4.0/gtk.css`.
 - **Apps:** `gtk.css` is read by every GTK4 app, so the niri rule lists every GTK4 app appglass knows: Nautilus, GNOME Software, Zenity, the GNOME file chooser portal (used by Chrome and Electron apps), Flatseal (native package), GNOME Web, the libadwaita demo. GNOME Web is partial: its chrome is glass, the web page stays opaque.
-- **Measured:** Nautilus content 153, sidebar 166, popovers and dialogs 255, text 255. Source: [gtk4.md](gtk4.md).
+- **Measured:** Nautilus content 153, sidebar 166, popovers and dialogs 255, text 255. Source: [gtk4.md](gtk4.md). A status page in the window background (Nautilus' empty folder) is clear, so it does not stack a second fill on the content (the hidden check at 0.80 read 204 with it, 237 before).
 - **Reload:** GTK4 reads the CSS at start: restart the app.
 - **Fade, not recorded for this version:** `window.background:backdrop` at the unfocused level with a CSS transition; the rendered CSS is unit-tested (`tests/test_gtk4.py`). It uses the same mechanism as GTK3, recorded below. An earlier build was recorded at 0.80 (nested niri, three runs, kept in the probe notes, `shots/fade/gtk4.fade.txt`): 0.80 to 0.72 in 117 to 133 ms, back in 117 to 134 ms.
 - **Undo:** `appglass remove --only gtk4` takes the import out and deletes `gtk.css` when nothing of yours is left in it. Taking the import out by hand, or deleting `gtk.css`, is an opt-out that appglass keeps.
@@ -101,6 +101,7 @@ Native routes through each app's own config files, for the native and the flatpa
 - **Fade, not recorded:** `body:not(.is-focused)` lowers the snippet colours, with a transition; not recorded in a session for this version; the snippet is unit-tested (`tests/test_obsidian.py`).
 - **niri rule `opacity 0.999`:** Obsidian's window is created without `transparent: true`, so Chromium sets a whole-window opaque region (`wl_surface.set_opaque_region`, kept) while the snippet paints it with alpha. At `opacity 1.0` niri believes the opaque region and skips what is behind; at 0.999 it blends the window (a census in a nested niri; no black frame was recorded on Obsidian, see Feishin below for the one that was).
 - **Reload:** later theme changes reload live. Quit Obsidian before the first `appglass apply`: the first enable needs an Obsidian restart, or the snippet toggled off and on.
+- **Check:** the hidden check stages the vault list (`obsidian.json`, only the vaults under your HOME, with their path, time and open flag), so Obsidian opens the vault and its glass, not the vault chooser. A vault outside your HOME is left out of the list.
 - **No vault:** with no vault in `obsidian.json` there is nowhere to put the snippet: the family is skipped and Obsidian shows Fallback until you open a vault and apply again.
 - **Undo:** `appglass remove --only obsidian`. A snippet you turn off in Obsidian stays off.
 
@@ -115,7 +116,7 @@ Native routes through each app's own config files, for the native and the flatpa
 ## Dux Files and Dux Calendar
 
 - **Writes:** four keys merged into each app's `ui-settings.json` (the window transparency keys of the DMS `DCommon` base). No colour file: the apps follow DMS live.
-- **Measured:** see [qtquick.md](qtquick.md). Panes are drawn on top of the window, so content cannot be more transparent than the bars: Dux Files uses one level everywhere, Dux Calendar 0.86 panes for its dimmed day numbers.
+- **Measured:** see [qtquick.md](qtquick.md). Panes are drawn on top of the window, so content cannot be more transparent than the bars: Dux Files uses one level everywhere, Dux Calendar 0.86 panes for its dimmed day numbers. The hidden check takes the calendar's panes as a second level: its floating level stacked on the window, 237 at 0.80 (1 - (1 - 0.80)(1 - 0.65)).
 - **Reload:** Dux Files live, Dux Calendar after a restart.
 - **Undo:** `appglass remove --only dux` puts the keys back.
 
@@ -136,6 +137,7 @@ A Mod route: client mods are against Discord's terms. appglass never installs Ve
 - **Measured:** not measured in a nested session for this version.
 - **Fade, not recorded:** Discord's window shows Discord's web app, which needs a signed-in account. A test session must not reuse your signed-in profile (it holds the account's session), and a fresh profile stops at the login page. What is checked: the rendered theme puts `html:not(.app-focused)` (Discord drops that class when its window loses focus) at the unfocused level and eases `#app-mount` (unit test).
 - **Default:** on, live once its hidden check passes. Switch it off in Settings > Apps, or `appglass set apps.vencord.enabled false --apply` without the plugin.
+- **Check:** none can run. The Discord client, its Vencord patch and the login live in `~/.config/discord`, which the hidden check does not copy (left alone, the bootstrap would show its zenity updater and download a plain client). So Discord's check is always unverifiable: it goes live only when you switch it on yourself in Settings > Apps (that on is kept, with one "glass could not be checked" notification).
 - **Undo:** `appglass remove --only vencord` puts Vencord's settings back. It does not uninstall Vencord.
 
 ## Feishin and VSCodium (Electron inspector hook)
