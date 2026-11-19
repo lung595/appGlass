@@ -40,7 +40,17 @@ ROUTE_VERSION = 1
 WAITING = "waiting for a check (injected route)"
 # plain markers the gate does not read as a verdict: refresh sets them for
 # an injected route that is not live but has its files (its wrapper) on disk
-UNJUDGED = ("stale", "waiting")
+# (unverifiable: a check could not run, the user's own on still wins)
+UNJUDGED = ("stale", "waiting", "unverifiable")
+COULD_NOT = "could not be checked"
+
+
+def unjudged(p):
+    """A plain marker that is not a verdict (UNJUDGED); a "could not be
+    checked" one an older version wrote with no why is one too."""
+    p = p or {}
+    return p.get("why") in UNJUDGED or \
+        (not p.get("why") and (p.get("reason") or "").startswith(COULD_NOT))
 
 
 # ---------------------------------------------------------------- fingerprints
@@ -274,8 +284,9 @@ class Store:
                     why = f.read().strip()
             except (OSError, UnicodeDecodeError):
                 why = ""
-            if why == WAITING:
-                # an injected app waiting for its check: still waiting
+            if why == WAITING or why.startswith(COULD_NOT):
+                # an injected app waiting for its check (or one that could
+                # not be checked): checked again, not paused for good
                 apps[k] = {"plain": {"fp": None, "why": "waiting", "reason": why}}
                 continue
             # plain until this app's next fingerprint (refresh sets it)
@@ -436,7 +447,7 @@ def gate(st, rec, injected, explicit):
     p = a.get("plain")
     if p and not injected and (p.get("reason") or "").startswith("check failed"):
         p = None        # a Native route is never paused by its check (refresh drops it)
-    if p and (p.get("fp") == fp and p.get("why") not in UNJUDGED or p.get("why") == "kept"):
+    if p and (p.get("fp") == fp and not unjudged(p) or p.get("why") == "kept"):
         return "opaque", p["reason"]
     v = a.get("verify")
     if v:
@@ -447,10 +458,10 @@ def gate(st, rec, injected, explicit):
                 # spec 1.7: an injected route stays off, a theme route on;
                 # the user's own on stays on (verify tells them, once)
                 if injected and explicit:
-                    return "glass", "enabled by you (could not be checked: %s)" % v.get(
-                        "reason", "?")
+                    return "glass", "enabled by you (%s: %s)" % (COULD_NOT, v.get(
+                        "reason", "?"))
                 if injected:
-                    return "opaque", "could not be checked: %s" % v.get("reason", "?")
+                    return "opaque", "%s: %s" % (COULD_NOT, v.get("reason", "?"))
                 return "glass", None
             if not injected:
                 # a Native route is never held opaque by its check
@@ -593,7 +604,7 @@ def refresh(app, dry=False, families=None):
                 changed.append(key)
             st.queue(key)
         elif state == "glass" and injected:
-            if (a.get("plain") or {}).get("why") in UNJUDGED:
+            if unjudged(a.get("plain")):
                 st.clear_plain(key)
                 changed.append(key)
             # on by the user's own switch: consent, not a check (S4). It is
@@ -614,8 +625,10 @@ def refresh(app, dry=False, families=None):
         elif state == "opaque" and injected and route.get("family") in app.state.owners \
                 and not a.get("plain"):
             # could not be checked (and not switched on by you): the same,
-            # plain for this fingerprint
-            st.set_plain(key, fp, route.get("reason") or "opaque")
+            # plain for this fingerprint; unjudged, so your own on wins
+            why = route.get("reason") or "opaque"
+            st.set_plain(key, fp, why,
+                         why="unverifiable" if why.startswith(COULD_NOT) else None)
             changed.append(key)
         elif state == "glass" and route.get("family") and not injected:
             if a.get("plain") and a["plain"].get("fp") != fp:
@@ -731,7 +744,7 @@ def verified(app, key, fp, result, reason="", app_id=None, injected=True):
     st.dequeue(key)
     if result == "pass":
         if (a.get("plain") or {}).get("fp") in (fp, None) or \
-                (a.get("plain") or {}).get("why") in UNJUDGED:
+                unjudged(a.get("plain")):
             st.clear_plain(key)
         a.pop("fails", None)
     elif not injected:

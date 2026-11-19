@@ -1063,6 +1063,46 @@ class Heal(unittest.TestCase):
         self.assertEqual(self.store()["apps"][LS]["verify"]["result"], "fail")
         self.assertIn("check failed", self.state()["reason"])
 
+    def test_your_on_wins_over_a_could_not_be_checked_marker(self):
+        """A family that cannot be checked (verify_skip) with an older fail
+        and its wrapper on disk: plain (a marker for the wrapper), until
+        you switch it on yourself; then glass, the marker gone."""
+        from unittest import mock
+        from appglass.families import localsend
+        self.live()
+        self.result("fail", "background alpha 224, expected 204+-13")
+        self.run_ok("verify", LS)
+        with mock.patch.object(localsend, "verify_skip", create=True,
+                               new=lambda env, rec: "it cannot run hidden"):
+            self.run_ok("apply", "--from-hook")
+            self.assertEqual(self.state()["state"], "opaque")
+            self.assertIn("could not be checked", self.state()["reason"])
+            self.assertTrue(os.path.exists(self.marker()))
+            self.assertNotIn("LD_PRELOAD", self.wrapper_argv())
+            self.run_ok("set", "apps.localsend.enabled", "true", "--apply")
+            self.assertEqual(self.state()["state"], "glass")
+            self.assertIn("enabled by you", self.state()["reason"])
+            self.assertFalse(os.path.exists(self.marker()))
+            self.run_ok("apply", "--from-hook")
+            self.assertEqual(self.state()["state"], "glass")
+            self.assertFalse(os.path.exists(self.marker()))
+            self.assertIn("LD_PRELOAD", self.wrapper_argv())
+            self.assertIn("localsend_app", self.glass_rule())
+
+    def test_an_older_could_not_be_checked_marker_yields_to_your_on(self):
+        """The marker an older version wrote (no why) is unjudged too."""
+        self.live()
+        p = os.path.join(self.sb.state, "appglass", "engine.json")
+        d = self.sb.json(p)
+        fp = d["apps"][LS]["verify"]["fp"]
+        d["apps"][LS]["verify"].update(result="unverifiable", reason="it cannot run hidden")
+        d["apps"][LS]["plain"] = {"fp": fp, "reason": "could not be checked: it cannot run hidden"}
+        with open(p, "w") as f:
+            json.dump(d, f)
+        self.run_ok("set", "apps.localsend.enabled", "true", "--apply")
+        self.assertEqual(self.state()["state"], "glass")
+        self.assertFalse(os.path.exists(self.marker()))
+
     def test_verify_fail_pauses_with_one_notification(self):
         """B5c Accept 2: a broken shim."""
         self.result("fail", "the window is opaque (no glass)")
