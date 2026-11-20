@@ -4,6 +4,15 @@ All notable changes to appGlass are listed here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - Unreleased
+
+### Fixed
+
+- **Herdr lost its glass when a mod switched its layout.** The skillshare mod installs and selects its own
+  `herdr-skillshare` layout, and appglass kept that as an opt-out. The glass layout is now made from the layout
+  Herdr runs when it has main's shape, and remove puts that layout back. A layout of another shape (win98) is
+  still kept as an opt-out.
+
 ## [0.1.0] - 2026-11-19
 
 The first release.
@@ -90,4 +99,5 @@ The first release.
 - **The hidden check leaves no private dir behind** when the app left read-only dirs in it
   (Dux unpacks its QML read-only into the runtime dir).
 
+[0.1.1]: https://github.com/lung595/appGlass/commits/master
 [0.1.0]: https://github.com/lung595/appGlass/releases/tag/v0.1.0

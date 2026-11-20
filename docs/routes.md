@@ -107,11 +107,11 @@ Native routes through each app's own config files, for the native and the flatpa
 
 ## Herdr
 
-- **Writes:** `themes/appglass.json` (DMS colours as `#rrggbbaa`) and a glass copy of the main layout in Herdr's config folder, selected in `shared.json` (merged, never replaced).
+- **Writes:** `themes/appglass.json` (DMS colours as `#rrggbbaa`) and a glass copy of the layout Herdr runs in Herdr's config folder, selected in `shared.json` (merged, never replaced). The copy is made from `main`, or from the layout you or a mod picked when it has main's shape (a clone, or `herdr-skillshare` from the skillshare mod).
 - **Measured:** content 153, sidebar, tab bar and status bar 166, command palette and menus 255. Source: [gpu.md](gpu.md).
-- **Reload:** live.
+- **Reload:** the theme live. Herdr reads `shared.json` only at start: after appglass selects the glass layout again, restart Herdr or run `herdr-app do layout.switch --name appglass`.
 - **Needs:** Herdr started once, so its layouts exist.
-- **Undo:** `appglass remove --only herdr`. Selecting another layout in Herdr is an opt-out that appglass keeps.
+- **Undo:** `appglass remove --only herdr` puts back the layout you ran. A layout of another shape (win98) is an opt-out that appglass keeps; to switch the glass off for Herdr whatever the layout, `appglass set apps.herdr.enabled false --apply`.
 
 ## Dux Files and Dux Calendar
 

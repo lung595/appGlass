@@ -238,6 +238,63 @@ class Herdr(unittest.TestCase):
         self.apply()
         self.assertEqual(self.sb.json(p)["layout"], "appglass")
 
+    def _clone(self, name="herdr-skillshare"):
+        """A layout of main's shape with a panel of its own (a mod's clone)."""
+        lay = load_fixture("herdr", "main.json")
+        lay["cloned_from"] = {"name": "main", "version": "0.1.12"}
+        lay["children"].append({"id": "skillshare-panel", "type": "column",
+                                "children": [{"id": "skillshare", "type": "block",
+                                              "content": {"mod": "skillshare"}}]})
+        self.sb.write(os.path.join(self.home, "layouts", name + ".json"), json.dumps(lay))
+        return lay
+
+    def test_mod_layout_switch_gets_the_glass(self):
+        # a mod installs its own clone of main and Herdr runs it: the glass
+        # follows it, re-applies keep it, remove puts the clone back
+        self.apply()
+        clone = self._clone()
+        p = self._herdr_rewrites(layout="herdr-skillshare")
+        out, err = self.apply()
+        self.assertIn("'herdr-skillshare'", err)
+        self.assertEqual(self.sb.json(p)["layout"], "appglass")
+        self.assertEqual(self.layout(), fam.layout(clone))
+        self.assertIsNotNone(node(self.layout(), "skillshare"))
+        out, err = self.apply()
+        self.assertNotIn("'herdr-skillshare'", err)
+        self.assertEqual(self.layout(), fam.layout(clone))
+        self.sb.run("remove")
+        d = self.sb.json(p)
+        self.assertEqual(d["layout"], "herdr-skillshare")
+        self.assertEqual(d["space.colors"], {"sp1": "ansi6", "sp2": "ansi3"})
+        self.assertFalse(os.path.exists(self.p("layouts", "appglass.json")))
+
+    def test_first_apply_on_a_clone(self):
+        clone = self._clone()
+        p = self._herdr_rewrites(layout="herdr-skillshare")
+        self.apply()
+        self.assertEqual(self.sb.json(p)["layout"], "appglass")
+        self.assertEqual(self.layout(), fam.layout(clone))
+        self.sb.run("remove")
+        self.assertEqual(self.sb.json(p)["layout"], "herdr-skillshare")
+
+    def test_clone_gone_falls_back_to_main(self):
+        self._clone()
+        p = self._herdr_rewrites(layout="herdr-skillshare")
+        self.apply()
+        os.remove(self.p("layouts", "herdr-skillshare.json"))
+        self.apply()
+        self.assertEqual(self.layout(), fam.layout(load_fixture("herdr", "main.json")))
+        self.sb.run("remove")
+        self.assertEqual(self.sb.json(p)["layout"], "herdr-skillshare")   # the bytes it had
+
+    def test_layout_name_outside_layouts_ignored(self):
+        self.apply()
+        self.sb.write(os.path.join(self.home, "evil.json"),
+                      json.dumps(load_fixture("herdr", "main.json")))
+        p = self._herdr_rewrites(layout="../evil")
+        self.apply()
+        self.assertEqual(self.sb.json(p)["layout"], "../evil")
+
     def test_layout_switch_hook_warns_once_and_keeps_files_current(self):
         self.apply()
         p = self._herdr_rewrites(layout="win98")

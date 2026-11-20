@@ -1266,12 +1266,13 @@ class Ctx:
             raise AppglassError("edit fn for %s did not return text" % path)
         return self._add(path, Op("edit", new.encode("utf-8"), undo=undo))
 
-    def merge_json(self, path, values):
+    def merge_json(self, path, values, originals=None):
         """Merge top-level keys into a JSON object file (other keys kept).
 
         Written in place (same inode). On remove the original bytes come
         back, or, if the app rewrote the file since, only our keys are put
-        back to their original values.
+        back to their original values. originals ({key: value}) replaces the
+        recorded original of those keys: what remove puts back.
         """
         path = os.path.abspath(path)
         self._check_other_owner(path)
@@ -1305,6 +1306,8 @@ class Ctx:
                                "%s no longer has %s since apply; kept without (remove + "
                                "apply puts them back)" % (self.env.tilde(path), ", ".join(out)))
                 values = {k: v for k, v in values.items() if k not in out}
+        for k, v in (originals or {}).items():
+            keys[k] = dict(keys.get(k, {}), present=True, value=v)
         for k, v in values.items():
             if k not in keys:
                 keys[k] = {"present": k in obj, "value": obj.get(k)}

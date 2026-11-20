@@ -21,11 +21,16 @@ writes there (docs/gpu.md):
   paints the canvas. No main.json yet (Herdr never started) or a main.json
   without those nodes: the family is skipped with a warning.
 - shared.json: "layout": "appglass" merged in (other keys kept; remove puts
-  the old value back, unless Herdr switched to another layout since). Once
-  Herdr has switched away from the glass layout (another "layout" value
-  after an apply), re-apply keeps that choice (warned once) and still
-  updates the theme and layout files; remove + apply selects the glass
-  again.
+  the old value back, unless Herdr switched to another layout since).
+- The glass copy is made from the layout Herdr runs, not always main: when
+  shared.json names another layout of main's shape (a clone of yours, or
+  one a mod installed with it, such as herdr-skillshare), the glass is
+  derived from that one, selected, and that layout becomes what remove puts
+  back. Re-applies keep deriving from it (read back from the record). Once
+  Herdr has switched to a layout of another shape (win98: no sidebar /
+  work-body), re-apply keeps that choice (warned once) and still updates
+  the theme and the main-derived layout; remove + apply selects the glass
+  again. To switch the glass off for Herdr: apps.herdr.enabled false.
 """
 
 import copy
@@ -149,32 +154,69 @@ def verify_seed(env):
     return {os.path.join(".config", "herdr-app", "shared.json"): {"frame.welcomed": "finished"}}
 
 
+def _base_ok(name):
+    """A layout name Herdr could have picked (a file in layouts/)."""
+    return (isinstance(name, str) and name not in ("", LAYOUT)
+            and not name.startswith(".") and os.path.basename(name) == name)
+
+
+def _derive(ctx, home, name):
+    """The glass layout from layouts/<name>.json; ValueError when it is
+    missing or has no main-like tree (sidebar and work-body nodes)."""
+    path = os.path.join(home, "layouts", name + ".json")
+    text = ctx.read_text(path)
+    if text is None:
+        raise ValueError("%s not found" % path)
+    try:
+        return layout(json.loads(text))
+    except ValueError as ex:
+        raise ValueError("%s: cannot derive the glass layout (%s)" % (path, ex))
+
+
 def apply(ctx):
     home = app_home(ctx.env)
-    main_path = os.path.join(home, "layouts", "main.json")
-    text = ctx.read_text(main_path)
-    if text is None:
-        raise Conflict("%s not found: start Herdr once (it writes its layouts), "
-                       "then run appglass apply again" % main_path)
-    try:
-        lay = layout(json.loads(text))
-    except ValueError as ex:
-        raise Conflict("%s: cannot derive the glass layout (%s)" % (main_path, ex))
+    shared = os.path.join(home, "shared.json")
+    rec = ctx._record(shared)
+    chosen = _current_layout(ctx, shared)
+    recorded = ((rec or {}).get("keys") or {}).get("layout", {}).get("value")
+    values, originals, lay = {"layout": LAYOUT}, None, None
+    if chosen not in (None, LAYOUT):
+        # the layout Herdr runs (yours, or one a mod installed): glass on it
+        try:
+            if not _base_ok(chosen):
+                raise ValueError("not a layout name")
+            lay = _derive(ctx, home, chosen)
+            if rec is not None and chosen != recorded:
+                ctx.warn("Herdr's layout is now %r: the glass layout follows it "
+                         "(remove puts %r back)" % (chosen, chosen))
+                originals = {"layout": chosen}
+        except ValueError:
+            if rec is not None:
+                # a layout of another shape (win98): an opt-out, kept
+                ctx.warn_once("layout", "Herdr's layout is %r, not %r; kept (it has no "
+                              "main-like tree to make glass)" % (chosen, LAYOUT))
+                values = {}
+    elif chosen == LAYOUT and _base_ok(recorded) and recorded != "main":
+        try:
+            lay = _derive(ctx, home, recorded)
+        except ValueError:
+            pass        # its layout is gone (mod removed): the glass of main
+    if lay is None:
+        main_path = os.path.join(home, "layouts", "main.json")
+        if ctx.read_text(main_path) is None:
+            raise Conflict("%s not found: start Herdr once (it writes its layouts), "
+                           "then run appglass apply again" % main_path)
+        try:
+            lay = _derive(ctx, home, "main")
+        except ValueError as ex:
+            raise Conflict(str(ex))
     theme_path = os.path.join(home, "themes", THEME + ".json")
     layout_path = os.path.join(home, "layouts", LAYOUT + ".json")
-    shared = os.path.join(home, "shared.json")
     th = theme(ctx)
     _check_contrast(ctx, th)
     ctx.write_owned(theme_path, _dump(th))
     ctx.write_owned(layout_path, _dump(lay))
-    values = {"layout": LAYOUT}
-    chosen = _current_layout(ctx, shared)
-    if ctx._record(shared) is not None and chosen not in (None, LAYOUT):
-        # Herdr switched to another layout since the last apply: keep it
-        ctx.warn_once("layout", "Herdr's layout is %r, not %r; kept (remove + "
-                      "apply selects the glass layout again)" % (chosen, LAYOUT))
-        values = {}
-    ctx.merge_json(shared, values)
+    ctx.merge_json(shared, values, originals)
     return [theme_path, layout_path, shared]
 
 
