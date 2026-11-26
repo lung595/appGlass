@@ -76,8 +76,8 @@ Measured in a nested test session (see [apps.md](apps.md) for the numbers):
 
 From the last review. They are minor, and none of them blocked 0.1.0:
 
-- The hero image shows clipped text at the terminal's right edge. The screenshots and GIFs use a
-  third-party wallpaper. Retake them on a wallpaper you may publish before a release.
+- The screenshots and GIFs use a third-party wallpaper. Retake them on a wallpaper you may
+  publish before a release.
 - `docs/guide.md`, `docs/engine.md` and `docs/plugin.md` still hold `TODO(...)` lines.
   They match the Roadmap in the README.
 - The Opaque chip text does not say that timeshift-gtk also gets `blur false` (games block).

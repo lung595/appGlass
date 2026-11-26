@@ -1,24 +1,41 @@
 <div align="center">
 
-<img src="docs/media/hero.png" alt="The same desktop twice over a painted wallpaper of a cottage in a flower field. Left: a file manager, a music app and a terminal, each a solid block. Right: the same three windows with a blurred, tinted glass background, while their text and icons stay sharp" width="100%">
+<img src="docs/media/hero.png" alt="A desktop over a painted wallpaper of a cottage in a flower field. Four windows have a glass background, with the blurred wallpaper showing through: Discord on its sign-up page, Obsidian with a sourdough bread recipe note, the Files app in a Demo folder, and an Alacritty terminal. Their text, icons and buttons stay sharp" width="100%">
 
-*Left: without appGlass. Right: with appGlass.*
+**Glass backgrounds for your desktop apps on [DMS](https://github.com/duxlabs-dev/dux-shell) + niri.**
 
-**Glass backgrounds for desktop apps on [DMS](https://github.com/duxlabs-dev/dux-shell) + niri.**
+Discord, Obsidian, Files, your terminal: the wallpaper shows through, the text stays sharp.
+One glass level for every app, taken from your DMS window opacity.
 
-Your wallpaper shows through the app. Text, icons and logos stay sharp.
-The glass level follows your DMS window opacity.
-
-[Getting started](#getting-started) · [Features](#features) · [Usage](#usage) · [Settings](#settings) · [Troubleshooting](#troubleshooting) · [Roadmap](#roadmap) · [User guide](docs/guide.md) · [Changelog](CHANGELOG.md)
+[Getting started](#getting-started) · [What it looks like](#what-it-looks-like) · [Features](#features) · [Usage](#usage) · [Settings](#settings) · [Troubleshooting](#troubleshooting) · [Roadmap](#roadmap) · [User guide](docs/guide.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
 > [!NOTE]
 > **Early version.** appGlass works today for the apps marked **Works** in the [route table](#which-apps-get-glass). Some routes wait for a hidden check before they go live. Apps with no route stay opaque and sharp.
 
+## What it looks like
+
+<img src="docs/media/hero-split.gif" alt="The same four windows, Discord, Obsidian, Files and Alacritty, first with solid dark backgrounds, then a wipe turns their backgrounds to glass over the blurred cottage wallpaper, then back" width="100%">
+
+*Before: the same windows, opaque. After: appGlass on.*
+
+| Discord (Vencord) | Obsidian |
+| --- | --- |
+| <img src="docs/media/app-discord.png" alt="Discord sign-up page with a glass background; the blurred wallpaper shows behind the empty form" width="100%"> | <img src="docs/media/app-obsidian.png" alt="Obsidian with a sourdough bread recipe note; the side bar and the note have a glass background" width="100%"> |
+| **Files (Nautilus)** | **Alacritty** |
+| <img src="docs/media/app-files.png" alt="The Files app in a Demo folder with a few folders and files; the side bar and the grid have a glass background" width="100%"> | <img src="docs/media/app-terminal.png" alt="An Alacritty terminal with a short ls and cat output and a colour palette over a glass background" width="100%"> |
+
+All shots come from a test session with demo files only: no account is logged in.
+
 ## Getting started
 
 ### Requirements
+
+DMS 2.0.0 or newer, niri and Python 3.11 or newer. Some apps need more tools:
+
+<details>
+<summary>All dependencies</summary>
 
 | Dependency | Version | Needed for |
 | --- | --- | --- |
@@ -35,6 +52,8 @@ The glass level follows your DMS window opacity.
 | `bwrap` (bubblewrap), with user namespaces | Any | Every hidden check (host and flatpak apps alike): each one runs with no network, no system bus and no session bus of yours, in a bwrap namespace. Without it no Forced or Mod app is checked, and those routes stay plain unless you switch them on |
 | `jq` | Any | The glass launchers of the Forced routes: Feishin, VSCodium, Lian Li and the other WebKitGTK apps (Kiri, ...), LocalSend, ArtCraft and Jellyfin. Also putting Vencord back after a Discord update, with the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` ([how](docs/routes.md#discord-vencord)) |
 | `notify-send` (libnotify) | Any | The notifications (a failed check, a Discord update). Optional: without it you get none, and the app rows still say what happened |
+
+</details>
 
 **The glass level** is the opacity of your global DMS window rule. Make one in **Settings → Applications → Window rules**: a rule with no match (it applies to every window), an opacity, and blur on. appGlass takes the first such rule, whatever you call it. With no such rule it uses the DMS `foregroundLayerTransparency` setting, then 0.60. A `levels.content` value in appGlass's own settings (`appglass set levels.content 0.80`) overrides the rule; with the DMS plugin, **Follow the DMS rule** on its Glass page clears it again.
 
