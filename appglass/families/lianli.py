@@ -24,7 +24,8 @@ ADAPTER = "webkit-shim"
 LAUNCHER = True
 OPT_IN = True
 KEYS = ("com.sgtaziz.lianlilinux",)
-APP_IDS = [r"^com\.sgtaziz\.lianlilinux$"]
+# the window opens as lianli-gui (docs/webkit.md), not the desktop file id
+APP_IDS = [r"^com\.sgtaziz\.lianlilinux$", r"^lianli-gui$"]
 APP = "lianli"
 COMMAND = "lianli-gui"
 DESKTOP = "com.sgtaziz.lianlilinux.desktop"

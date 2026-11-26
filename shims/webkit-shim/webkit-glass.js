@@ -175,7 +175,11 @@
         else for (var i = 0; i < m.addedNodes.length; i++) if (m.addedNodes[i].nodeType === 1) todo.push(m.addedNodes[i]);
       });
       queue = [];
+      // an element restyled every frame gives a record each time: one walk is enough
+      var seen = new Set();
       todo.forEach(function (el) {
+        if (seen.has(el)) return;
+        seen.add(el);
         if (!el.isConnected || el === d || inPopup(el)) return;
         if (el.parentElement && el.parentElement !== d && !document.body.contains(el)) return;
         walk(el);

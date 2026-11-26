@@ -112,6 +112,9 @@ def drop_block(text):
                 inside = False
             continue
         out.append(ln)
+    # no end marker (cut by hand): skipping to EOF would drop the user's keys
+    if inside:
+        raise Conflict("appglass begin line has no end line; left untouched")
     return "".join(out)
 
 

@@ -19,7 +19,7 @@ colour moved toward white (dark glass) or black (light glass) until it reaches
 
 import os
 
-from ..core import hex_to_rgb, norm_hex, readable
+from ..core import fmt_alpha, hex_to_rgb, norm_hex, readable
 
 TARGET = 2.25
 ANSI_ROLES = {0: "outline", 5: "tertiary", 8: "on_surface_variant"}
@@ -104,11 +104,7 @@ def rgb_csv(h):
     return "%d,%d,%d" % hex_to_rgb(h)
 
 
-def a2(v):
-    """0.8 -> '0.80'; 0.125 -> '0.125'."""
-    s = ("%.3f" % v).rstrip("0")
-    whole, frac = s.split(".")
-    return "%s.%s" % (whole, frac.ljust(2, "0"))
+a2 = fmt_alpha   # 0.8 -> '0.80'; 0.125 -> '0.125'
 
 
 def header(comment, what):

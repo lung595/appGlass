@@ -57,7 +57,7 @@ import os
 import re
 
 from .. import inactive
-from ..core import Conflict, readable
+from ..core import Conflict, fmt_alpha, readable
 
 NAME = "gtk4"
 
@@ -174,11 +174,7 @@ def installed(env):
     return bool(installed_apps(env)) or bool(installed_flatpaks(env))
 
 
-def _a(v):
-    """0.6 -> '0.60', 0.125 -> '0.125'."""
-    s = ("%.3f" % v).rstrip("0")
-    whole, frac = s.split(".")
-    return "%s.%s" % (whole, frac.ljust(2, "0"))
+_a = fmt_alpha   # 0.6 -> '0.60', 0.125 -> '0.125'
 
 
 def render(ctx):

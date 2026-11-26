@@ -13,7 +13,8 @@ before the first ``appglass apply``. Installing over an older hook section
 (any post_hook string) replaces it.
 
 It also installs the sync units: shims/sync/appglass-sync.path and
-.service, verbatim, in ~/.config/systemd/user, and ~/.local/bin/appglass-sync,
+.service, verbatim (the DMS paths moved to $XDG_CONFIG_HOME and
+$XDG_CACHE_HOME when those are set elsewhere), in ~/.config/systemd/user, and ~/.local/bin/appglass-sync,
 which execs the repo's bin/appglass-sync. The path unit fires when the DMS
 window rules (the opacity) or the DMS colours change; the script runs
 ``appglass apply --from-hook --list-changed`` and nudges Herdr and GTK only
@@ -34,8 +35,9 @@ is handled with no command run; no trigger or start limit (a hit limit
 would stop the path unit until the next login): one run at a time, and the
 script settles and waits for the rpm database to stay quiet; appglass-sync.timer (daily, enabled
 with the path units) for apps that update themselves; and
-appglass-verify.service (``appglass verify --queue``, idle priority, 60 s
-cap), started --no-block by a hook run that queued an app to check.
+appglass-verify.service (``appglass verify --queue``, idle priority, 25 min
+budget (verify.BUDGET), 30 min unit timeout), started --no-block by a hook
+run that queued an app to check.
 
 ``appglass hook remove`` restores the matugen config byte-identical, drops
 the rendered colors.json, restores (or deletes) the units and the script and
@@ -207,10 +209,22 @@ def record_enabled(app, sd):
     return sd
 
 
-def unit_render(name):
-    """The repo's bytes of a sync unit (installed verbatim)."""
+def _unit_dir(path):
+    # % starts a systemd specifier
+    return path.replace("%", "%%").encode()
+
+
+def unit_render(env, name):
+    """The repo's bytes of a sync unit, the DMS paths moved to
+    $XDG_CONFIG_HOME and $XDG_CACHE_HOME when those are not the defaults
+    (core reads the DMS files there)."""
     with open(os.path.join(repo_root(), "shims", "sync", name), "rb") as f:
-        return f.read()
+        data = f.read()
+    if env.config_home != env.home_path(".config"):
+        data = data.replace(b"=%h/.config/", b"=" + _unit_dir(env.config_home) + b"/")
+    if env.cache_home != env.home_path(".cache"):
+        data = data.replace(b"=%h/.cache/", b"=" + _unit_dir(env.cache_home) + b"/")
+    return data
 
 
 def opted_out(app):
@@ -235,7 +249,7 @@ def plan(app, ctx=None, keep_optout=False):
     else:
         ctx.edit_text(config_path(env), lambda t: add(t, block), undo=strip)
     for n in UNITS:
-        ctx.write_owned(unit_path(env, n), unit_render(n), mode=0o644)
+        ctx.write_owned(unit_path(env, n), unit_render(env, n), mode=0o644)
     ctx.write_owned(sync_path(env), sync_shim(env), mode=0o755)
     ctx.write_owned(vibrancy_path(env), vibrancy_shim(env), mode=0o755)
     return ctx

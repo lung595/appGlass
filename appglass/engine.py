@@ -395,6 +395,8 @@ def records(app, write=None):
     if write is None:
         write = bool(getattr(app, "from_hook", False)) and not getattr(app, "dry_run", False)
     recs, changed = scan(app.env, write=write, owned=owned_files(app.state))
+    # the scan as it came, for core.detected (status): one scan per run
+    app._engine_scan = json.loads(json.dumps(recs))
     recs = learn.merge(recs, learn.load(app.env))
     seen_ids(app, recs)
     sticky(app, recs, save=write)

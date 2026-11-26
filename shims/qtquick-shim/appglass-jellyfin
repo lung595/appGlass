@@ -14,7 +14,7 @@
 set -u
 LIB="$HOME/.local/lib/appglass/jellyfin"
 ID=org.jellyfin.JellyfinDesktop
-plain() { exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop "$ID" "$@"; }
+plain() { exec /usr/bin/flatpak run --command=jellyfin-desktop "$ID" "$@"; }
 # the engine (appglass verify, launch-check): a plain/ marker means start the plain app
 AGKEY="$ID"
 [ -e "${XDG_STATE_HOME:-$HOME/.local/state}/appglass/plain/$AGKEY" ] && plain "$@"
@@ -26,5 +26,5 @@ css="$LIB/jellyfin-glass.css"
 # two launches with no window on this app version: the engine pauses the glass
 command -v setsid >/dev/null 2>&1 && setsid -f "@APPGLASS@" launch-check "$AGKEY" $$ \
     >/dev/null 2>&1 </dev/null
-exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=jellyfin-desktop --filesystem="$LIB:ro" \
+exec /usr/bin/flatpak run --command=jellyfin-desktop --filesystem="$LIB:ro" \
     --env=LD_PRELOAD="$LIB/libjfglass.so" --env=JFGLASS_CSS="$css" "$ID" "$@"

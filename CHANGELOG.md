@@ -17,6 +17,33 @@ The project uses [Semantic Versioning](https://semver.org/).
   hovered rects. The shim now asks for compositing always instead of never.
 - **A WebKitGTK window flashed opaque on hover.** A full re-mark of the page read its own colour with the glass
   off for a moment, and the content fade then ran from opaque back to the glass. The fade is off during the read.
+- **Two appglass runs could hold the lock at once.** A run that took the state folder out released its lock
+  first, so a waiting run could lock the deleted `.lock` while a third run locked the new one. The folder now goes
+  out under the lock, and a run that waited takes the live lock again.
+- **A theme change with a broken settings.json reset your levels.** The matugen hook ran on the defaults when
+  settings.json was invalid or unreadable. It dropped your levels and could bring back an app you switched off. A
+  hook run now leaves every file as it is and warns.
+- **Every command crashed on a malformed DMS colours file.** A `dms-colors.json` whose `colors` entry was not an
+  object made `levels`, `status` and `apply` fail with a traceback. Such a file is now ignored.
+- **Copies of your files were readable by other users.** The backups, ring copies and `.appglass-changed` copies
+  were written at 0644 even when the original was private. They are now written 0600.
+- **appglass restore checks the paths it puts back.** A ring entry that names a file outside the home folder and
+  the XDG folders is now refused whole, before any file changes.
+- **`appglass status` is faster on a cold cache.** It scanned every desktop file twice. It now scans them once.
+- The sync path unit now watches the DMS window rules and colours under `$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME` when you move those, so level and colour changes are followed there too (run `appglass hook install` again).
+- A DMS colour change now flips the GTK theme even when the matugen hook already wrote the new GTK3 CSS, so open GTK3 apps pick up the new colours.
+- **Jellyfin, LocalSend, Feishin and VSCodium did not start from a beta branch or on a non-x86_64 machine.** The
+  wrappers pinned `--branch=stable --arch=x86_64`, the plain fallback too. They now run the installed branch and arch.
+- **A `$` in the appglass repo path under HOME broke every wrapper, appglass-sync and appglass-vibrancy.** Only
+  the `$HOME` prefix expands now.
+- **Feishin's output filled the runtime dir (RAM) for the whole session.** It now goes through a fifo that keeps
+  only the inspector url, like VSCodium.
+- WebKitGTK apps: an element restyled on every frame (a spinner, a progress bar) is re-marked once per batch instead of once per change, which cuts layout work while it animates.
+- **Lian Li could flicker or go black behind its glass.** Its window opens as `lianli-gui`, but the niri rules
+  matched only the desktop file's id, so niri treated the window as opaque. The rules now match both ids.
+- **`appglass remove` could wipe a Zed or VSCodium settings.json.** If the appglass end comment was deleted by
+  hand, remove dropped every line after the begin comment. appglass now leaves such a file untouched and keeps
+  the user's version aside when it restores the original.
 
 ## [0.1.0] - 2026-11-19
 

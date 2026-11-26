@@ -55,8 +55,8 @@ def appglass_cmd(env, p=None):
     the hidden session, whose HOME holds no repo)."""
     p = APPGLASS if p is None else p
     if p.startswith(env.home + os.sep):
-        p = "$HOME" + p[len(env.home):]
-        return re.sub(r'(["\\`])', r"\\\1", p)
+        # only the $HOME prefix expands: a $ in the rest stays literal
+        return "$HOME" + re.sub(r'(["\\`$])', r"\\\1", p[len(env.home):])
     return re.sub(r'(["\\`$])', r"\\\1", p)
 
 

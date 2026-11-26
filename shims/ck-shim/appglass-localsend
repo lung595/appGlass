@@ -11,7 +11,7 @@ LIB="$HOME/.local/lib/appglass/localsend"
 ID=org.localsend.localsend_app
 PREFS="$HOME/.var/app/$ID/data/$ID/shared_preferences.json"
 COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
-plain() { exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=localsend --file-forwarding "$ID" @@u "$@" @@; }
+plain() { exec /usr/bin/flatpak run --command=localsend --file-forwarding "$ID" @@u "$@" @@; }
 # the engine (appglass verify, launch-check): a plain/ marker means start the plain app
 AGKEY="$ID"
 [ -e "${XDG_STATE_HOME:-$HOME/.local/state}/appglass/plain/$AGKEY" ] && plain "$@"
@@ -34,6 +34,6 @@ keys=$("@APPGLASS@" keys "$ID" "$mode" 2>/dev/null) && [ -n "$keys" ] || plain "
 # two launches with no window on this app version: the engine pauses the glass
 command -v setsid >/dev/null 2>&1 && setsid -f "@APPGLASS@" launch-check "$AGKEY" $$ \
     >/dev/null 2>&1 </dev/null
-exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=localsend --file-forwarding \
+exec /usr/bin/flatpak run --command=localsend --file-forwarding \
     --filesystem="$LIB:ro" --env=LD_PRELOAD="$LIB/appglass-ck.so" --env=APPGLASS_KEYS="$keys" --env=APPGLASS_SCRUB= \
     "$ID" @@u "$@" @@

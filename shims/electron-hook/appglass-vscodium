@@ -21,7 +21,7 @@ ID=com.vscodium.codium
 COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
 FP=/usr/bin/flatpak
 [ -n "${APPGLASS_SANDBOX:-}" ] && [ -n "${APPGLASS_FLATPAK:-}" ] && FP=$APPGLASS_FLATPAK  # tests only
-RUNARGS="--branch=stable --arch=x86_64 --command=$ID"
+RUNARGS="--command=$ID"
 # every start without glass says why on stderr (the journal of the launching session)
 say() { echo "appglass-vscodium: $*" >&2; }
 plain() { say "$1, running without glass"; shift; exec "$FP" run $RUNARGS "$ID" "$@"; }

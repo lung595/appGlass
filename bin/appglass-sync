@@ -25,6 +25,7 @@ AG="${APPGLASS_BIN:-$(dirname "$(readlink -f "$0")")/appglass}"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/appglass/state.json"
 SHARE="$HOME/.local/share/appglass"
 DISCORD="${XDG_CONFIG_HOME:-$HOME/.config}/discord"
+GTK3_CSS="${XDG_DATA_HOME:-$HOME/.local/share}/themes/AppGlass/gtk-3.0/gtk.css"
 MODE=all
 [ "${1:-}" = "--discord" ] && MODE=discord
 if [ "${1:-}" = "--verify" ]; then
@@ -60,6 +61,11 @@ if ! { [ -d "$RT" ] && [ ! -L "$RT" ] && [ -O "$RT" ]; } ||
     exit 1
 fi
 exec 8>"$RT/appglass-sync.lock"
+# a write after this (the lock wait and the settle included) is this event's;
+# one per run: a run waiting on the lock must not move the holder's
+START="$RT/appglass-sync.start.$$"
+trap 'rm -f "$START"' EXIT
+touch "$START"
 flock -w 60 8 || exit 0
 [ "$MODE" = discord ] || sleep "${APPGLASS_SYNC_SETTLE:-1}"   # let DMS finish writing
 # a dnf transaction: wait until the rpm db had no change for 5 s (at most 60 s);
@@ -103,7 +109,10 @@ if touched '/herdr-app/'; then
         herdr-app do app.theme --name appglass >/dev/null 2>&1
     fi
 fi
-if touched '/gtk-[34]\.0/'; then
+# the matugen post_hook (apply --from-hook) of a colour change often writes
+# the GTK3 theme during our settle: our apply then changes nothing, yet the
+# running apps still need the flip
+if touched '/gtk-[34]\.0/' || [ "$GTK3_CSS" -nt "$START" ]; then
     if ! real; then
         log "GTK CSS changed (no theme flip in a sandbox)"
     # GTK3 re-reads its theme (AppGlass) when the theme name changes; GTK4

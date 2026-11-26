@@ -6,6 +6,7 @@ Read this first when you come back to the project.
 ## Where it is
 
 - Version **0.1.0**, released 2026-11-19 (tag `v0.1.0`, a GitHub release). `master` is the only branch.
+  `master` is at **0.1.1**, not released yet (no tag); see [CHANGELOG.md](../CHANGELOG.md).
 - The engine (`bin/appglass`, `appglass/`), the shims (`shims/`), the DMS plugin (`dms-plugin/`)
   and the docs are in place. Every route listed in the README is written, tested and reviewed.
 - The last work round fixed a background flicker. Some apps tell the compositor that their
@@ -24,8 +25,9 @@ Read this first when you come back to the project.
   these pass: Kiri, ArtCraft, Feishin, Jellyfin, LocalSend, Nautilus, Dux Files, Obsidian,
   Alacritty (204) and Dux Calendar (237, its panes); VLC finds no window (unverifiable).
 - The last fix: on the live desktop, hovering Kiri's sidebar left the page bare but for the
-  hovered item (WebKitGTK 2.54 repaints only the damaged rects of a frame). The WebKit shim now
-  turns WebKit's damage tracking off on a glass view. See [routes.md](routes.md).
+  hovered item (WebKitGTK 2.54 repaints only the damaged rects of a frame). The 0.1.0 fix (damage
+  tracking off) was not enough: Kiri asks WebKit to draw without compositing. The WebKit shim now
+  asks for compositing always instead of never (CHANGELOG 0.1.1). See [routes.md](routes.md).
 - `docs/issue-dms.md` is a draft issue for DankMaterialShell. It has not been posted.
 
 ## What works
@@ -103,7 +105,8 @@ From the last review. They are minor, and none of them blocked 0.1.0:
    Some tests skip when an optional tool is missing: gcc, g++, moc, Qt 6, gjs, node, luac, niri,
    bwrap, ffmpeg, jq, the Vulkan headers, lavapipe, SPIRV-Tools or shaderc, and a few more. Six
    always skip: shared shim tests that do not apply to a family ("no rendered CSS", "nothing
-   built"). On the last full run 8 skipped: those six, plus luac and node missing.
+   built"). On the last full run (0.1.0) 8 skipped: those six, plus luac and node missing. node is
+   now installed, so the Feishin hook test in `test_fade.py` runs (it sets `NODE_PATH` itself).
 
 2. **End-to-end tests** (`tests/e2e/<family>.sh`) run the real apps in a nested niri session.
    They need `APPGLASS_HARNESS` set to the nested-session script, `tests/e2e/harness.sh`

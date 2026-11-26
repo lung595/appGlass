@@ -89,10 +89,10 @@ def alpha_hex(a):
 def rgba(hex_colour, a):
     """CSS rgba(): rgba('#101418', 0.6) -> 'rgba(16, 20, 24, 0.60)'."""
     r, g, b = hex_to_rgb(hex_colour)
-    return "rgba(%d, %d, %d, %s)" % (r, g, b, _fmt_alpha(a))
+    return "rgba(%d, %d, %d, %s)" % (r, g, b, fmt_alpha(a))
 
 
-def _fmt_alpha(a):
+def fmt_alpha(a):
     s = "%.3f" % float(a)
     s = s.rstrip("0")
     if s.endswith("."):
@@ -324,7 +324,10 @@ class Palette:
                 warn("ignoring malformed %s" % ours)
         if not self.colors and isinstance(dms_data, dict):
             mode = dms_data.get("mode") if dms_data.get("mode") in ("dark", "light") else "dark"
-            cols = (dms_data.get("colors") or {}).get(mode) or {}
+            # a hand-edited or half-written file: no object, no colours
+            cols = dms_data.get("colors")
+            cols = cols.get(mode) if isinstance(cols, dict) else None
+            cols = cols if isinstance(cols, dict) else {}
             try:
                 self.colors = {k: norm_hex(v) for k, v in cols.items() if isinstance(v, str)}
             except ValueError as ex:
@@ -815,8 +818,10 @@ def _missing_dirs(d):
 
 def _write_durable(path, data):
     """Write path, on the disk before it returns (a backup, a ring blob:
-    what state.json then names must not be empty after a power loss)."""
-    with open(path, "wb") as f:
+    what state.json then names must not be empty after a power loss).
+    A new file is private (0600): a copy of a user's file may hold a token
+    (the record keeps the original's mode for restore)."""
+    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as f:
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
@@ -835,6 +840,19 @@ def _fsync_dir(d):
         os.close(fd)
 
 
+def _umask():
+    """The process umask, read without setting it (os.umask would change
+    it for a moment under the vibrancy threads)."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("Umask:"):
+                    return int(line.split()[1], 8)
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0o022
+
+
 def _tmp_name(path):
     """Where _atomic_write puts path's new bytes before the replace."""
     return os.path.join(os.path.dirname(path), ".%s.appglass-tmp" % os.path.basename(path))
@@ -849,7 +867,7 @@ def _atomic_write(path, data):
         st = os.stat(path)
         os.chmod(tmp, st.st_mode & 0o7777)
     except FileNotFoundError:
-        pass
+        os.chmod(tmp, 0o666 & ~_umask())     # a new file: the umask mode, not 0600
     os.replace(tmp, path)
     _fsync_dir(os.path.dirname(path) or ".")
 
@@ -2215,12 +2233,23 @@ def _lock(env):
         raise AppglassError(problem)
     for p in _missing_dirs(d):
         env.guard(p)
-    env.guard(os.path.join(d, ".lock"))
-    created = _missing_dirs(d)
-    os.makedirs(d, exist_ok=True)
-    f = open(os.path.join(d, ".lock"), "a")
-    fcntl.flock(f, fcntl.LOCK_EX)
-    return f, created
+    lock = os.path.join(d, ".lock")
+    env.guard(lock)
+    while True:
+        created = _missing_dirs(d)
+        os.makedirs(d, exist_ok=True)
+        f = open(lock, "a")
+        fcntl.flock(f, fcntl.LOCK_EX)
+        # the run before took the dir (and this .lock) out while we waited:
+        # a lock on that unlinked file shuts out no one, take the live one
+        try:
+            st = os.stat(lock)
+            if (st.st_ino, st.st_dev) == (os.fstat(f.fileno()).st_ino,
+                                          os.fstat(f.fileno()).st_dev):
+                return f, created
+        except FileNotFoundError:
+            pass
+        f.close()
 
 
 def _rescue_left(env):
@@ -2237,45 +2266,48 @@ def _unlock(env, lockf, created, app, failed=False):
     """Release the lock. A run that ended with nothing owned takes the state
     dir out; a run that failed, or started without a readable state.json
     while the ring or backup/ held something, touches nothing but its own
-    lock (the ring is the way back)."""
+    lock (the ring is the way back). The lock goes last: what is saved or
+    taken out here is done while no other run can start."""
     try:
-        lockf.close()
-    except OSError:
-        pass
-    st = app.state if app is not None else None
-    if st is None or failed or app.lost_state or (
-            app.event and not (st.owners or st.data.get("parked") or app.keep_state_dir)):
-        # (an event run takes no state dir out: only its own lock)
-        # touch nothing but our own lock
-        if created:
-            try:
-                os.remove(os.path.join(env.state_dir, ".lock"))
-            except OSError:
-                pass
-            for p in sorted(created, key=len, reverse=True):
+        st = app.state if app is not None else None
+        if st is None or failed or app.lost_state or (
+                app.event and not (st.owners or st.data.get("parked") or app.keep_state_dir)):
+            # (an event run takes no state dir out: only its own lock)
+            # touch nothing but our own lock
+            if created:
                 try:
-                    os.rmdir(p)
+                    os.remove(os.path.join(env.state_dir, ".lock"))
                 except OSError:
                     pass
-        return
-    if st.owners or st.data.get("parked") or app.keep_state_dir:
-        if created and not st.data.get("state_parents"):
-            st.data["state_parents"] = created
-            st.save()
-        return
-    # nothing owned: the dir holds the lock, the ring of this state (and a
-    # stale colors.json). The ring goes with it only after a full remove or
-    # a run that wrote (its own entry ends the ring's story); a run that
-    # wrote nothing (an event, after a restore) leaves the ring as it is
-    if not (st.owners or st.data.get("parked") or app.keep_state_dir) and not app.event and (
-            app.full_remove or app.ring_entry is not None or not ring_entries(env)):
-        kept = st.destroy(created)
-        if kept:
-            what = ". ".join(_kept_text(env, st, n) for n in kept)
-            app.warn("%s kept with its ring: backup/ holds copies no record names. %s. "
-                     "appglass restore --list shows the saved states"
-                     % (env.tilde(env.state_dir), what))
-        _warn_left_in_link(app, st)
+                for p in sorted(created, key=len, reverse=True):
+                    try:
+                        os.rmdir(p)
+                    except OSError:
+                        pass
+            return
+        if st.owners or st.data.get("parked") or app.keep_state_dir:
+            if created and not st.data.get("state_parents"):
+                st.data["state_parents"] = created
+                st.save()
+            return
+        # nothing owned: the dir holds the lock, the ring of this state (and a
+        # stale colors.json). The ring goes with it only after a full remove or
+        # a run that wrote (its own entry ends the ring's story); a run that
+        # wrote nothing (an event, after a restore) leaves the ring as it is
+        if not (st.owners or st.data.get("parked") or app.keep_state_dir) and not app.event and (
+                app.full_remove or app.ring_entry is not None or not ring_entries(env)):
+            kept = st.destroy(created)
+            if kept:
+                what = ". ".join(_kept_text(env, st, n) for n in kept)
+                app.warn("%s kept with its ring: backup/ holds copies no record names. %s. "
+                         "appglass restore --list shows the saved states"
+                         % (env.tilde(env.state_dir), what))
+            _warn_left_in_link(app, st)
+    finally:
+        try:
+            lockf.close()
+        except OSError:
+            pass
 
 
 def _warn_left_in_link(app, st):
@@ -2349,6 +2381,12 @@ def cmd_apply(app, only=None, dry_run=False, from_hook=False):
     if app.settings_error and not from_hook:
         raise AppglassError("settings.json is invalid (%s); fix it with appglass set, "
                             "or delete it for the defaults" % app.settings_error)
+    if app.settings_error:
+        # a hook run on the defaults would drop the user's levels and bring
+        # back a family switched off: the files stay as the last good run left them
+        app.warn("settings.json is invalid (%s): nothing refreshed; fix it with "
+                 "appglass set, or delete it for the defaults" % app.settings_error)
+        return
     if not app.settings.get("enabled", True):
         app.info("glass is off in settings.json (enabled false): nothing applied "
                  "(appglass remove takes the files out)")
@@ -3352,12 +3390,6 @@ def _unrendered(fn, data):
     return None
 
 
-def _engine_paths(app):
-    """Every path appglass would write here: the installed families' plans,
-    the niri rule and include, the hook's units, scripts and section."""
-    return set(_engine_plan(app))
-
-
 def _engine_plan(app):
     """{path: undo} for every path appglass would write here; undo(text)
     takes appglass's lines out of a file it edits (None for the others)."""
@@ -3417,7 +3449,8 @@ def _engine_ops(app):
     paths[os.path.join(os.path.dirname(cfg), niri.FILE)] = ("niri", "owned", None, None,
                                                             b"", None)
     for n in hook.UNITS:
-        paths[hook.unit_path(env, n)] = ("hook", "owned", None, None, hook.unit_render(n), None)
+        paths[hook.unit_path(env, n)] = ("hook", "owned", None, None,
+                                         hook.unit_render(env, n), None)
     for p in (hook.sync_path(env), hook.vibrancy_path(env)):
         paths[p] = ("hook", "owned", None, None, b"", None)
     block = hook.section(env)
@@ -4427,8 +4460,16 @@ def cmd_restore(app, ident=None, list_only=False):
     with open(os.path.join(src, "manifest.json")) as f:
         m = json.load(f)
     # every blob read and checked before the first file changes
+    bases = {os.path.abspath(x) for x in (env.home, env.config_home, env.data_home,
+                                          env.state_home, env.cache_home)}
     blobs = {}
     for p, (n, d, rec) in plan.items():
+        # appglass writes only under these: a manifest naming any other
+        # path was not written by it (no restore as root reaches /etc)
+        if not (os.path.isabs(p) and any(
+                os.path.abspath(p).startswith(b + os.sep) for b in bases)):
+            raise AppglassError("restore: ring entry %s names %s, outside the home folder "
+                                "and the XDG dirs: nothing restored" % (n, p))
         env.guard(p)
         if rec.get("blob"):
             with open(os.path.join(d, rec["blob"]), "rb") as f:
@@ -4662,7 +4703,8 @@ def doctor_drift(app):
     else:
         for n in hook.UNITS:
             p = hook.unit_path(env, n)
-            if os.path.isfile(p) and st.owner_of(p) is None and _read(p) != hook.unit_render(n):
+            if os.path.isfile(p) and st.owner_of(p) is None \
+                    and _read(p) != hook.unit_render(env, n):
                 out.append(("hook: %s is hand-made and differs from the repo render "
                             "(appglass adopt %s takes it over and installs the hook)"
                             % (tilde(p), tilde(p)), None))
@@ -4808,7 +4850,12 @@ def cmd_doctor(app, fix=False):
 def detected(app):
     """detect records with the learned cache and the open windows merged in."""
     from . import engine, learn
-    recs, _ = engine.scan(app.env, owned=engine.owned_files(app.state))
+    # (a reset of the memo, _engine_records None, drops this scan too)
+    recs = getattr(app, "_engine_scan", None)
+    if recs is not None and getattr(app, "_engine_records", None) is not None:
+        recs = json.loads(json.dumps(recs))     # merge edits the records in place
+    else:
+        recs, _ = engine.scan(app.env, owned=engine.owned_files(app.state))
     learned = learn.load(app.env)
     live = learn.learn(app.env)
     if live:
@@ -5013,7 +5060,7 @@ def main(argv=None, environ=None, out=None, err=None):
         elif args.cmd == "levels":
             from . import inactive
             lv = dict(app.levels.as_dict(), **inactive.fields(app.settings, app.levels.content))
-            print(json.dumps(lv), file=app.out if hasattr(app, "out") and app.out else sys.stdout)
+            print(json.dumps(lv), file=app.out)
         elif args.cmd == "detect":
             cmd_detect(app, as_json=args.json)
         elif args.cmd == "learn":

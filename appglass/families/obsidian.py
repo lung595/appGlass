@@ -211,8 +211,7 @@ def undo(env, path, text):
 # ---------------------------------------------------------------- the snippet
 
 def _rgb(hex_colour):
-    h = hex_colour.lstrip("#")
-    return "%d, %d, %d" % tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return "%d, %d, %d" % hex_to_rgb(hex_colour)
 
 
 def _over(top, top_a, bottom, bottom_a):

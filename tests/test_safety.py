@@ -305,7 +305,7 @@ class Refusal(Base):
         app = core.App(dict(self.sb.env, APPGLASS_ASSUME_INSTALLED="alacritty"),
                        out=io.StringIO(), err=err)
         with mock.patch.object(alacritty, "apply", side_effect=RuntimeError("boom")):
-            core._engine_paths(app)
+            core._engine_plan(app)
         self.assertIn("alacritty", err.getvalue())
         self.assertIn("boom", err.getvalue())
 

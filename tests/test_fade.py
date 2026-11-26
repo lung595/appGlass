@@ -179,7 +179,9 @@ class FeishinHookNode(unittest.TestCase):
         with open(os.path.join(tmp, "main.js"), "w") as f:
             f.write("process.type='browser';require(%s);\n%s" % (json.dumps(hook), DRIVE))
         r = subprocess.run([NODE, "main.js"], cwd=tmp, capture_output=True, text=True, timeout=60,
-                           env=dict(os.environ, ELECTRON_RUN_AS_NODE="1"))
+                           # the hook resolves require('electron') from its own folder, not cwd
+                           env=dict(os.environ, ELECTRON_RUN_AS_NODE="1",
+                                    NODE_PATH=os.path.join(tmp, "node_modules")))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.split(), ["blur:true", "focus:false"])
 

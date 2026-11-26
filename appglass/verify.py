@@ -374,17 +374,19 @@ def _rehome(env, home, text):
     rewritten to the throwaway one, except the appglass repo: a wrapper calls bin/appglass as
     "$HOME/<repo>" when the repo is under HOME, and the throwaway HOME holds
     no repo (every check would start the plain app and fail)."""
-    from . import shims
+    from . import core, shims
     hold = "\0appglass-repo\0"
     repo = shims.REPO
     text = text.replace(repo, hold)
+    quoted = "\0appglass-repo-quoted\0"     # the $HOME form sits in double quotes: stays escaped
     if repo.startswith(env.home + os.sep):
-        text = text.replace("$HOME" + repo[len(env.home):], hold)
+        text = text.replace(shims.appglass_cmd(env, repo), quoted)
     for real, rel in ((env.config_home, ".config"), (env.data_home, ".local/share"),
                       (env.state_home, ".local/state"), (env.cache_home, ".cache")):
         if not real.startswith(env.home + os.sep):          # an XDG dir out of HOME
             text = text.replace(real, os.path.join(home, rel))
-    return text.replace(env.home, home).replace(hold, repo)
+    return (text.replace(env.home, home).replace(hold, repo)
+            .replace(quoted, shims.appglass_cmd(core.Env({"HOME": home}), repo)))
 
 
 KDL = """screenshot-path "%(run)s/shot-%%s.png"
@@ -1217,13 +1219,22 @@ def _locked(app, fn):
     it). No state dir: nothing glass to record."""
     import fcntl
     d = app.env.state_dir
-    if not os.path.isdir(d):
-        return None
-    app.env.guard(os.path.join(d, ".lock"))
-    with open(os.path.join(d, ".lock"), "a") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        app._engine_store = None        # re-read under the lock
-        return fn()
+    lock = os.path.join(d, ".lock")
+    app.env.guard(lock)
+    while True:
+        if not os.path.isdir(d):
+            return None
+        with open(lock, "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            # the run before took the dir (and this .lock) out while we
+            # waited (core._lock): a lock on that unlinked file shuts out no one
+            try:
+                live = os.stat(lock).st_ino == os.fstat(f.fileno()).st_ino
+            except FileNotFoundError:
+                live = False
+            if live:
+                app._engine_store = None        # re-read under the lock
+                return fn()
 
 
 def cmd_launch_check(app, key, pid):
