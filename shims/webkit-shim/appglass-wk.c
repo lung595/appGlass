@@ -138,6 +138,18 @@ void webkit_web_view_set_background_color(void *view, const GdkRGBA *c) {
     real_set_bg(view, &t);
 }
 
+// WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER (2) draws without compositing: a hover repaints only
+// its rects and the rest of the clear page goes bare (Kiri sets it, WebKitGTK 2.54, NVIDIA).
+// ALWAYS (1) instead: every frame whole. shortcut: the "hardware-acceleration-policy" property
+// set with g_object_set is not caught, catch it when an app does that.
+void webkit_settings_set_hardware_acceleration_policy(void *s, int p) {
+    static void (*f)(void *, int);
+    if (!f) f = next("webkit_settings_set_hardware_acceleration_policy");
+    if (!f) f = sym("webkit_settings_set_hardware_acceleration_policy");
+    if (p == 2) { LOG("hardware acceleration policy never -> always"); p = 1; }
+    if (f) f(s, p);
+}
+
 // Top frame only (frames see their own focus); runs once per page at document end. The class follows
 // document.hasFocus() after each window focus/blur, so nothing runs between focus changes.
 static const char FOCUS_JS[] =
@@ -589,7 +601,8 @@ static void on_load_changed(void *view, int ev, void *data) {
 // WebKitGTK 2.5x damage tracking: a partial frame (a hover) repaints only its damaged rects into a
 // buffer that does not keep the last frame, and the rest is cleared: on an opaque view that is
 // hidden by the view's background, on a clear one the whole page but the damaged rects goes bare
-// (measured on Kiri, WebKitGTK 2.54, NVIDIA). Off on the glass view's settings: every frame whole.
+// (measured on Kiri, WebKitGTK 2.54, NVIDIA). Off on the glass view's settings. Not enough alone on
+// Kiri: its policy NEVER is the cut (see webkit_settings_set_hardware_acceleration_policy).
 // The features are looked up by name (a WebKit without them has nothing to turn off).
 static void no_damage(void *view) {
     static const char *const OFF[] = { "PropagateDamagingInformation", "UseDamagingInformationForCompositing" };

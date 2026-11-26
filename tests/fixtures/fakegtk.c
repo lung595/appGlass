@@ -201,7 +201,10 @@ void *webkit_feature_list_get(void *l, size_t i) { (void)l; return &feats[i]; }
 const char *webkit_feature_get_identifier(void *f) { return *(const char **)f; }
 void webkit_settings_set_feature_enabled(void *s, void *f, int on) { (void)s; for (size_t i = 0; i < 3; i++) if ((void *)&feats[i] == f) feats[i].on = on; }
 void webkit_feature_list_unref(void *l) { (void)l; feat_lists--; }
+static int hw_policy = -1;
+void webkit_settings_set_hardware_acceleration_policy(void *s, int p) { (void)s; hw_policy = p; }
 void fk_features(void) {
+    printf("policy %d\n", hw_policy);
     printf("features");
     for (size_t i = 0; i < 3; i++) if (!feats[i].on) printf(" %s", feats[i].id);
     printf(" lists=%d\n", feat_lists);

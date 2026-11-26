@@ -12,6 +12,11 @@ The project uses [Semantic Versioning](https://semver.org/).
   `herdr-skillshare` layout, and appglass kept that as an opt-out. The glass layout is now made from the layout
   Herdr runs when it has main's shape, and remove puts that layout back. A layout of another shape (win98) is
   still kept as an opt-out.
+- **A WebKitGTK page still went bare on hover** (Kiri, WebKitGTK 2.54, NVIDIA). The 0.1.0 fix (damage
+  tracking off) was not enough: Kiri asks WebKit to draw without compositing, and that path repaints only the
+  hovered rects. The shim now asks for compositing always instead of never.
+- **A WebKitGTK window flashed opaque on hover.** A full re-mark of the page read its own colour with the glass
+  off for a moment, and the content fade then ran from opaque back to the glass. The fade is off during the read.
 
 ## [0.1.0] - 2026-11-19
 

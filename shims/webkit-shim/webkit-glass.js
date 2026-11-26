@@ -161,9 +161,12 @@
       Array.prototype.forEach.call(document.querySelectorAll("[data-agl-cover],[data-agl-under]"), function (e) {
         e.removeAttribute("data-agl-cover"); e.removeAttribute("data-agl-under");
       });
+      d.setAttribute("data-agl-still", "");   // findRoot shows the page's own colour for a moment
       root = findRoot();
       d.style.setProperty("--agl-root", str(root));
       d.setAttribute("data-agl-root", "");
+      getComputedStyle(d).backgroundColor;   // settled without a fade, then the fade is back
+      d.removeAttribute("data-agl-still");
       if (document.body) walk(document.body);
     } else {
       var todo = [];

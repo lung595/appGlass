@@ -7,6 +7,8 @@ html[data-agl-root] {
   background-color: color-mix(in srgb, rgb(var(--agl-root)) {{content}}%, transparent) !important;
   background-image: none !important;
   transition: background-color {{fade}} !important; }
+/* while webkit-glass.js reads the page's own colour: no fade from it (a full re-mark flashed opaque) */
+html[data-agl-still] { transition: none !important; }
 /* unfocused window (appglass-wk.so sets the class when the page loses focus): only the content fades */
 html[data-agl-root].agl-inactive {
   background-color: color-mix(in srgb, rgb(var(--agl-root)) {{inactive}}%, transparent) !important; }

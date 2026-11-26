@@ -577,7 +577,7 @@ void fk_hold(void *, int); void fk_commit(void *); void fk_nopaint(void *, int);
 void fk_remove(void *); void fk_add(void *, void *); void fk_related(void *, void *);
 void webkit_web_view_load_html(void *, const char *, const char *);
 void fk_allocate(void *); void fk_restyle(void *); void fk_region(const char *, void *);
-void fk_features(void);
+void fk_features(void); void webkit_settings_set_hardware_acceleration_policy(void *, int);
 // box[sidebar (hidden), stack[A (hidden page, loaded), B (shown, its page slow)]]; reported: B,
 // then A on its page and B again
 static int twoview(void) {
@@ -655,8 +655,9 @@ static int region(void) {
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "late";
     if (!strcmp(mode, "region")) return region();
-    if (!strcmp(mode, "features")) {   // the damage features of a glass view
+    if (!strcmp(mode, "features")) {   // the damage features and the policy of a glass view
         void *win = fk_widget("window", 0, 1), *view = fk_widget("view", win, 0);
+        webkit_settings_set_hardware_acceleration_policy(view, 2);   // NEVER, as Kiri sets it
         webkit_web_view_load_html(view, "<p>page</p>", 0);
         fk_map(win); fk_idle(); fk_features();
         return 0;
@@ -861,6 +862,12 @@ class ShimDecision(unittest.TestCase):
         r = self.run_driver("features")
         self.assertEqual(r["features"],
                          "PropagateDamagingInformation UseDamagingInformationForCompositing lists=0")
+
+    def test_acceleration_never_becomes_always(self):
+        """Without compositing (policy NEVER, Kiri) a hover repaints only its
+        rects and the rest of the clear page went bare (WebKitGTK 2.54,
+        NVIDIA): the shim asks for ALWAYS instead."""
+        self.assertEqual(self.run_driver("features")["policy"], "1")
 
     def test_views_on_one_content_manager_are_glass_together(self):
         """A related view shares the first view's user content manager, so
