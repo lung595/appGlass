@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/media/hero.png" alt="A desktop over a painted wallpaper of a cottage in a flower field. Four windows have a glass background, with the blurred wallpaper showing through: Discord on its sign-up page, Obsidian with a sourdough bread recipe note, the Files app in a Demo folder, and an Alacritty terminal. Their text, icons and buttons stay sharp" width="100%">
+<img src="docs/media/hero-v2.png" alt="The headline Glass for every app, with the line Your wallpaper behind every window. The text stays sharp, above one Obsidian window with a sourdough bread recipe note. The window sits over a painted wallpaper of a cottage in a flower field and has a dark glass background: the blurred wallpaper shows through it while the text and icons stay sharp" width="100%">
 
 **Glass backgrounds for your desktop apps on [DMS](https://github.com/duxlabs-dev/dux-shell) + niri.**
 
