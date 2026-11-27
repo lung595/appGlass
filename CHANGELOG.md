@@ -4,7 +4,7 @@ All notable changes to appGlass are listed here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.2] - 2026-11-27
 
 ### Added
 
@@ -14,6 +14,12 @@ The project uses [Semantic Versioning](https://semver.org/).
   when the plugin's folder is gone at unload the plugin runs that copy with `appglass remove --if-gone <plugin.json>`.
   It waits 4 s (`APPGLASS_SWEEP_GRACE`) and does nothing if `plugin.json` is back (an update), else it restores every
   file, takes the hook and the units out, then the copy. Disabling or reloading the plugin still changes nothing.
+
+### Changed
+
+- The README puts the DMS plugin registry first: install from **Settings → Plugins → Browse**, nothing to run in a
+  terminal. On its first start the plugin sets up the theme hook and the user units itself.
+- The open category in the settings rail has the same look as Browser Glass's.
 
 ### Fixed
 
@@ -161,6 +167,6 @@ The first release.
 - **The hidden check leaves no private dir behind** when the app left read-only dirs in it
   (Dux unpacks its QML read-only into the runtime dir).
 
-[Unreleased]: https://github.com/lung595/appGlass/compare/v0.1.1...HEAD
+[0.1.2]: https://github.com/lung595/appGlass/releases/tag/v0.1.2
 [0.1.1]: https://github.com/lung595/appGlass/releases/tag/v0.1.1
 [0.1.0]: https://github.com/lung595/appGlass/releases/tag/v0.1.0
