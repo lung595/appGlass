@@ -5,7 +5,7 @@ Read this first when you come back to the project.
 
 ## Where it is
 
-- Version **0.1.0**, released 2026-11-19 (tag `v0.1.0`, a GitHub release). `master` is the only branch.
+- Version **0.1.1**, released 2026-11-27 (tag `v0.1.1`, a GitHub release). `master` is the only branch.
   `master` is at **0.1.1**, not released yet (no tag); see [CHANGELOG.md](../CHANGELOG.md).
 - The engine (`bin/appglass`, `appglass/`), the shims (`shims/`), the DMS plugin (`dms-plugin/`)
   and the docs are in place. Every route listed in the README is written, tested and reviewed.
