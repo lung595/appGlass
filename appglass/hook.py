@@ -216,7 +216,7 @@ def _unit_dir(path):
 
 def unit_render(env, name):
     """The repo's bytes of a sync unit, the DMS paths moved to
-    $XDG_CONFIG_HOME and $XDG_CACHE_HOME when those are not the defaults
+    $XDG_CONFIG_HOME, $XDG_CACHE_HOME and $XDG_DATA_HOME when those are not the defaults
     (core reads the DMS files there)."""
     with open(os.path.join(repo_root(), "shims", "sync", name), "rb") as f:
         data = f.read()
@@ -224,6 +224,8 @@ def unit_render(env, name):
         data = data.replace(b"=%h/.config/", b"=" + _unit_dir(env.config_home) + b"/")
     if env.cache_home != env.home_path(".cache"):
         data = data.replace(b"=%h/.cache/", b"=" + _unit_dir(env.cache_home) + b"/")
+    if env.data_home != env.home_path(".local", "share"):
+        data = data.replace(b"=%h/.local/share/", b"=" + _unit_dir(env.data_home) + b"/")
     return data
 
 

@@ -209,7 +209,9 @@ def load(env):
         with open(path(env), "rb") as f:
             doc = json.loads(f.read().decode("utf-8"))
         apps = doc.get("apps", {}) if isinstance(doc, dict) else {}
-        return apps if isinstance(apps, dict) else {}
+        # an entry that is not an object (a hand edit) would crash merge()
+        return ({k: v for k, v in apps.items() if isinstance(v, dict)}
+                if isinstance(apps, dict) else {})
     except (OSError, ValueError, UnicodeDecodeError):
         return {}
 

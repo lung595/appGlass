@@ -8,6 +8,9 @@ The project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `appglass restore` no longer refuses everything when Herdr's folder is set with an absolute `HERDR_APP_HOME` outside the home folder.
+- With a moved `XDG_DATA_HOME`, the sync unit now watches the user applications and flatpak folders there, so new apps get their glass without a manual sync.
+- A damaged entry in the learned toolkit cache no longer makes `apply`, `detect` and the sync hook crash: the entry is dropped.
 - **Herdr lost its glass when a mod switched its layout.** The skillshare mod installs and selects its own
   `herdr-skillshare` layout, and appglass kept that as an opt-out. The glass layout is now made from the layout
   Herdr runs when it has main's shape, and remove puts that layout back. A layout of another shape (win98) is

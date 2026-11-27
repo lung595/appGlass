@@ -118,6 +118,16 @@ class Learn(unittest.TestCase):
         self.assertEqual(portal["source"], "learned")
         self.assertEqual(portal["app_ids"], [r"^oo7-portal$"])
 
+    def test_non_object_entry_is_dropped(self):
+        p = learn.path(self.env)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            json.dump({"apps": {"foo": "x", "bar": {"toolkit": "gtk3"}}}, f)
+        self.assertEqual(learn.load(self.env), {"bar": {"toolkit": "gtk3"}})
+        del self.sb.env["APPGLASS_NIRI_WINDOWS"]
+        code, out, err = self.sb.run("detect", "--json")
+        self.assertEqual(code, 0, err)
+
     def test_no_niri(self):
         del self.sb.env["APPGLASS_NIRI_WINDOWS"]
         env = dict(self.sb.env)

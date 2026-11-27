@@ -349,6 +349,13 @@ These are plans, not promises. They have no dates.
 - `appglass report <key>`: a scrubbed record for bug reports.
 - Fade for the other terminals, Zed, mpv, GIMP, VSCodium, Dux, Herdr and the colour-key apps.
 - Filter chips and a "Run check now" button in the settings page.
+- WebKitGTK apps: re-mark only the changed part of the page when the body class or the root style changes,
+  instead of the whole page.
+- The sync unit: follow a moved `FLATPAK_USER_DIR`; reload Herdr with an odd `HERDR_APP_HOME` (`/`, `..`) or a
+  relative `XDG_CONFIG_HOME`; compare file times to the nanosecond, so a GTK or Herdr write in the same second
+  is not missed.
+- `appglass restore` when `XDG_*` or `HERDR_APP_HOME` changed since apply: keep the folders in the ring entry.
+- A steady `test_sync_xdg` post-hook race test (it fails now and then, on a busy machine).
 
 ## Documentation
 

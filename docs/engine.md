@@ -149,7 +149,7 @@ First run: the hidden check starts Feishin in a throwaway HOME. Left alone, Feis
 
 One exception to "beside the app": the Mod route for Discord re-runs the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` after a Discord update (see [routes.md](routes.md#discord-vencord)), and that installer patches Discord's own `app-*/resources` folder. This is why it is a Mod route.
 
-TODO(engine): a hard deny-list that refuses writes under `/usr`, `/etc`, `/var`, `/opt` and `/app`. Today every write path is under the home folder by construction. Only `appglass restore` refuses a path: a ring entry that names a file outside the home folder and the XDG dirs is refused whole, before any file changes. No other write refuses a system path.
+TODO(engine): a hard deny-list that refuses writes under `/usr`, `/etc`, `/var`, `/opt` and `/app`. Today every write path is under the home folder, the XDG dirs or an absolute `HERDR_APP_HOME` by construction. Only `appglass restore` refuses a path: a ring entry that names a file outside the home folder, the XDG dirs and `HERDR_APP_HOME` (as set when restore runs) is refused whole, before any file changes. No other write refuses a system path.
 
 ## Safety
 

@@ -48,6 +48,17 @@ class PathUnitXdg(unittest.TestCase):
         # doctor sees the render it wrote, not a drift
         self.assertNotIn("appglass-sync.path", self.w.run("doctor")[1])
 
+    def test_moved_data_home_is_watched(self):
+        data = os.path.join(self.w.sb.home, "data share")
+        os.makedirs(data)
+        self.w.sb.env.update(XDG_DATA_HOME=data)
+        code, out, err = self.w.run("hook", "install")
+        self.assertEqual(code, 0, err)
+        text = self.unit()
+        self.assertIn("PathChanged=%s/applications\n" % data, text)
+        self.assertIn("PathChanged=%s/flatpak/.changed\n" % data, text)
+        self.assertNotIn("%h/.local/share", text)
+
 
 class PostHookRace(unittest.TestCase):
     def setUp(self):

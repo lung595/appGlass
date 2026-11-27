@@ -4447,16 +4447,18 @@ def cmd_restore(app, ident=None, list_only=False):
     with open(os.path.join(src, "manifest.json")) as f:
         m = json.load(f)
     # every blob read and checked before the first file changes
+    from .families import herdr     # an absolute HERDR_APP_HOME is written as is
     bases = {os.path.abspath(x) for x in (env.home, env.config_home, env.data_home,
-                                          env.state_home, env.cache_home)}
+                                          env.state_home, env.cache_home,
+                                          herdr.app_home(env))}
     blobs = {}
     for p, (n, d, rec) in plan.items():
         # appglass writes only under these: a manifest naming any other
         # path was not written by it (no restore as root reaches /etc)
         if not (os.path.isabs(p) and any(
                 os.path.abspath(p).startswith(b + os.sep) for b in bases)):
-            raise AppglassError("restore: ring entry %s names %s, outside the home folder "
-                                "and the XDG dirs: nothing restored" % (n, p))
+            raise AppglassError("restore: ring entry %s names %s, outside the home folder, "
+                                "the XDG dirs and HERDR_APP_HOME: nothing restored" % (n, p))
         env.guard(p)
         if rec.get("blob"):
             with open(os.path.join(d, rec["blob"]), "rb") as f:

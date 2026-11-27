@@ -419,6 +419,19 @@ class Herdr(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.sb.tree_hash(), self.before)
 
+    def test_restore_with_herdr_app_home_outside_home(self):
+        # HERDR_APP_HOME outside the home folder and the XDG dirs: the ring
+        # names those paths, and restore still puts them back
+        self.sb.cleanup()
+        self.sb = Sandbox()
+        self.seed(home=os.path.join(self.sb.root, "herdr-out"))
+        env = {"HERDR_APP_HOME": self.home}
+        self.apply(env=env)
+        self.assertTrue(os.path.isfile(self.p("themes", "appglass.json")))
+        code, out, err = self.sb.run("restore", assume="herdr", env=env)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(self.p("themes", "appglass.json")))
+
     def test_not_installed(self):
         code, out, err = self.sb.run("apply", "--only", "herdr", assume_not="herdr")
         self.assertIn("not installed", out)
