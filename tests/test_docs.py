@@ -691,7 +691,8 @@ class OneVersion(unittest.TestCase):
             plugin = json.load(f)["version"]
         js = re.search(r'var VERSION = "([^"]+)"',
                        read("dms-plugin", "components", "logic.js")).group(1)
-        top = re.search(r"(?m)^## \[([^\]]+)\]", read("CHANGELOG.md")).group(1)
+        # the newest version heading ([Unreleased] collects changes before a bump)
+        top = re.search(r"(?m)^## \[(?!Unreleased\])([^\]]+)\]", read("CHANGELOG.md")).group(1)
         self.assertEqual({appglass.__version__, plugin, js, top}, {top})
 
 

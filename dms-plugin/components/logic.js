@@ -283,6 +283,49 @@ function actionArgv(name, bin) {
     return null;
 }
 
+// --- the uninstall sweep (components/UninstallSweep.qml) --------------------
+
+// appglass core.EXIT_KEPT: `remove --if-gone` found plugin.json back (an
+// update), nothing was done
+var EXIT_KEPT = 3;
+
+function manifestPath(pluginDir) {
+    var dir = _strip(pluginDir);
+    return dir ? dir + "/plugin.json" : "";
+}
+
+// $XDG_DATA_HOME when absolute, else ~/.local/share (as appglass's Env)
+function dataHome(xdgDataHome, home) {
+    var x = _strip(xdgDataHome);
+    if (x.charAt(0) === "/")
+        return x;
+    var h = _strip(home);
+    return h ? h + "/.local/share" : "";
+}
+
+// The rescue copy of the CLI `appglass hook install` keeps (appglass/rescue.py):
+// what still runs once a DMS uninstall deleted the repository
+function rescueBin(dataHomeDir) {
+    var d = _strip(dataHomeDir);
+    return d ? d + "/appglass/cli/bin/appglass" : "";
+}
+
+// The deleted-folder uninstaller: waits a grace period, then does nothing
+// (EXIT_KEPT) if plugin.json is back, else `appglass remove` (the files,
+// the hook, the units, the rescue copy last)
+function sweepArgv(rescue, manifest) {
+    return ["python3", "-I", "-B", rescue, "remove", "--if-gone", manifest];
+}
+
+// pluginSettings without pluginId's entry (a deep copy), null when it has none
+function withoutPlugin(pluginSettings, pluginId) {
+    if (!pluginSettings || typeof pluginSettings !== "object" || Array.isArray(pluginSettings) || !Object.prototype.hasOwnProperty.call(pluginSettings, pluginId))
+        return null;
+    var next = JSON.parse(JSON.stringify(pluginSettings));
+    delete next[pluginId];
+    return next;
+}
+
 function statusArgv(bin) {
     return [bin, "status", "--json"];
 }

@@ -39,8 +39,12 @@ appglass-verify.service (``appglass verify --queue``, idle priority, 25 min
 budget (verify.BUDGET), 30 min unit timeout), started --no-block by a hook
 run that queued an app to check.
 
+It also keeps the rescue copy of the CLI ($XDG_DATA_HOME/appglass/cli,
+appglass/rescue.py) that the DMS plugin's uninstall sweep runs once a DMS
+uninstall deleted the repository.
+
 ``appglass hook remove`` restores the matugen config byte-identical, drops
-the rendered colors.json, restores (or deletes) the units and the script and
+the rendered colors.json and the rescue copy, restores (or deletes) the units and the script and
 disables the path units and the vibrancy service again when they were not
 enabled before install.
 """
@@ -318,6 +322,8 @@ def install(app, dry_run=False, keep_optout=False):
         app.info("hook: already installed in %s" % config_path(env))
     app.info("hook: matugen renders %s, then runs %s %s"
              % (output_path(env), bin_path(), HOOK_ARGS))
+    from . import rescue
+    rescue.refresh(app)
     return changed
 
 
@@ -352,4 +358,7 @@ def remove(app):
     if os.path.exists(out):
         env.guard(out)
         os.remove(out)
+    from . import rescue
+    # last: the sweep runs remove from this copy (modules already imported)
+    rescue.drop(env)
     app.info("hook: removed" if removed else "hook: not installed")

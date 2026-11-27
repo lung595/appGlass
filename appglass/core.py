@@ -50,6 +50,20 @@ class Conflict(AppglassError):
     """A target exists, is not ours and cannot be merged safely: skip the owner."""
 
 
+# remove --if-gone: FILE is there (again), nothing was done. EventRemove's
+# 3 never comes from remove (a command the user typed, no event)
+EXIT_KEPT = 3
+SWEEP_GRACE = 4.0
+
+
+def _seconds(text, default):
+    try:
+        v = float(text)
+    except (TypeError, ValueError):
+        return default
+    return v if 0 <= v <= 600 else default
+
+
 class EventRemove(AppglassError):
     """An event run (the plugin's sync, the hook, the path units, doctor,
     status) reached what reverts, removes or forgets a file: S6 says only a
@@ -2571,10 +2585,14 @@ def cmd_remove(app, only=None, keep_hook=False, forget_away=False):
         # up again, which adopts the parked hand files again
         del app.state.data["parked"]
         app.state.save()
-    from . import learn, engine
+    from . import learn, engine, rescue
     if learn.forget(app.env):
         app.info("learned: cache removed")
     engine.destroy(app.env)
+    if not keep_hook and rescue.drop(app.env):
+        # last: a sweep runs this from the copy (every module it needs is
+        # imported by now)
+        app.info("rescue: %s removed" % app.env.tilde(rescue.path(app.env)))
 
 
 def _park_adopted(app, names):
@@ -2992,6 +3010,9 @@ def cmd_sync(app, settings_file, dry_run=False, no_switch=False):
         cmd_apply_all(app, dry_run=dry_run)
     if not dry_run and app.state.data.pop("sync_pending", None) is not None:
         app.state.save()     # finished: the next sync switches against these
+    from . import hook, rescue
+    if not dry_run and hook.installed(app):
+        rescue.refresh(app)     # an update of the CLI: the sweep's copy follows
 
 
 def adopt_owner(app, adapter, path=""):
@@ -4918,6 +4939,10 @@ def main(argv=None, environ=None, out=None, err=None):
     r.add_argument("--forget-away", action="store_true",
                    help="also forget the records of files whose folder is gone for good "
                         "(a deleted vault); nothing is written there")
+    r.add_argument("--if-gone", metavar="FILE",
+                   help="the DMS plugin's uninstall sweep: wait $APPGLASS_SWEEP_GRACE "
+                        "seconds (default %g), then do nothing (exit %d) if FILE exists"
+                        % (SWEEP_GRACE, EXIT_KEPT))
     sp = sub.add_parser("status", help="show colours, levels, applied families and app routes")
     sp.add_argument("--json", action="store_true", help="machine-readable status")
     sub.add_parser("levels", help="print the current levels as JSON")
@@ -4984,6 +5009,14 @@ def main(argv=None, environ=None, out=None, err=None):
                and quiet and not args.dry_run)
     try:
         env = Env(environ)
+        if args.cmd == "remove" and args.if_gone:
+            if args.only:
+                raise AppglassError("remove: --if-gone takes no --only (it removes everything)")
+            # the plugin's sweep: its folder looked deleted at unload; an
+            # update (a re-clone) brings plugin.json back within the grace
+            time.sleep(_seconds(env.environ.get("APPGLASS_SWEEP_GRACE"), SWEEP_GRACE))
+            if os.path.lexists(args.if_gone):
+                return EXIT_KEPT
         if hookrun:
             from . import inputs
             if inputs.fresh(env, sys.argv[1:]):

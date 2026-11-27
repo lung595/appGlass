@@ -21,6 +21,7 @@ Item {
     readonly property string bin: dir + "/../bin/appglass"
     readonly property string runFile: "/tmp/fakehome/run/appglass-plugin-settings.json"
     readonly property string rulesPath: "/tmp/fakehome/.config/niri/dms/windowrules.kdl"
+    readonly property string rescue: "/tmp/fakehome/.local/share/appglass/cli/bin/appglass"
 
     property var defaults: ({})
     property string statusText: ""
@@ -131,6 +132,9 @@ Item {
                     Proc.flush();       // sync
                     t.check("one sync, with the settings appglass had", root.lastSyncSettings(), cli);
                     t.check("start sync argv: no switch", root.syncs()[0].command, Logic.syncArgv(root.bin, root.runFile, true));
+                    t.check("first start sets up the hook", [Proc.pendingIds(), root.vars().action], [[Logic.HOOK_ID], "setup"]);
+                    Proc.flush();       // hook install
+                    t.check("hook step done", root.pdata().hookAgain, false);
                     Proc.flush();       // status
                     t.check("status shared", root.vars().status.version, 1);
                     t.check("syncing done", root.vars().syncing, false);
@@ -289,7 +293,8 @@ Item {
                     Proc.flush();
                     Proc.flush();
                     t.check("then synced", root.syncs().length, 1);
-                    Proc.flush();
+                    Proc.flush();       // hook install (first start)
+                    Proc.flush();       // status
                 }
             },
             {
@@ -378,7 +383,43 @@ Item {
                 }
             },
             {
-                "run": () => root.drop()
+                // the page's Uninstall took the link out: DMS unloads the
+                // plugin with its plugin.json out of reach; the sweep stays
+                // quiet (even with a rescue copy found)
+                "run": () => {
+                    FileViewLog.put(root.rescue, "#!/usr/bin/env python3\n");
+                    ProcessLog.reset();
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    t.check("no sweep after the page's Uninstall", ProcessLog.runs.length, 0);
+                    // --- a DMS uninstall of a set-up plugin: plugin.json and
+                    // the repository gone, the rescue copy runs
+                    root.fresh(true);
+                    FileViewLog.put(root.rescue, "#!/usr/bin/env python3\n");
+                    ProcessLog.reset();
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    t.check("the sweep runs the rescue copy", ProcessLog.runs.map(r => r.command), [Logic.sweepArgv(root.rescue, root.dir + "/plugin.json")]);
+                    t.check("an update: kept", ProcessLog.alive().filter(p => p.running).map(p => (p.exited(Logic.EXIT_KEPT, 0), 1)), [1]);
+                    // --- a disable (plugin.json stays): nothing
+                    root.fresh(true);
+                    FileViewLog.put(root.rescue, "#!/usr/bin/env python3\n");
+                    FileViewLog.put(root.dir + "/plugin.json", "{}");
+                    ProcessLog.reset();
+                    root.drop();
+                }
+            },
+            {
+                "run": () => {
+                    t.check("a disable runs no sweep", ProcessLog.runs.length, 0);
+                    t.check("and leaves no toast", ToastService.log.length, 0);
+                }
             },
             {
                 // --- uninstall while a change waits for its debounce: the

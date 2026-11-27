@@ -108,6 +108,7 @@ These are the status chips in Settings > Apps:
 - `appglass-discord.path` watches Discord's config, so the Vencord route survives a Discord update (with the installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux`).
 - `appglass-vibrancy.service` is the only resident process: it fades unfocused Alacritty windows, which niri cannot do without fading the text.
 - The DMS plugin only writes settings and runs `appglass sync`. The units and the CLI do the work, so the glass stays the same when the plugin is off.
+- `appglass hook install` also keeps a copy of the CLI (`bin/appglass` and the `appglass` package) in `~/.local/share/appglass/cli` (under `$XDG_DATA_HOME` when set), written to a temporary folder and renamed into place. `appglass sync` writes it again only when its `MANIFEST.json` (version, size and mtime of every file) differs from the running CLI. A full `appglass remove` and `appglass hook remove` take it out. When DMS uninstalls the plugin (and deletes its clone), the plugin runs this copy with `remove --if-gone <plugin.json>`: it waits `APPGLASS_SWEEP_GRACE` seconds (4), exits 3 doing nothing if `plugin.json` is back (an update re-cloned it), else removes everything, the copy last.
 
 ## The gate: glass, waiting, stale, opaque, off, excluded
 

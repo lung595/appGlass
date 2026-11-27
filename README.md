@@ -208,7 +208,9 @@ dms ipc call appGlass app gtk3 on
 appglass remove && appglass plugin remove
 ```
 
-Every file is put back as it was (files appglass created are deleted, your edits to them too; your later edits to files appglass edited are kept). The hook and the user units go too. Your other DMS plugins are not touched. Then delete the clone if you like, and the link you made in Install:
+Every file is put back as it was (files appglass created are deleted, your edits to them too; your later edits to files appglass edited are kept). The hook and the user units go too. Your other DMS plugins are not touched.
+
+**Uninstall from DMS.** Uninstalling App Glass in DMS (Settings → Plugins, or `dms plugins uninstall`) does the same on its own. DMS deletes the plugin's clone, so `appglass hook install` keeps a copy of the CLI in `~/.local/share/appglass/cli` (`$XDG_DATA_HOME` when set; `appglass sync` refreshes it). When the plugin unloads with its `plugin.json` gone, it runs `python3 -I -B ~/.local/share/appglass/cli/bin/appglass remove --if-gone <plugin.json>`: after 4 s (`APPGLASS_SWEEP_GRACE`) it does nothing if `plugin.json` is back (an update), else it removes everything, the copy last, and a toast says how it went. If that remove fails, the copy stays: run `~/.local/share/appglass/cli/bin/appglass remove` in a terminal. Disabling the plugin or reloading the shell removes nothing. Then delete the clone if you like, and the link you made in Install:
 
 ```sh
 rm ~/.local/bin/appglass

@@ -19,12 +19,16 @@ import "logic.js" as Logic
 // CLI had set stays. Disabling, re-enabling or reloading the plugin changes
 // no file and no unit: only `appglass remove` (an explicit uninstall) takes
 // the glass files and the hook out, and it only runs from Settings >
-// Advanced > Uninstall (confirmed there) or a terminal.
+// Advanced > Uninstall (confirmed there), a terminal, or a DMS uninstall
+// (UninstallSweep, below).
 //
 // Settings > Advanced runs its actions here (runAction: learn, adopt,
 // uninstall; copyReport), one at a time, so the settings page and the bar
 // pill run no command themselves.
 // `dms ipc call appGlass sync | status | toggle | pause | resume | app <key> on|off`
+//
+// A DMS uninstall deletes the repository (a registry install is a clone of
+// it): UninstallSweep runs the rescue copy of the CLI then, so nothing stays.
 //
 // AppGlassDaemon.qml creates it (see there why) with the plugin's folder.
 PluginComponent {
@@ -514,6 +518,15 @@ PluginComponent {
         onSaveFailed: root.settingsWriteFailed = true
     }
 
+    // A DMS uninstall (plugin.json gone at unload): the rescue copy of the
+    // CLI takes every file out. Not beside or after the page's Uninstall
+    // (an interrupted one excepted: remove again does no harm)
+    UninstallSweep {
+        pluginDir: root.pluginDir
+        dataHome: Logic.dataHome(Quickshell.env("XDG_DATA_HOME"), root.home)
+        armed: !root.sweeping && (!root.uninstalled || root.interrupted)
+    }
+
     // The DMS window rule opacity is the glass level: show the new one
     FileView {
         id: windowRules
@@ -620,6 +633,9 @@ PluginComponent {
             root.ready = true;
             root.requestSync("start", 0);
         } else {
+            // first start (a registry install too): after the first sync,
+            // `appglass hook install` sets up the theme hook and the units
+            root.save("hookAgain", true);
             root.seed(root.keepOnSeed());
         }
     }

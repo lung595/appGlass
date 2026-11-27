@@ -4,6 +4,22 @@ All notable changes to appGlass are listed here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Uninstalling the plugin from DMS now takes every appglass file out.** A registry install is a clone of the
+  repository, and DMS deletes it on uninstall, so the CLI that undoes the glass went with it. `appglass hook install`
+  now keeps a copy of the CLI in `~/.local/share/appglass/cli` (`appglass sync` refreshes it after an update), and
+  when the plugin's folder is gone at unload the plugin runs that copy with `appglass remove --if-gone <plugin.json>`.
+  It waits 4 s (`APPGLASS_SWEEP_GRACE`) and does nothing if `plugin.json` is back (an update), else it restores every
+  file, takes the hook and the units out, then the copy. Disabling or reloading the plugin still changes nothing.
+
+### Fixed
+
+- A DMS uninstall left the launchers, CSS, niri rules, matugen hook and user units in place, with the units
+  pointing at a deleted clone.
+
 ## [0.1.1] - 2026-11-27
 
 ### Fixed
@@ -145,5 +161,6 @@ The first release.
 - **The hidden check leaves no private dir behind** when the app left read-only dirs in it
   (Dux unpacks its QML read-only into the runtime dir).
 
-[0.1.1]: https://github.com/lung595/appGlass/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/lung595/appGlass/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/lung595/appGlass/releases/tag/v0.1.1
 [0.1.0]: https://github.com/lung595/appGlass/releases/tag/v0.1.0

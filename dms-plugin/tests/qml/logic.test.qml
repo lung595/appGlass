@@ -108,6 +108,11 @@ Item {
         t.check("bin from the plugin folder", Logic.appglassBin("/h/.config/dms/plugins/appGlass/", ""), "/h/.config/dms/plugins/appGlass/../bin/appglass");
         t.check("bin override", Logic.appglassBin("/x", " /opt/appglass "), "/opt/appglass");
         t.check("no folder, no bin", Logic.appglassBin("", undefined), "");
+        t.check("manifest path", [Logic.manifestPath("/p/appGlass/"), Logic.manifestPath("")], ["/p/appGlass/plugin.json", ""]);
+        t.check("data home: absolute XDG_DATA_HOME, else ~/.local/share", [Logic.dataHome("/d/", "/h"), Logic.dataHome("rel", "/h"), Logic.dataHome("", "/h/"), Logic.dataHome("", "")], ["/d", "/h/.local/share", "/h/.local/share", ""]);
+        t.check("rescue copy", [Logic.rescueBin("/h/.local/share"), Logic.rescueBin("")], ["/h/.local/share/appglass/cli/bin/appglass", ""]);
+        t.check("sweep argv", Logic.sweepArgv("/r/bin/appglass", "/p/plugin.json"), ["python3", "-I", "-B", "/r/bin/appglass", "remove", "--if-gone", "/p/plugin.json"]);
+        t.check("without plugin", [Logic.withoutPlugin({"a": {"x": 1}, "b": {}}, "a"), Logic.withoutPlugin({"b": {}}, "a"), Logic.withoutPlugin(null, "a")], [{"b": {}}, null, null]);
         t.check("settings file", Logic.settingsFilePath("/run/user/UID/"), "/run/user/UID/appglass-plugin-settings.json");
         t.check("no runtime dir", Logic.settingsFilePath(null), "");
         t.check("sync argv", Logic.syncArgv("/b/appglass", "/run/f.json"), ["sh", "-c", "exec \"$0\" \"$@\" 2>&1", "/b/appglass", "sync", "--settings-file", "/run/f.json"]);
