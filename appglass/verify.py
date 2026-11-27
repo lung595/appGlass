@@ -1224,7 +1224,11 @@ def _locked(app, fn):
     while True:
         if not os.path.isdir(d):
             return None
-        with open(lock, "a") as f:
+        try:
+            f = open(lock, "a")
+        except FileNotFoundError:
+            continue                    # the dir went after the isdir: check again
+        with f:
             fcntl.flock(f, fcntl.LOCK_EX)
             # the run before took the dir (and this .lock) out while we
             # waited (core._lock): a lock on that unlinked file shuts out no one

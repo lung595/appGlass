@@ -37,14 +37,13 @@ import copy
 import json
 import os
 
-from ..core import Conflict, norm_hex, readable, worst_contrast
+from ..core import TARGET, Conflict, norm_hex, readable, worst_contrast
 
 NAME = "herdr"
 APP_IDS = [r"^herdr-app$"]
 
 LAYOUT = "appglass"
 THEME = "appglass"
-TARGET = 2.25              # >= 2:1 with a margin for antialiasing
 FLOOR = 2.0                # below this a text colour is a bug: warn
 # ANSI index -> matugen role (dank16term's 0/5/8 are unreadable on glass)
 ANSI_ROLES = {0: "outline", 5: "tertiary", 8: "on_surface_variant"}

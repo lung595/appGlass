@@ -34,7 +34,7 @@ import re
 import urllib.parse
 
 from .. import inactive
-from ..core import fmt_alpha, readable
+from ..core import TARGET, fmt_alpha, readable
 
 NAME = "gtk3"
 THEME = "AppGlass"
@@ -45,7 +45,6 @@ APPS = {
     "nvidia-settings": ("nvidia-settings", "nvidia-settings.desktop", None),
 }
 APP_IDS = [r"^(solaar|nvidia-settings)$"]
-TARGET = 2.25
 # the engine routes every other host GTK3 app here too (ctx.records())
 GENERIC = True
 # the route is an environment variable on the launcher: never for an app

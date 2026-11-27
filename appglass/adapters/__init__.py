@@ -233,7 +233,7 @@ def routes(rec, families):
         return []
     out = []
     fam = family_for(rec, families)
-    a = next((x for x in CATALOGUE if fam in x.FAMILIES), None) if fam else None
+    a = _family_adapter(fam) if fam else None
     if a:
         out.append(a.NAME)
     out += [ad for rx, ad in APP_ROUTES if _any([rx], names)]
@@ -242,7 +242,7 @@ def routes(rec, families):
     # generic family takes (not a root app, not one it refuses)
     taken = None
     for x in CATALOGUE:
-        if rec.get("toolkit") not in x.TOOLKITS or x.TIER not in (NATIVE, FORCED, MOD):
+        if rec.get("toolkit") not in x.TOOLKITS or x.TIER not in GLASS_TIERS:
             continue
         if x.FAMILIES and fam not in x.FAMILIES:
             if not getattr(families.get(x.FAMILY), "GENERIC", False):
@@ -264,7 +264,6 @@ NO_ROUTE = {
     "chromium": "Chromium browser: web content has no window alpha",
     "cef": "Steam client (CEF): no injection, it stays opaque (docs/steam.md)",
 }
-STATES = ("glass", "waiting", "stale", "opaque", "off", "excluded")
 
 
 PLAIN_GTK4 = ("GTK4 without libadwaita: the Default theme does not read the glass "
@@ -283,9 +282,19 @@ def _plain_gtk4(rec):
 def _strong(rec):
     """Strong static evidence for the record's toolkit (a SONAME, a dir
     marker, a flatpak base, a runtime map), not only a guess."""
-    if "strong" in rec:
-        return bool(rec["strong"])
-    return True
+    return bool(rec.get("strong", True))
+
+
+# the tiers a toolkit adapter glasses an app with (the toolkit default)
+GLASS_TIERS = (NATIVE, FORCED, MOD)
+
+
+def _toolkit_default(tk):
+    return next((x for x in CATALOGUE if tk in x.TOOLKITS and x.TIER in GLASS_TIERS), None)
+
+
+def _family_adapter(fam):
+    return next((x for x in CATALOGUE if fam in x.FAMILIES), None)
 
 
 def switch(own, mine, generic=False):
@@ -348,8 +357,7 @@ def resolve(rec, families, settings=None, gate=None):
     if not fam:
         a = BY_NAME.get(route) if route else None
         if a is None:
-            a = next((x for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
-                      and x.TIER in (NATIVE, FORCED, MOD)), None)
+            a = _toolkit_default(rec.get("toolkit"))
         f = families.get(a.FAMILY) if a and a.FAMILY else None
         if f is not None and getattr(f, "GENERIC", False):
             why = f.accepts(rec) if hasattr(f, "accepts") else None
@@ -363,7 +371,7 @@ def resolve(rec, families, settings=None, gate=None):
                 return out("niri-fallback", FALLBACK, PLAIN_GTK4)
             fam, generic = a.FAMILY, True
     if fam:
-        a = next((x for x in CATALOGUE if fam in x.FAMILIES), None)
+        a = _family_adapter(fam)
         injected = bool(getattr(families[fam], "OPT_IN", False))
         if "sensitive" in classes and a is not None and a.TIER != NATIVE:
             return out(a.NAME, OPAQUE, "password or secrets app: native routes only",
@@ -407,8 +415,7 @@ def resolve(rec, families, settings=None, gate=None):
         hit = next((ad for rx, ad in APP_ROUTES if _any([rx], names)), None)
         a = BY_NAME.get(hit) if hit else None
     if a is None:
-        a = next((x for x in CATALOGUE if rec.get("toolkit") in x.TOOLKITS
-                  and x.TIER in (NATIVE, FORCED, MOD)), None)
+        a = _toolkit_default(rec.get("toolkit"))
     if a is None:
         return out("niri-fallback", FALLBACK, NO_ROUTE.get(rec.get("toolkit")) or
                    "no adapter for toolkit %s" % rec.get("toolkit", "unknown"))

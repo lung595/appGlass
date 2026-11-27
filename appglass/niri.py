@@ -36,7 +36,7 @@ manual apply). remove + apply puts them back.
 import os
 import re
 
-from .core import AppglassError, Conflict
+from .core import Conflict
 
 FILE = "appglass.kdl"
 INCLUDE = 'include optional=true "%s"' % FILE
@@ -424,5 +424,4 @@ def sync(app, dry_run=False, extra_ids=()):
     return changed
 
 
-__all__ = ["render", "add_include", "strip_include", "sync", "validate", "config_path",
-           "AppglassError"]
+__all__ = ["render", "add_include", "strip_include", "sync", "validate", "config_path"]

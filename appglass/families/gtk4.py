@@ -57,7 +57,7 @@ import os
 import re
 
 from .. import inactive
-from ..core import Conflict, fmt_alpha, readable
+from ..core import TARGET, Conflict, fmt_alpha, readable
 
 NAME = "gtk4"
 
@@ -92,7 +92,6 @@ GLASS_IMPORT = '@import url("dank-glass.css");'
 GTK_CSS = DANK_IMPORT + "\n" + GLASS_IMPORT + "\n"
 # DMS gtk.sh DANK_IMPORT_RE
 _DANK_RE = re.compile(r"^@import url.*dank-colors\.css.*\);$")
-TARGET = 2.25
 # the engine routes every other GTK4 app here (ctx.records()): a host one
 # reads the global gtk.css already (niri rule only); a flatpak one gets
 # the gtk-4.0 config dir read-only for each launch, in its launcher

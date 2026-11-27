@@ -155,7 +155,11 @@ def worst_contrast(fg_hex, bg_hex, alpha):
     return 1.0
 
 
-def readable(fg_hex, bg_hex, alpha, target=2.25):
+# text contrast floor: >= 2:1 with a margin for antialiasing (every family)
+TARGET = 2.25
+
+
+def readable(fg_hex, bg_hex, alpha, target=TARGET):
     """Return fg (or fg moved toward white/black) with worst_contrast >= target.
 
     The hue is kept by blending in sRGB; the direction is the one that needs
@@ -253,26 +257,6 @@ class Env:
     # install detection
     def which(self, cmd):
         return shutil.which(cmd, path=self.environ.get("PATH", os.defpath))
-
-    def flatpak_installed(self, app_id):
-        if not self.which("flatpak"):
-            return False
-        from . import inputs
-        # what flatpak info answers from: the installations' app dirs
-        inputs.full("/etc/flatpak/installations.d")
-        for root in (self.environ.get("FLATPAK_USER_DIR") or self.data_path("flatpak"),
-                     self.environ.get("FLATPAK_SYSTEM_DIR") or "/var/lib/flatpak"):
-            for p in ("app", os.path.join("app", app_id), os.path.join("app", app_id, "current"),
-                      os.path.join("app", app_id, "current", "active")):
-                inputs.full(os.path.join(root, p))
-        try:
-            with inputs.covered():
-                r = subprocess.run(["flatpak", "info", app_id], env=self.environ,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   stdin=subprocess.DEVNULL, timeout=20)
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-        return r.returncode == 0
 
     def run(self, argv, **kw):
         kw.setdefault("env", self.environ)
@@ -2238,7 +2222,10 @@ def _lock(env):
     while True:
         created = _missing_dirs(d)
         os.makedirs(d, exist_ok=True)
-        f = open(lock, "a")
+        try:
+            f = open(lock, "a")
+        except FileNotFoundError:
+            continue                    # the dir went before the open: make it again
         fcntl.flock(f, fcntl.LOCK_EX)
         # the run before took the dir (and this .lock) out while we waited:
         # a lock on that unlinked file shuts out no one, take the live one
@@ -3289,12 +3276,12 @@ def _as_if_installed(app):
             info = {"installation": "user", "dir": PROBE_BIN, "files": PROBE_BIN,
                     "name": app_id}
         return info
-    env.which, env.flatpak_installed = probe_which, (lambda app_id: True)
+    env.which = probe_which
     detect.flatpak_app = probe_flatpak
     try:
         yield
     finally:
-        del env.which, env.flatpak_installed
+        del env.which
         detect.flatpak_app = flatpak_app
 
 

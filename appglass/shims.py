@@ -322,15 +322,6 @@ def pkg_flags(tc, *mods, only_i=False):
     return tc.pkg(*(args + list(mods))).split()
 
 
-def installed_flatpak(env, app_id):
-    return flatpak_info(env, app_id) is not None
-
-
-def flatpak_info(env, app_id):
-    from . import detect
-    return detect.flatpak_app(env, app_id)
-
-
 def asar_version(path):
     """The version in the package.json of an Electron app.asar, or None."""
     import struct

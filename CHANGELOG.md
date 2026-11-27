@@ -44,6 +44,17 @@ The project uses [Semantic Versioning](https://semver.org/).
 - **`appglass remove` could wipe a Zed or VSCodium settings.json.** If the appglass end comment was deleted by
   hand, remove dropped every line after the begin comment. appglass now leaves such a file untouched and keeps
   the user's version aside when it restores the original.
+- The sync unit now reloads Herdr's theme when its config is in a moved `XDG_CONFIG_HOME` or an absolute `HERDR_APP_HOME`. Before, it only checked `~/.config/herdr-app`.
+- **A paused app could come back as waiting after engine.json was reset.** The plain/ marker kept the old
+  "waiting" reason when the app was later paused, and a reset rebuilt the app from that stale text. Markers
+  are now rewritten when the reason changes.
+- **A hand-edited engine.json with the wrong shape crashed every command.** It is now reset like a corrupt
+  file, and its bytes are kept in engine.json.bad.
+- **An injected family switched on with its app key switched off showed glass in status but ran plain.** The
+  launch gate now follows the same rule as status: the family's own switch wins.
+- **One truncated Electron binary stopped the whole app scan.** A file that ended right after the Electron fuse marker made the scan crash. Its fuses are now reported as unknown, and the scan goes on.
+- Fix a crash with a traceback when another appglass run (uninstall, remove) took the state dir out just before a run or a background launch-check opened its lock.
+- GIMP: if a `gimp.css` file has an appglass begin line but no end line (for example, the end line was removed by hand), apply and remove now leave the file untouched and report a conflict. Before, they silently dropped every user rule after the begin line.
 
 ## [0.1.0] - 2026-11-19
 

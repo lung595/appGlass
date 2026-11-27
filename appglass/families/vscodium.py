@@ -35,7 +35,7 @@ get opacity 1.0.
 import json
 import os
 
-from .. import shims
+from .. import detect, shims
 from ..core import Conflict
 from . import zed
 
@@ -62,7 +62,7 @@ GPU = "terminal.integrated.gpuAcceleration"
 
 
 def installed(env):
-    return shims.installed_flatpak(env, FLATPAK)
+    return detect.flatpak_app(env, FLATPAK) is not None
 
 
 def css(ctx):

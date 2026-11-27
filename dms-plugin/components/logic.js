@@ -291,24 +291,25 @@ function getArgv(bin) {
     return [bin, "get"];
 }
 
-// The last non-empty line of a command's output ("" for none)
-function lastLine(output) {
-    var lines = String(output || "").split("\n").map(function (l) {
+// A command's output as trimmed, non-empty lines
+function _lines(output) {
+    return String(output || "").split("\n").map(function (l) {
         return l.trim();
     }).filter(function (l) {
         return l.length > 0;
     });
+}
+
+// The last non-empty line of a command's output ("" for none)
+function lastLine(output) {
+    var lines = _lines(output);
     return lines.length ? lines[lines.length - 1] : "";
 }
 
 // The line to show for a failed command: its last "appglass: ..." line,
 // else its last line, else the exit code
 function errorText(output, exitCode) {
-    var lines = String(output || "").split("\n").map(function (l) {
-        return l.trim();
-    }).filter(function (l) {
-        return l.length > 0;
-    });
+    var lines = _lines(output);
     for (var i = lines.length - 1; i >= 0; i--) {
         if (lines[i].indexOf("appglass:") === 0)
             return lines[i];

@@ -16,7 +16,7 @@ Only LocalSend (ArtCraft is the artcraft family): other apps the catalogue
 routes to ck-shim (egui, winit...) need their own keys and are not handled here.
 """
 
-from .. import shims
+from .. import detect, shims
 
 NAME = "localsend"
 ADAPTER = "ck-shim"
@@ -33,7 +33,7 @@ WRAPPER = "appglass-localsend"
 
 
 def installed(env):
-    return shims.installed_flatpak(env, FLATPAK)
+    return detect.flatpak_app(env, FLATPAK) is not None
 
 
 def apply(ctx):

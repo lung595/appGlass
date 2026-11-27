@@ -26,6 +26,11 @@ STATE="${XDG_STATE_HOME:-$HOME/.local/state}/appglass/state.json"
 SHARE="$HOME/.local/share/appglass"
 DISCORD="${XDG_CONFIG_HOME:-$HOME/.config}/discord"
 GTK3_CSS="${XDG_DATA_HOME:-$HOME/.local/share}/themes/AppGlass/gtk-3.0/gtk.css"
+# Herdr's home as herdr.app_home finds it: an absolute HERDR_APP_HOME wins
+case "${HERDR_APP_HOME:-}" in
+    /*) HERDR="${HERDR_APP_HOME%/}" ;;
+    *) HERDR="${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app" ;;
+esac
 MODE=all
 [ "${1:-}" = "--discord" ] && MODE=discord
 if [ "${1:-}" = "--verify" ]; then
@@ -102,10 +107,10 @@ changed=$("$AG" apply --from-hook --quiet --list-changed) || log "apply failed"
 touched() { printf '%s\n' "$changed" | grep -q -e "$1"; }
 
 # 3. Herdr and GTK, only for a change of theirs
-if touched '/herdr-app/'; then
+if printf '%s\n' "$changed" | grep -q -F "$HERDR/"; then
     if ! real; then
         log "herdr theme changed (no reload in a sandbox)"
-    elif pgrep -x herdr-app >/dev/null 2>&1 && grep -q '"theme": *"appglass"' "$HOME/.config/herdr-app/layouts/appglass.json" 2>/dev/null; then
+    elif pgrep -x herdr-app >/dev/null 2>&1 && grep -q '"theme": *"appglass"' "$HERDR/layouts/appglass.json" 2>/dev/null; then
         herdr-app do app.theme --name appglass >/dev/null 2>&1
     fi
 fi

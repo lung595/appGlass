@@ -40,7 +40,7 @@ inherit them.
 import os
 import re
 
-from .. import inactive, shims
+from .. import detect, inactive, shims
 from ..core import Conflict
 from . import kate
 
@@ -62,7 +62,7 @@ ENV_ROUTE = True
 
 def installed(env):
     return (any(env.which(cmd) for _, cmd in LAUNCHERS)
-            or any(shims.installed_flatpak(env, app) for _, app in FLATPAKS))
+            or any(detect.flatpak_app(env, app) is not None for _, app in FLATPAKS))
 
 
 def accepts(rec):
@@ -93,7 +93,7 @@ def host_qt(env, keep=False):
 def flatpak_skip(env, app, keep=False):
     """Why the host-built style cannot load in the flatpak app (its KDE
     runtime's Qt minor version is not the host's: the plugin ABI), or None."""
-    info = shims.flatpak_info(env, app) or {}
+    info = detect.flatpak_app(env, app) or {}
     rt = info.get("runtime") or ""
     parts = rt.split("/")
     host = host_qt(env, keep)
@@ -213,7 +213,7 @@ def apply(ctx):
             paths.append(p)
             ids.append(r"^%s$" % desktop_id[:-len(".desktop")])
     for desktop_id, app in FLATPAKS:
-        if desktop_id in plain or not shims.installed_flatpak(env, app):
+        if desktop_id in plain or detect.flatpak_app(env, app) is None:
             continue
         # the probe (state.json lost) plans every path a run may have written
         why = None if getattr(ctx, "probe", False) else flatpak_skip(

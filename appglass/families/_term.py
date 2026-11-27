@@ -19,9 +19,8 @@ colour moved toward white (dark glass) or black (light glass) until it reaches
 
 import os
 
-from ..core import fmt_alpha, hex_to_rgb, norm_hex, readable
+from ..core import TARGET, fmt_alpha, hex_to_rgb, norm_hex, readable
 
-TARGET = 2.25
 ANSI_ROLES = {0: "outline", 5: "tertiary", 8: "on_surface_variant"}
 _FALLBACK = ("outline", "error", "tertiary", "secondary", "primary", "tertiary",
              "secondary", "on_surface")

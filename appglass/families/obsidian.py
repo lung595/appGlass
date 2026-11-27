@@ -27,7 +27,7 @@ import json
 import os
 
 from .. import inactive
-from ..core import Conflict, hex_to_rgb, mix, norm_hex, readable, rgb_to_hex
+from ..core import TARGET, Conflict, hex_to_rgb, mix, norm_hex, readable, rgb_to_hex
 
 NAME = "obsidian"
 APP_IDS = [r"^md\.obsidian\.Obsidian$", r"^obsidian$"]
@@ -35,7 +35,6 @@ APP_IDS = [r"^md\.obsidian\.Obsidian$", r"^obsidian$"]
 FLATPAK_ID = "md.obsidian.Obsidian"
 SNIPPET = "appglass"
 CONFIG_DIR = ".obsidian"
-TARGET = 2.25          # >= 2:1 with a margin for antialiasing
 CODE_TINT = 0.04       # --background-primary-alt (code blocks) over the content
 TAB_TINT = 0.06        # --tab-background-active over the tab bar
 

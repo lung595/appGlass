@@ -28,12 +28,12 @@ docs/qtquick.md.
 import json
 import re
 
+from ..core import TARGET as TEXT_TARGET  # opaque text roles
 from ..core import Conflict, hex_to_rgb, luminance, worst_contrast
 
 NAME = "dux"
 APP_IDS = [r"^dev\.duxlabs\.files$", r"^dev\.duxlabs\.calendar$"]
 
-TEXT_TARGET = 2.25      # opaque text roles, with a margin for antialiasing
 DIM_TARGET = 2.0        # text with its own alpha by design (dcal onSurface_38)
 DIM_ALPHA = 0.38        # dcal out-of-month day digits: Style.onSurface_38
 TEXT_ROLES = ("on_surface", "on_surface_variant", "primary")

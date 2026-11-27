@@ -159,6 +159,9 @@ def drop_block(text):
                 skip = False
             continue
         out.append(ln)
+    # no end marker (cut by hand): skipping to EOF would drop the user's rules
+    if skip:
+        raise Conflict("appglass begin line has no end line; left untouched")
     res = "".join(out)
     return res.rstrip("\n") + "\n" if res.strip() else ""
 

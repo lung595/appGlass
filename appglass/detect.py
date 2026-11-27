@@ -322,6 +322,9 @@ def electron_fuses(path):
         if i < 0:
             return None
         j = i + len(FUSE_SENTINEL)
+        # A truncated binary can end on the sentinel: fuses unknown.
+        if j + 1 >= len(m):
+            return None
         n = m[j + 1]
         wire = m[j + 2:j + 2 + n]
         out = {}

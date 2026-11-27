@@ -22,7 +22,7 @@ Files (owned; adopted hand files restored by remove):
 import json
 import os
 
-from .. import shims
+from .. import detect, shims
 
 NAME = "feishin"
 ADAPTER = "electron-hook"
@@ -38,7 +38,7 @@ ROLES = (("surface", "101418"), ("surface_container", "1e2226"),
 
 
 def installed(env):
-    return shims.installed_flatpak(env, FLATPAK)
+    return detect.flatpak_app(env, FLATPAK) is not None
 
 
 def verify_seed(env):
@@ -47,7 +47,7 @@ def verify_seed(env):
     localStorage "version") opens the release notes over the window 2 s
     after the page loads; seeded with the version it ships, Feishin opens
     its own page (no server yet) with no dialog."""
-    info = shims.flatpak_info(env, FLATPAK)
+    info = detect.flatpak_app(env, FLATPAK)
     v = shims.asar_version(os.path.join(info["files"], "main", "resources", "app.asar")) \
         if info else None
     if not v:

@@ -251,14 +251,22 @@ class Store:
             raw = None
         d = _load(self.path)
         self._bad = None
-        if raw is not None and d.get("version") != STORE_VERSION:
+        apps = d.get("apps") or {}
+        # a hand-edited file of this version can still hold the wrong shapes
+        if raw is not None and (
+                d.get("version") != STORE_VERSION or not isinstance(apps, dict)
+                or not all(isinstance(a, dict) and (not a.get("plain") or (
+                    isinstance(a["plain"], dict) and isinstance(a["plain"].get("reason"), str)))
+                    for a in apps.values())
+                or not isinstance(d.get("games") or {}, dict)
+                or not isinstance(d.get("queue") or [], list)):
             d = self._reset(d, raw)
         self.data = {"version": STORE_VERSION, "apps": d.get("apps") or {},
                      "games": d.get("games") or {}, "queue": d.get("queue") or []}
         self._saved = None if self._bad is not None else json.dumps(self.data, sort_keys=True)
 
     def _reset(self, d, raw):
-        """engine.json unreadable or of another version: its bytes go to
+        """engine.json unreadable, malformed or of another version: its bytes go to
         engine.json.bad at the next save; the games and the paused apps
         stay (from the old file when it reads, else from the plain/ markers):
         a reset never takes an app back to glass."""
@@ -363,13 +371,23 @@ class Store:
         if want - have:
             env.guard(d)
             os.makedirs(d, exist_ok=True)
-        for k in want - have:
+        for k in want:
             if "/" in k or k.startswith("."):
                 continue
             p = os.path.join(d, k)
+            text = self.plain[k]["reason"] + "\n"
+            if k in have:
+                # a reason that changed (waiting -> paused) must reach the
+                # marker: a reset rebuilds the apps from this text
+                try:
+                    with open(p) as f:
+                        if f.read() == text:
+                            continue
+                except (OSError, UnicodeDecodeError):
+                    pass
             env.guard(p)
             with open(p, "w") as f:
-                f.write(self.plain[k]["reason"] + "\n")
+                f.write(text)
 
 
 def marker(env, key):
@@ -558,9 +576,7 @@ def family_gate(app, name):
     results = []
     for key in family_keys(app, name):
         rec = record_for(app, key) or {"key": key, "fp": None}
-        on = explicit(app, key)
-        on = fam_on if on is None else on
-        results.append(gate(st, rec, True, bool(on)))
+        results.append(gate(st, rec, True, explicit_on(app, name, key)))
     if not results:
         return None if fam_on else ("waiting", "waiting for a check (injected route)")
     if any(s == "glass" for s, _ in results):

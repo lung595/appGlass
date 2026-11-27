@@ -19,7 +19,7 @@ Files (owned; adopted hand files restored by remove):
   ~/.local/share/applications/org.jellyfin.JellyfinDesktop.desktop -> the wrapper
 """
 
-from .. import shims
+from .. import detect, shims
 
 NAME = "jellyfin"
 ADAPTER = "qtquick-shim"
@@ -41,7 +41,7 @@ ROLES = (("surface", "surface", "13140d"),
 
 
 def installed(env):
-    return shims.installed_flatpak(env, FLATPAK)
+    return detect.flatpak_app(env, FLATPAK) is not None
 
 
 def css(ctx):
@@ -61,7 +61,7 @@ def _steps(tc, d):
 
 def apply(ctx):
     env = ctx.env
-    info = shims.flatpak_info(env, FLATPAK) or {}
+    info = detect.flatpak_app(env, FLATPAK) or {}
     paths = [shims.build(ctx, ADAPTER, shims.lib_dir(env, APP, "libjfglass.so"),
                          {"jfglass.cpp": shims.source(ADAPTER, "jfglass.cpp")}, _steps,
                          ("cxx", "moc", "pkgconfig"), qt=MODULES,

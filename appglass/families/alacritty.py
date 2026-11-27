@@ -22,7 +22,7 @@ import os
 import re
 import tomllib
 
-from ..core import Conflict, norm_hex, readable, scale
+from ..core import TARGET, Conflict, norm_hex, readable, scale
 
 NAME = "alacritty"
 APP_IDS = [r"^Alacritty$"]
@@ -32,7 +32,6 @@ ROLE_OVERRIDES = {("normal", "black"): "outline",
                   ("normal", "magenta"): "tertiary",
                   ("bright", "black"): "on_surface_variant"}
 DIM_FACTOR = 0.66          # Alacritty's own dim factor
-TARGET = 2.25              # >= 2:1 with a margin for antialiasing
 MARK = "# appglass"
 OFF = "# appglass-off: "
 

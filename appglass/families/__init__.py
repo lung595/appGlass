@@ -12,7 +12,7 @@ APP_IDS : list[str]
     niri app-id regexes (written as ``match app-id=r#"..."#`` into the one
     ``window-rule { ... opacity 1.0 }`` of $XDG_CONFIG_HOME/niri/appglass.kdl).
 installed(env) -> bool
-    Real detection: ``env.which("cmd")``, ``env.flatpak_installed("app.id")``,
+    Real detection: ``env.which("cmd")``, ``detect.flatpak_app(env, "app.id")``,
     ``os.path.isdir(env.config_path("app"))``. The core lets
     APPGLASS_ASSUME_INSTALLED / APPGLASS_ASSUME_NOT_INSTALLED (comma lists of
     names) override it, for tests.
@@ -97,7 +97,7 @@ ctx.app_ids              None (default: the module's APP_IDS go into the niri
                          rule) or the list of app-id regexes this run
                          configured, for a family of several apps of which
                          only some are installed
-ctx.env                  appglass.core.Env (paths, which, flatpak_installed, run)
+ctx.env                  appglass.core.Env (paths, which, run)
 
 Colour helpers (appglass.core): norm_hex, hex_to_rgb, rgb_to_hex, mix, scale,
 luminance, contrast, worst_contrast, readable, alpha8, alpha_hex, rgba.

@@ -38,7 +38,7 @@ from . import inactive
 
 APP_IDS = ("Alacritty",)
 FRAME = 1 / 60
-IDLE_WAIT = 2.0
+# also the idle wait: a settings change shows within 0.5 s
 CONFIG_EVERY = 0.5
 
 
@@ -339,7 +339,7 @@ def run(env, out=None, err=None, send=None, clock=time.monotonic):
                 if cfg.changed():
                     flush(fader.configure(**cfg.read()))
             try:
-                line = q.get(timeout=FRAME if fader.animating else min(IDLE_WAIT, CONFIG_EVERY))
+                line = q.get(timeout=FRAME if fader.animating else CONFIG_EVERY)
             except queue.Empty:
                 line = ""
             if line is None:
