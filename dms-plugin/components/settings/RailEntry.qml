@@ -50,6 +50,7 @@ Item {
         cursorShape: Qt.PointingHandCursor
     }
     TapHandler {
+        id: tap
         onTapped: entry.clicked()
     }
 
@@ -57,10 +58,11 @@ Item {
         objectName: "railBg-" + entry.modelData.id
         anchors.fill: parent
         opacity: entry.dimOpacity
-        radius: height / 2
-        color: entry.on ? Theme.withAlpha(Theme.primary, 0.16) : (hover.hovered ? Theme.withAlpha(Theme.surfaceText, 0.06) : "transparent")
-        border.width: entry.activeFocus ? 2 : 0
-        border.color: Theme.primary
+        // as browserGlass's rail: the open category behind a pane of glass
+        radius: Theme.cornerRadius
+        color: entry.on ? Theme.withAlpha(Theme.primary, 0.14) : tap.pressed ? Theme.withAlpha(Theme.surfaceText, 0.10) : hover.hovered ? Theme.withAlpha(Theme.surfaceText, 0.05) : "transparent"
+        border.width: entry.on || entry.activeFocus ? (entry.activeFocus ? 2 : 1) : 0
+        border.color: entry.activeFocus ? Theme.primary : Theme.withAlpha(Theme.primary, 0.35)
     }
 
     DIcon {
