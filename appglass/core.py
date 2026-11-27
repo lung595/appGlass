@@ -3012,6 +3012,7 @@ def cmd_sync(app, settings_file, dry_run=False, no_switch=False):
         app.state.save()     # finished: the next sync switches against these
     from . import hook, rescue
     if not dry_run and hook.installed(app):
+        hook.refresh(app)       # an update of the repo: the units follow
         rescue.refresh(app)     # an update of the CLI: the sweep's copy follows
 
 
@@ -5059,6 +5060,9 @@ def main(argv=None, environ=None, out=None, err=None):
                                       "hook", "plugin")
                          and not getattr(args, "from_hook", False))
         rc = 0
+        if lockf is not None:
+            from . import vibrancy
+            seen = vibrancy.settings_stamp(env)
         if args.cmd == "apply" and args.all:
             cmd_apply_all(app, dry_run=args.dry_run, adopt=args.adopt)
         elif args.cmd == "apply":
@@ -5124,6 +5128,10 @@ def main(argv=None, environ=None, out=None, err=None):
             for p in app.changed:
                 print(p, file=app.out)
         if lockf is not None:
+            # the family units follow what is applied now; the daemon
+            # re-reads its settings when this run changed what it reads
+            from . import hook
+            hook.follow(app, nudge=bool(app.changed) or vibrancy.settings_stamp(env) != seen)
             _unlock(env, lockf, created, app)
             lockf = None
         if hookrun:

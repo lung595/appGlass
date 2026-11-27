@@ -1,6 +1,7 @@
 """appglass hook install: the sync units, ~/.local/bin/appglass-sync, systemctl,
 and bin/appglass-sync itself (Vencord re-inject, apply --from-hook)."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -15,10 +16,11 @@ UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.servi
          "appglass-verify.service")
 HAND_UNITS = UNITS[:2]
 ENABLE = ["--user daemon-reload", "--user enable --now appglass-sync.path",
-          "--user enable --now appglass-discord.path",
-          "--user enable --now appglass-sync.timer",
-          "--user enable appglass-vibrancy.service",
-          "--user restart appglass-vibrancy.service"]
+          "--user enable --now appglass-sync.timer"]
+# the first follow with no family applied: the family units off (an older
+# install had them on)
+FOLLOW_OFF = ["--user disable --now appglass-vibrancy.service",
+              "--user disable --now appglass-discord.path"]
 DISABLE = ["--user disable --now appglass-sync.path",
            "--user disable --now appglass-discord.path",
            "--user disable --now appglass-sync.timer",
@@ -64,8 +66,8 @@ class SyncUnits(unittest.TestCase):
         except FileNotFoundError:
             return []
 
-    def run_ok(self, *argv):
-        code, out, err = self.w.run(*argv)
+    def run_ok(self, *argv, **kw):
+        code, out, err = self.w.run(*argv, **kw)
         self.assertEqual(code, 0, err)
         return out + err
 
@@ -94,9 +96,9 @@ class SyncUnits(unittest.TestCase):
                                         "--user is-enabled --quiet appglass-discord.path",
                                         "--user is-enabled --quiet appglass-sync.timer",
                                         "--user is-enabled --quiet appglass-vibrancy.service"]
-                         + ENABLE)
-        self.run_ok("hook", "install")           # again: no new is-enabled
-        self.assertEqual(self.calls()[10:], ENABLE)
+                         + ENABLE + FOLLOW_OFF)
+        self.run_ok("hook", "install")           # again: no new is-enabled, no follow call
+        self.assertEqual(self.calls()[9:], ENABLE)
         open(self.log, "w").close()
         self.run_ok("remove")
         self.assertEqual(self.calls(), DISABLE + ["--user daemon-reload"])
@@ -129,6 +131,85 @@ class SyncUnits(unittest.TestCase):
                 self.assertEqual(f.read(), repo_unit(n))
 
 
+    def test_family_units_follow_the_family(self):
+        """appglass-vibrancy.service and appglass-discord.path run only while
+        their family is applied; the daemon is reloaded when a run changed
+        what it reads, never on a run that changed nothing."""
+        self.w.sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+        self.w.sb.seed("alacritty/dank-theme.toml", "alacritty/dank-theme.toml")
+        self.before = self.w.sb.tree_hash()
+        self.ctl(enabled=1)
+        self.run_ok("hook", "install")
+        self.assertEqual(self.calls()[-2:], FOLLOW_OFF)
+        vib = "appglass-vibrancy.service"
+        steps = [(("apply", "--only", "alacritty"), ["--user enable --now " + vib]),
+                 (("apply", "--only", "alacritty"), []),
+                 (("apply", "--from-hook"), []),
+                 (("set", "inactive.factor", "0.85"), ["--user reload " + vib]),
+                 (("hook", "install"), ENABLE + ["--user restart " + vib]),
+                 (("remove", "--only", "alacritty"), ["--user disable --now " + vib])]
+        for argv, want in steps:
+            open(self.log, "w").close()
+            self.run_ok(*argv, assume="alacritty")
+            self.assertEqual(self.calls(), want, argv)
+        self.assertEqual(self.w.state()["owners"]["hook"]["follow"],
+                         {vib: False, "appglass-discord.path": False})
+        # the plugin's switch: on, then off
+        open(self.log, "w").close()
+        self.run_ok("apply", "--only", "alacritty", assume="alacritty")
+        code, out, err = self.w.run("get")
+        p = os.path.join(self.tmp, "plugin.json")
+        obj = json.loads(out)
+        obj.setdefault("apps", {})["alacritty"] = {"enabled": False}
+        with open(p, "w") as f:
+            json.dump(obj, f)
+        self.run_ok("sync", "--settings-file", p, assume="alacritty")
+        self.assertEqual(self.calls(), ["--user enable --now " + vib, "--user disable --now " + vib])
+        open(self.log, "w").close()
+        self.run_ok("hook", "remove")
+        self.assertEqual(self.calls(), DISABLE + ["--user daemon-reload"])
+
+    def test_a_sync_brings_old_units_up_to_date(self):
+        """A plugin update runs no hook install: the sync writes the repo's
+        unit again, reloads systemd and restarts the running daemon."""
+        self.w.sb.seed("alacritty/alacritty.toml", "alacritty/alacritty.toml")
+        self.w.sb.seed("alacritty/dank-theme.toml", "alacritty/dank-theme.toml")
+        self.before = self.w.sb.tree_hash()
+        self.ctl(enabled=1)
+        self.run_ok("hook", "install")
+        self.run_ok("apply", "--only", "alacritty", assume="alacritty")
+        vib = "appglass-vibrancy.service"
+        unit = os.path.join(self.w.sb.home, ".config/systemd/user", vib)
+        with open(unit, "ab") as f:
+            f.write(b"# an older release\n")
+        code, out, err = self.w.run("get")
+        p = os.path.join(self.tmp, "plugin.json")
+        with open(p, "w") as f:
+            f.write(out)
+        open(self.log, "w").close()
+        self.run_ok("sync", "--settings-file", p, assume="alacritty")
+        with open(unit, "rb") as f:
+            self.assertEqual(f.read(), repo_unit(vib))
+        self.assertEqual(self.calls(), ["--user daemon-reload", "--user restart " + vib])
+        open(self.log, "w").close()
+        self.run_ok("sync", "--settings-file", p, assume="alacritty")
+        self.assertEqual(self.calls(), [])
+
+    def test_a_unit_enabled_before_install_is_enabled_again(self):
+        """A hand-made vibrancy unit, enabled, adopted: follow turns it off
+        (no Alacritty glass), hook remove turns it back on."""
+        self.w.hand(".config/systemd/user/appglass-vibrancy.service",
+                    repo_unit("appglass-vibrancy.service"))
+        self.ctl_units(["appglass-vibrancy.service"])
+        self.run_ok("adopt")
+        self.assertIn("--user disable --now appglass-vibrancy.service", self.calls())
+        open(self.log, "w").close()
+        self.run_ok("hook", "remove")
+        calls = self.calls()
+        self.assertNotIn("--user disable --now appglass-vibrancy.service", calls)
+        self.assertEqual(calls[-2:], ["--user daemon-reload",
+                                      "--user enable --now appglass-vibrancy.service"])
+
     def ctl_units(self, enabled):
         """A systemctl whose is-enabled says yes for the units in enabled."""
         p = os.path.join(self.tmp, "systemctl")
@@ -152,9 +233,9 @@ class SyncUnits(unittest.TestCase):
         out = self.run_ok("hook", "install")
         line = [l for l in out.splitlines() if "enabled" in l and "failed" not in l]
         self.assertIn("hook: appglass-sync.path enabled", out)
-        self.assertRegex(out, r"hook: units written, not enabled: appglass-discord\.path, "
-                              r"[^\n]*\(systemctl failed")
-        self.assertFalse([l for l in line if "appglass-discord.path" in l and "not enabled" not in l],
+        self.assertRegex(out, r"hook: units written, not enabled: appglass-sync\.timer "
+                              r"\(systemctl failed")
+        self.assertFalse([l for l in line if "appglass-sync.timer" in l and "not enabled" not in l],
                          line)
 
     def test_adopt_records_what_was_enabled(self):
@@ -192,7 +273,9 @@ class SyncUnits(unittest.TestCase):
         for n in UNITS:
             self.assertIn("would create ~/.config/systemd/user/" + n, out)
         self.assertIn("would create ~/.config/matugen/config.toml", out)
-        self.assertIn("enable --now appglass-discord.path", out)
+        self.assertIn("enable --now appglass-sync.timer", out)
+        self.assertIn("appglass-vibrancy.service, appglass-discord.path while their family "
+                      "is applied", out)
         code, out, err = self.w.run("hook", "remove", "--dry-run")
         self.assertEqual(code, 1, err)
         self.assertIn("--dry-run goes with install", err)
@@ -443,8 +526,8 @@ class GlassOffOn(unittest.TestCase):
         with open(p, "rb") as f:
             return f.read()
 
-    def run_ok(self, *argv):
-        code, out, err = self.w.run(*argv)
+    def run_ok(self, *argv, **kw):
+        code, out, err = self.w.run(*argv, **kw)
         self.assertEqual(code, 0, err)
         return out + err
 

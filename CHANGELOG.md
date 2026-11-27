@@ -4,6 +4,18 @@ All notable changes to appGlass are listed here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The Alacritty fade service (`appglass-vibrancy.service`) runs only while the Alacritty glass is applied. `appglass hook install` no longer starts it for everyone.
+- The Alacritty fade service no longer wakes twice a second. It sleeps until a window event, or until appglass changes a setting it reads.
+- The Discord watch (`appglass-discord.path`) is on only while the Discord glass (Vencord) is applied.
+- Taking a glass out or switching it off stops its unit. `appglass hook remove` still puts the units back as they were before install.
+- Notifications go through `dms notify`. `notify-send` (libnotify) is no longer used.
+- After a plugin update, the next sync writes the new systemd units and restarts the Alacritty fade service. No `appglass hook install` needed.
+- The settings page takes its sizes, radii and spacing from the DMS theme.
+
 ## [0.1.2] - 2026-11-27
 
 ### Added

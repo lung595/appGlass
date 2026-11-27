@@ -50,9 +50,9 @@ Item {
         trailingContent: Component {
             StyledRect {
                 objectName: "searchHintChip"
-                width: hintText.implicitWidth + 16
-                height: 24
-                radius: 12
+                width: hintText.implicitWidth + Theme.spacingL
+                height: hintText.implicitHeight + Theme.spacingXS
+                radius: Theme.cornerRadiusFull
                 color: Theme.withAlpha(Theme.surfaceText, 0.07)
 
                 StyledText {

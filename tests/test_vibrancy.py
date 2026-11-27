@@ -4,10 +4,12 @@ import io
 import json
 import os
 import shutil
+import signal
 import socket
 import stat
 import tempfile
 import threading
+import time
 import unittest
 
 from fixtures.sandbox import Sandbox
@@ -289,6 +291,51 @@ class Daemon(unittest.TestCase):
         self.sb.run("set", "inactive.enabled", "false")
         code, sent, err = self.run_daemon()
         self.assertEqual(sent, [])
+
+    def test_idle_means_no_wakeup(self):
+        """No polling: the files are stat'ed at start and on each niri event
+        only, not while the stream is quiet."""
+        self.sb.set_level(0.8)
+        self.state({"alacritty": {"files": {}}})
+        self.fake_niri(self.EVENTS[:1], pause=2)
+        calls = []
+        orig = vibrancy.Config._stamp
+
+        def counted(cfg):
+            calls.append(1)
+            return orig(cfg)
+        vibrancy.Config._stamp = counted
+        try:
+            code, sent, err = self.run_daemon()
+        finally:
+            vibrancy.Config._stamp = orig
+        self.assertEqual(code, 1, err)
+        self.assertEqual(len(calls), 2)
+
+    def test_sighup_rereads_the_settings(self):
+        """systemctl reload (SIGHUP) while idle: the new settings show at
+        once, not at the next niri event."""
+        self.sb.set_level(0.8)
+        self.state({})
+        self.fake_niri(self.EVENTS, pause=1.5)
+        t0 = time.monotonic()
+
+        def hup():
+            self.state({"alacritty": {"files": {}}})
+            os.kill(os.getpid(), signal.SIGHUP)
+        timer = threading.Timer(1.2, hup)
+        timer.start()
+        env = dict(self.sb.env, XDG_RUNTIME_DIR=self.rt,
+                   PATH=self.bin + os.pathsep + self.sb.env["PATH"])
+        sent = []
+        code = vibrancy.run(core.Env(env), err=io.StringIO(),
+                            send=lambda pid, v: sent.append((pid, v, time.monotonic() - t0)))
+        timer.join()
+        self.assertEqual(code, 1)
+        first = [t for p, v, t in sent if (p, v) == (102, 0.72)]
+        self.assertTrue(first, sent)
+        self.assertLess(first[0], 2.0, sent)      # before the 2.2 s focus event
+        self.assertEqual(signal.getsignal(signal.SIGHUP), signal.SIG_DFL)
 
     def test_refuses_real_runtime_dir_in_sandbox(self):
         self.fake_niri([])

@@ -51,7 +51,7 @@ def execs(text):
 
 class Stubbed(unittest.TestCase):
     """A ShimWorld with a stub harness (one result for every app) and a
-    stub notify-send."""
+    stub notifier (dms notify)."""
 
     def setUp(self):
         self.w = ShimWorld()

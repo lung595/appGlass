@@ -197,7 +197,7 @@ PluginSettings {
                     DIcon {
                         anchors.verticalCenter: parent.verticalCenter
                         name: root.glassOn && !root.gone ? "blur_on" : "blur_off"
-                        size: 22
+                        size: Theme.iconSize
                         color: root.glassOn && !root.gone ? Theme.primary : Theme.surfaceVariantText
                     }
                     StyledText {

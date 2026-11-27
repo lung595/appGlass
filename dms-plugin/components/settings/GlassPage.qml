@@ -25,7 +25,7 @@ CategoryPage {
 
     Column {
         width: parent.width
-        spacing: 2
+        spacing: Theme.spacingXXS
         visible: page.view.shown("levelInfo")
 
         StyledText {

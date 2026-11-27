@@ -61,7 +61,7 @@ Column {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             name: page.meta.icon || ""
-            size: 20
+            size: Theme.iconSize - Theme.spacingXS
             color: Theme.primary
         }
         StyledText {

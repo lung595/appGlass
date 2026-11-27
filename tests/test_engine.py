@@ -878,7 +878,7 @@ printf '%%s|' "$@" >> "%(log)s"; echo >> "%(log)s"
 
 class Heal(unittest.TestCase):
     """B5c: LocalSend (an injected route) through stale, verify, fail and
-    launch-check, with a stub harness and a stub notify-send."""
+    launch-check, with a stub harness and a stub notifier (dms notify)."""
 
     def setUp(self):
         self.w = ShimWorld()

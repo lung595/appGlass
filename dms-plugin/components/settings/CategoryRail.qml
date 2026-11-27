@@ -10,7 +10,7 @@ Column {
 
     objectName: "rail"
     width: rail.view.compact ? 48 : 168
-    spacing: 2
+    spacing: Theme.spacingXXS
 
     Accessible.role: Accessible.PageTabList
 

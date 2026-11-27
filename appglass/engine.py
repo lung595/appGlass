@@ -663,19 +663,21 @@ def refresh(app, dry=False, families=None):
 # ---------------------------------------------------------------- fail / notify
 
 def notify(app, key, title, body):
-    """One desktop notification (DMS shows it). In a sandbox only the stub
-    named by APPGLASS_NOTIFY runs."""
+    """One desktop notification through `dms notify` (DMS's own, no
+    libnotify). In a sandbox only the stub named by APPGLASS_NOTIFY runs."""
     env = app.env
     if env.sandbox:
         cmd = env.environ.get("APPGLASS_NOTIFY")
         if not cmd:
             return False
+        argv = [cmd]
     else:
-        cmd = env.which("notify-send")
+        cmd = env.which("dms")
         if not cmd:
             return False
+        argv = [cmd, "notify"]
     try:
-        env.run([cmd, "-a", "appGlass", title, body], timeout=10)
+        env.run(argv + ["-a", "appGlass", title, body], timeout=10)
     except Exception:
         return False
     return True

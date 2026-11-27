@@ -24,10 +24,13 @@ when one of their files changed. appglass-discord.path/.service watch
 and only then puts it back (while the vencord family is applied) and
 re-applies. Also shims/sync/appglass-vibrancy.service and
 ~/.local/bin/appglass-vibrancy (``bin/appglass vibrancy``, the Alacritty
-inactive fade, appglass/vibrancy.py). Then ``systemctl --user daemon-reload``,
-``enable --now`` the two path units and ``enable`` + ``restart``
-appglass-vibrancy.service (not in a sandbox, unless $APPGLASS_SYSTEMCTL names
-a stand-in). Hand-made units and script are Conflicts until ``appglass adopt``.
+inactive fade, appglass/vibrancy.py). Then ``systemctl --user daemon-reload``
+and ``enable --now`` appglass-sync.path and the timer (not in a sandbox,
+unless $APPGLASS_SYSTEMCTL names a stand-in). appglass-discord.path and
+appglass-vibrancy.service run only while their family (vencord, alacritty)
+is applied: follow(), after every run that takes the lock, enables or
+disables them (and restarts the daemon after hook install). Hand-made units
+and script are Conflicts until ``appglass adopt``.
 
 The engine (docs/engine.md) adds: PathChanged lines on the application dirs
 (user, system, flatpak exports) and the rpm database, so a new or updated app
@@ -46,7 +49,8 @@ uninstall deleted the repository.
 ``appglass hook remove`` restores the matugen config byte-identical, drops
 the rendered colors.json and the rescue copy, restores (or deletes) the units and the script and
 disables the path units and the vibrancy service again when they were not
-enabled before install.
+enabled before install (and enables again one that was, if follow() had
+disabled it).
 """
 
 import json
@@ -72,12 +76,14 @@ DISCORD_UNIT = UNITS[3]
 TIMER_UNIT = UNITS[5]
 VERIFY_UNIT = UNITS[6]
 # (state key, unit, the systemctl calls of install); remove disables a unit
-# that was not enabled before install
+# that was not enabled before install. The family units have none: follow()
+# runs them only while their family is applied
 ENABLED = (("was_enabled", PATH_UNIT, (("enable", "--now"),)),
-           ("discord_was_enabled", DISCORD_UNIT, (("enable", "--now"),)),
+           ("discord_was_enabled", DISCORD_UNIT, ()),
            ("timer_was_enabled", TIMER_UNIT, (("enable", "--now"),)),
-           # restart: a running daemon picks up new code from the repo
-           ("vibrancy_was_enabled", VIBRANCY_UNIT, (("enable",), ("restart",))))
+           ("vibrancy_was_enabled", VIBRANCY_UNIT, ()))
+# unit -> the family it serves: the Alacritty fade, the Vencord re-inject
+FAMILY_UNITS = ((VIBRANCY_UNIT, "alacritty"), (DISCORD_UNIT, "vencord"))
 
 
 def repo_root():
@@ -285,6 +291,8 @@ def install(app, dry_run=False, keep_optout=False):
             app.info("hook: already installed in %s" % config_path(env))
         app.info("hook: would run systemctl --user daemon-reload, %s"
                  % ", ".join(" ".join(c + (u,)) for _, u, calls in ENABLED for c in calls)
+                 + " (%s while their family is applied)"
+                 % ", ".join(u for u, _ in FAMILY_UNITS)
                  if tool else "hook: systemctl skipped (sandbox)")
         return changed
     sd = record_enabled(app, dict((app.state.owners.get("hook") or {}).get("systemd") or {}))
@@ -297,6 +305,8 @@ def install(app, dry_run=False, keep_optout=False):
         _ctl(app, "daemon-reload")
         ok, failed = [], []
         for _, unit, calls in ENABLED:
+            if not calls:
+                continue
             good = True
             for c in calls:
                 args = c + (unit,)
@@ -316,6 +326,8 @@ def install(app, dry_run=False, keep_optout=False):
     else:
         app.info("hook: systemctl skipped (sandbox): %s not enabled"
                  % ", ".join(u for _, u, _ in ENABLED))
+    # restart: a running daemon picks up new code from the repo
+    follow(app, restart=True)
     if changed:
         app.info("hook: %s in %s" % ("updated" if had else "installed", config_path(env)))
     else:
@@ -325,6 +337,68 @@ def install(app, dry_run=False, keep_optout=False):
     from . import rescue
     rescue.refresh(app)
     return changed
+
+
+def follow(app, restart=False, nudge=False):
+    """Run appglass-vibrancy.service and appglass-discord.path only while
+    their family is applied: enable --now when it is, disable --now when it
+    is not (removed, switched off, glass off). What was last set is kept in
+    the hook owner (follow), so a run with nothing to change starts no
+    systemctl (a hook run stays cacheable, inputs.py). restart (hook install):
+    the running daemon takes the new code. nudge (the run changed a file the
+    daemon reads): systemctl reload, the daemon re-reads its settings
+    (SIGHUP). Nothing before hook install, in a dry run or without
+    systemctl."""
+    o = app.state.owners.get("hook")
+    if (getattr(app, "dry_run", False) or getattr(app, "followed", False)
+            or not installed(app) or not systemctl(app.env)):
+        return
+    # once a run: after hook install's restart, no reload on the daemon's start
+    app.followed = restart
+    done = dict(o.get("follow") or {})
+    for unit, family in FAMILY_UNITS:
+        want = family in app.state.owners
+        daemon = unit == VIBRANCY_UNIT
+        if done.get(unit) == want:
+            if want and daemon and (restart or nudge):
+                _ctl(app, "restart" if restart else "reload", unit)
+            continue
+        args = ("enable" if want else "disable", "--now", unit)
+        r = _ctl(app, *args)
+        if r is None:
+            continue
+        if r.returncode != 0:
+            app.warn("hook: systemctl %s failed: %s"
+                     % (" ".join(args), (r.stderr or r.stdout).strip()))
+            continue
+        if want and daemon and restart:
+            _ctl(app, "restart", unit)    # enable --now leaves an old daemon running
+        done[unit] = want
+    if done != o.get("follow"):
+        o["follow"] = done
+        app.state.save()
+
+
+def refresh(app):
+    """An update of the repo (a DMS plugin update runs no hook install): the
+    hook's files follow the repo render, a section the user took out stays
+    out, then daemon-reload; a running vibrancy daemon restarts on its new
+    unit. Writes only what differs; nothing before hook install."""
+    if getattr(app, "dry_run", False) or not installed(app):
+        return
+    try:
+        ctx = plan(app, keep_optout=True)
+    except Conflict:
+        return      # doctor names the hand-made file
+    changed = app.commit(ctx)
+    units = set(unit_path(app.env, n) for n in UNITS)
+    if not units.intersection(changed) or not systemctl(app.env):
+        return
+    _ctl(app, "daemon-reload")
+    on = ((app.state.owners.get("hook") or {}).get("follow") or {}).get(VIBRANCY_UNIT)
+    if unit_path(app.env, VIBRANCY_UNIT) in changed and on:
+        _ctl(app, "restart", VIBRANCY_UNIT)
+        app.followed = True     # no reload on top of the restart
 
 
 def start_verify(app):
@@ -355,6 +429,12 @@ def remove(app):
     removed = app.remove_owner("hook")
     if removed and any(recs.values()):
         _ctl(app, "daemon-reload")      # unit files deleted or restored
+    for key, unit, _ in ENABLED:
+        # enabled before install, disabled by follow(): enabled again
+        rec = recs[unit]
+        if (sd.get(key) is True and (o.get("follow") or {}).get(unit) is False
+                and not (rec is not None and rec.get("kind") == "created")):
+            _ctl(app, "enable", "--now", unit)
     if os.path.exists(out):
         env.guard(out)
         os.remove(out)

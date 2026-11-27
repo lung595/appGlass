@@ -175,7 +175,7 @@ Column {
                 x: Theme.spacingM
                 y: Theme.spacingS
                 width: parent.width - Theme.spacingM * 2
-                spacing: 4
+                spacing: Theme.spacingXS
 
                 Item {
                     width: parent.width
@@ -187,7 +187,7 @@ Column {
                         anchors.right: chip.left
                         anchors.rightMargin: Theme.spacingS
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: 2
+                        spacing: Theme.spacingXXS
 
                         StyledText {
                             width: parent.width
@@ -216,8 +216,8 @@ Column {
                         anchors.rightMargin: toggle.visible ? Theme.spacingS : 0
                         anchors.verticalCenter: parent.verticalCenter
                         width: chipText.implicitWidth + Theme.spacingS * 2
-                        height: 22
-                        radius: 11
+                        height: chipText.implicitHeight + Theme.spacingXS
+                        radius: Theme.cornerRadiusFull
                         color: Theme.withAlpha(list.statusColor(row.app.status), 0.18)
 
                         StyledText {

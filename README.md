@@ -51,7 +51,6 @@ DMS 2.0.0 or newer, niri and Python 3.11 or newer. Some apps need more tools:
 | `gamescope`, `niri`, `dbus-run-session` and `ffmpeg` | Any | The hidden check of the Forced and Mod routes. Without them the check cannot run, and those routes stay plain |
 | `bwrap` (bubblewrap), with user namespaces | Any | Every hidden check (host and flatpak apps alike): each one runs with no network, no system bus and no session bus of yours, in a bwrap namespace. Without it no Forced or Mod app is checked, and those routes stay plain unless you switch them on |
 | `jq` | Any | The glass launchers of the Forced routes: Feishin, VSCodium, Lian Li and the other WebKitGTK apps (Kiri, ...), LocalSend, ArtCraft and Jellyfin. Also putting Vencord back after a Discord update, with the Vencord installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux` ([how](docs/routes.md#discord-vencord)) |
-| `notify-send` (libnotify) | Any | The notifications (a failed check, a Discord update). Optional: without it you get none, and the app rows still say what happened |
 
 </details>
 

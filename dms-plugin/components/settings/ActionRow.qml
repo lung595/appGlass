@@ -19,7 +19,7 @@ Column {
     signal clicked
 
     width: parent ? parent.width : 0
-    spacing: 4
+    spacing: Theme.spacingXS
     visible: action.view.shown(action.key)
 
     StyledText {

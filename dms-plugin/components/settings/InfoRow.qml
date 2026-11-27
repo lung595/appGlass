@@ -12,7 +12,7 @@ Column {
 
     objectName: info.key
     width: parent ? parent.width : 0
-    spacing: 2
+    spacing: Theme.spacingXXS
     visible: info.view.shown(info.key)
 
     StyledText {

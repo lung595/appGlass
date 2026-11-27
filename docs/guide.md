@@ -23,7 +23,6 @@ Requirements:
 - niri and DMS;
 - Python 3.11 or newer;
 - for the hidden check of the Forced and Mod routes: `gamescope`, `niri`, `dbus-run-session` and `ffmpeg`, plus `bwrap` (with user namespaces) for every hidden check, host and flatpak apps alike (without them no Forced or Mod app is checked, and those routes stay plain unless you switch them on); `jq` for the glass launchers of the Forced routes (Feishin, VSCodium, Lian Li and the other WebKitGTK apps, LocalSend, ArtCraft, Jellyfin), and with the Vencord installer CLI at `~/.local/share/appglass/VencordInstallerCli-linux` to put Vencord back after a Discord update (the full list: the README Requirements);
-- `notify-send` for the notifications (optional: the app rows say the same);
 - `gcc` for the C shims, and `g++` with the Qt 6 headers for VLC (its style plugin is built from source and is on by default) and the Qt shims; Jellyfin needs host Qt 6.11 or newer (see [routes.md](routes.md)).
 
 ```sh

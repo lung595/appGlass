@@ -72,7 +72,7 @@ Item {
         x: entry.view.compact ? (entry.width - size) / 2 : Theme.spacingM
         anchors.verticalCenter: parent.verticalCenter
         name: entry.modelData.icon
-        size: 20
+        size: Theme.iconSize - Theme.spacingXS
         color: entry.on ? Theme.primary : Theme.surfaceText
     }
 
@@ -102,9 +102,9 @@ Item {
         visible: entry.view.filtering && entry.count > 0
         x: entry.view.compact ? Math.min(entry.width - width, icon.x + icon.size - 6) : entry.width - width - Theme.spacingS
         y: entry.view.compact ? 0 : (entry.height - height) / 2
-        width: Math.max(20, countText.implicitWidth + 10)
-        height: 20
-        radius: 10
+        width: Math.max(height, countText.implicitWidth + Theme.spacingS)
+        height: Theme.fontSizeSmall + Theme.spacingS
+        radius: Theme.cornerRadiusFull
         color: Theme.primary
 
         StyledText {
@@ -126,8 +126,8 @@ Item {
         x: entry.width + Theme.spacingXS
         anchors.verticalCenter: parent.verticalCenter
         width: tipText.implicitWidth + Theme.spacingS * 2
-        height: 28
-        radius: 8
+        height: tipText.implicitHeight + Theme.spacingS
+        radius: Theme.cornerRadiusS
         color: Theme.surfaceContainerHigh
         border.width: 1
         border.color: Theme.outline

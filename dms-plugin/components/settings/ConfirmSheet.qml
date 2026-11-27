@@ -39,7 +39,7 @@ StyledRect {
             spacing: Theme.spacingS
             DIcon {
                 name: sheet.danger ? "warning" : "help"
-                size: 20
+                size: Theme.iconSize - Theme.spacingXS
                 color: sheet.danger ? Theme.error : Theme.warning
             }
             StyledText {

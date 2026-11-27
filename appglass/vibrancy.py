@@ -17,10 +17,15 @@ windows stay as they are, like niri's own is-active.
 
 It re-reads settings.json, state.json and the DMS window rules when they
 change, so it needs no restart: with inactive off, appglass off or the
-alacritty family not applied it puts every window back and idles. On
-SIGTERM, and when niri goes away, every window it faded is put back.
+alacritty family not applied it puts every window back and idles. It never
+polls: it sleeps until a niri event or a SIGHUP (``systemctl --user reload
+appglass-vibrancy.service``, sent by an appglass run that changed one of
+those files, hook.follow), and checks the files' stat then; only an
+animation wakes it per frame. On SIGTERM, and when niri goes away, every
+window it faded is put back.
 
-Run by appglass-vibrancy.service (``appglass hook install``).
+Run by appglass-vibrancy.service, enabled by appglass only while the
+alacritty family is applied (hook.follow).
 """
 
 import glob
@@ -38,8 +43,7 @@ from . import inactive
 
 APP_IDS = ("Alacritty",)
 FRAME = 1 / 60
-# also the idle wait: a settings change shows within 0.5 s
-CONFIG_EVERY = 0.5
+CHECK = "check"     # queued by SIGHUP: re-read the settings
 
 
 class Fader:
@@ -277,6 +281,14 @@ class Config:
                 "configured": file_opacity(self.env, content, "alacritty" in owners)}
 
 
+def settings_stamp(env):
+    """The stat of what the daemon reads but state.json: a run that changed
+    it reloads the daemon (hook.follow). state.json only says whether the
+    alacritty family is applied, and follow starts or stops the daemon then."""
+    s = Config(env)._stamp()
+    return s[:1] + s[2:]
+
+
 def file_opacity(env, content, applied):
     """The window.opacity Alacritty has from its config files: appglass.toml's
     content level (as written there) while the family is applied, else the
@@ -323,29 +335,31 @@ def run(env, out=None, err=None, send=None, clock=time.monotonic):
     def stop(*_a):
         raise SystemExit(0)
 
-    old = None
+    # SimpleQueue.put is safe in a signal handler (Queue.put is not)
+    q = queue.SimpleQueue()
+    old = {}
     if threading.current_thread() is threading.main_thread():
-        old = signal.signal(signal.SIGTERM, stop)
+        old = {signal.SIGTERM: signal.signal(signal.SIGTERM, stop),
+               signal.SIGHUP: signal.signal(signal.SIGHUP, lambda *_a: q.put(CHECK))}
     proc = subprocess.Popen([niri, "msg", "-j", "event-stream"], stdout=subprocess.PIPE,
                             stdin=subprocess.DEVNULL, text=True, env=niri_env(env))
-    q = queue.Queue()
     threading.Thread(target=_reader, args=(proc, q), daemon=True).start()
-    last_cfg = 0.0
     try:
+        if cfg.changed():
+            flush(fader.configure(**cfg.read()))
         while True:
-            now = clock()
-            if now - last_cfg >= CONFIG_EVERY:
-                last_cfg = now
-                if cfg.changed():
-                    flush(fader.configure(**cfg.read()))
             try:
-                line = q.get(timeout=FRAME if fader.animating else CONFIG_EVERY)
+                # idle: no timeout, the next niri event or SIGHUP wakes it
+                line = q.get(timeout=FRAME) if fader.animating else q.get()
             except queue.Empty:
                 line = ""
             if line is None:
                 print("appglass vibrancy: niri event stream ended", file=err)
                 return 1
-            if line.strip():
+            # a DMS settings.json change has no SIGHUP: seen at the next event
+            if line.strip() and cfg.changed():
+                flush(fader.configure(**cfg.read()))
+            if line.strip() and line != CHECK:
                 try:
                     flush(fader.on_event(json.loads(line), clock()))
                 except ValueError:
@@ -361,5 +375,5 @@ def run(env, out=None, err=None, send=None, clock=time.monotonic):
                 proc.kill()
                 proc.wait()
         proc.stdout.close()
-        if old is not None:
-            signal.signal(signal.SIGTERM, old)
+        for sig, h in old.items():
+            signal.signal(sig, h)

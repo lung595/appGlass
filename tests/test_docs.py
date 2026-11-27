@@ -1058,10 +1058,11 @@ class HiddenCheckNeeds(unittest.TestCase):
             self.assertIn(name, row, name)
             self.assertIn(name, bullet, name)
 
-    def test_the_requirements_name_notify_send(self):
-        self.assertIn('env.which("notify-send")', read("appglass", "engine.py"))
-        self.assertIn("`notify-send`", section(read("README.md"), "Requirements"))
-        self.assertIn("`notify-send`", doc("guide.md"))
+    def test_notifications_go_through_dms(self):
+        # `dms notify` (DMS is required): no libnotify dependency
+        for p in (("appglass", "engine.py"), ("bin", "appglass-sync")):
+            self.assertNotIn("notify-send", read(*p), p)
+        self.assertIn('env.which("dms")', read("appglass", "engine.py"))
 
 
 class NetworkPrivacy(unittest.TestCase):
@@ -1161,7 +1162,7 @@ class PathLink(unittest.TestCase):
 
 class SyncNotices(unittest.TestCase):
     def test_the_sync_notifications_are_in_english(self):
-        lines = [l for l in read("bin", "appglass-sync").splitlines() if "notify-send" in l]
+        lines = [l for l in read("bin", "appglass-sync").splitlines() if "dms notify" in l]
         self.assertEqual(len(lines), 2)
         for l in lines:
             self.assertTrue(l.isascii(), l)
