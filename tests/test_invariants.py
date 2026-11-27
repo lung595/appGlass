@@ -1,6 +1,7 @@
 """S6: no event removes anything. Only the user's explicit Uninstall (the
-confirmed sheet in Settings > Advanced) or `appglass remove` typed in a
-terminal reaches `appglass remove` / core.cmd_remove. Events are the
+confirmed sheet in Settings > Advanced), `appglass remove` typed in a
+terminal, or an uninstall in DMS (UninstallSweep, once plugin.json is gone:
+SWEEP_ROOT) reaches `appglass remove` / core.cmd_remove. Events are the
 plugin's teardown, timers, file watches, IPC handlers, its sync and status
 runs, the path units, the matugen post_hook and the vibrancy daemon.
 
@@ -204,6 +205,13 @@ def _refs(body, names):
     return {n for n in words if n in names}
 
 
+# The one event root allowed to reach remove: a DMS uninstall (the user's
+# own Uninstall in DMS) deleted plugin.json, and the sweep runs the rescue
+# copy with `remove --if-gone`, which does nothing while plugin.json exists
+SWEEP_ROOT = ("components/UninstallSweep.qml", "Component.onDestruction")
+SWEEP_SINK = "Logic.sweepArgv("
+
+
 def qml_violations(sources):
     """Event roots of sources {path: text} that reach a remove sink or an
     action runner. [(path, root, why)]."""
@@ -216,6 +224,9 @@ def qml_violations(sources):
     for path, text in sources.items():
         funcs, roots = qml_units(text, js=path.endswith(".js"))
         for label, body in roots:
+            if (path, label) == SWEEP_ROOT:
+                # only its sweepArgv call is allowed: any other sink still counts
+                body = body.replace(SWEEP_SINK, "(")
             seen, todo = set(), [(body, funcs)]
             while todo:
                 # the deferred end of a confirmed Uninstall (a sync was running
@@ -550,6 +561,7 @@ DELETE_SITES = {
                                    # owned file: what runs plain, never glass)
     ("inputs", "drop"),            # the hook digest: its own temp file moved over it
     ("inputs", "save"),            # (engine state, no owned file)
+    ("rescue", "write"),           # its own rescue copy of the CLI, replaced whole
 }
 
 
@@ -958,6 +970,19 @@ class QmlInvariant(unittest.TestCase):
                 hits = qml_violations(dict(src, **{path: body.replace(teardown, plant)}))
                 self.assertEqual([(p, r) for p, r, _ in hits],
                                  [(path, "Component.onDestruction")], hits)
+
+    def test_the_sweep_allows_its_own_argv_only(self):
+        # the real UninstallSweep.qml passes; a second remove argv planted in
+        # its teardown is still a violation
+        src = plugin_sources()
+        path, root = SWEEP_ROOT
+        self.assertIn(SWEEP_SINK, src[path])
+        self.assertEqual([h for h in qml_violations(src) if h[0] == path], [])
+        teardown = "    Component.onDestruction: {\n"
+        self.assertEqual(src[path].count(teardown), 1)
+        plant = teardown + '        Proc.runCommand("x", [sweep.rescue, "remove"], null);\n'
+        hits = qml_violations(dict(src, **{path: src[path].replace(teardown, plant)}))
+        self.assertEqual([(p, r) for p, r, _ in hits], [(path, root)], hits)
 
     def test_checker_catches_declared_and_built_argvs(self):
         # a remove argv in a declaration (a Process object, a property) run
