@@ -59,7 +59,9 @@ DMS 2.0.0 or newer, niri and Python 3.11 or newer. Some apps need more tools:
 
 ### 1. Install
 
-appGlass is not in the DMS plugin registry. It installs with git:
+**From the DMS plugin registry** (the easy way): **Settings → Plugins → Browse**, find **App Glass**, click **Install**, then turn it on (step 2). There is nothing to run in a terminal: on its first start the plugin writes the glass files, sets up the theme hook and the user units, and keeps a copy of the CLI so a DMS uninstall can take everything out again. DMS updates the plugin like any other.
+
+**With git** (to follow `master`, or to use the `appglass` command line):
 
 ```sh
 git clone https://github.com/lung595/appGlass ~/.local/share/appglass
