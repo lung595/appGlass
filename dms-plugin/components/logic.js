@@ -20,7 +20,7 @@
 
 var PLUGIN_ID = "appGlass";
 // = plugin.json "version" (logic.test.qml checks)
-var VERSION = "0.1.3";
+var VERSION = "0.1.4";
 var SYNC_ID = "appGlass.sync";
 var STATUS_ID = "appGlass.status";
 var SEED_ID = "appGlass.seed";
