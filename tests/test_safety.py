@@ -248,7 +248,7 @@ class Refusal(Base):
         self.assertNotEqual(code, 0)
         # the units are hand files too (a hand copy of the repo unit is the
         # same bytes); the wrappers hook install writes carry its marker
-        self.assertIn(self.env.tilde(hook.vibrancy_path(self.env)), err)
+        self.assertIn(self.env.tilde(hook.sync_path(self.env)), err)
         self.assertIn(self.env.tilde(hook.config_path(self.env)), err)
 
     def test_unreadable_state_gives_the_hint(self):
@@ -508,14 +508,14 @@ class Doctor(Base):
 
     def test_missing_unit_is_drift(self):
         self.assertEqual(self.sb.run("hook", "install")[0], 0)
-        os.remove(self.unit(hook.VIBRANCY_UNIT))
+        os.remove(self.unit(hook.DISCORD_UNIT))
         code, out, err = self.doctor()
         self.assertEqual(code, 1)
-        self.assertIn(hook.VIBRANCY_UNIT, out)
+        self.assertIn(hook.DISCORD_UNIT, out)
         code, out, err = self.doctor("--fix")
         self.assertEqual(code, 0, out + err)
-        self.assertEqual(sha_file(self.unit(hook.VIBRANCY_UNIT)),
-                         sha_file(self.repo_unit(hook.VIBRANCY_UNIT)))
+        self.assertEqual(sha_file(self.unit(hook.DISCORD_UNIT)),
+                         sha_file(self.repo_unit(hook.DISCORD_UNIT)))
 
     def test_niri_fragment_drift(self):
         self.apply()
@@ -1097,11 +1097,10 @@ class DoctorRound2(Base):
 
 
 class HandHookFiles(Base):
-    """The hook's files made by hand before appglass (the vibrancy and
-    discord units, the vibrancy wrapper) are hand files, not appglass files
-    whose record is gone."""
+    """The hook's files made by hand before appglass (the discord units)
+    are hand files, not appglass files whose record is gone."""
 
-    UNITS = (hook.VIBRANCY_UNIT, "appglass-discord.path", "appglass-discord.service")
+    UNITS = ("appglass-discord.path", "appglass-discord.service")
 
     def hand(self):
         paths = []
@@ -1110,11 +1109,7 @@ class HandHookFiles(Base):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             shutil.copyfile(os.path.join(REPO, "shims", "sync", n), p)
             paths.append(p)
-        p = os.path.join(self.sb.home, ".local", "bin", "appglass-vibrancy")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w") as f:
-            f.write("#!/bin/sh\nAPPGLASS_HAND=1 exec ~/.local/bin/appglass-sync vibrancy\n")
-        return paths + [p]
+        return paths
 
     def test_a_fresh_install_with_hand_made_hook_files_applies(self):
         paths = self.hand()
@@ -1129,10 +1124,10 @@ class HandHookFiles(Base):
             self.assertEqual(self.sb.readb(p), data[p])
 
     def test_doctor_names_an_adopt_that_runs(self):
-        p = self.sb.cfg("systemd", "user", hook.VIBRANCY_UNIT)
+        p = self.sb.cfg("systemd", "user", hook.DISCORD_UNIT)
         os.makedirs(os.path.dirname(p))
         with open(p, "w") as f:
-            f.write("[Service]\nExecStart=%h/.local/bin/appglass-vibrancy\n")
+            f.write("[Path]\nPathChanged=%h/.config/Vencord\n")
         code, out, err = self.sb.run("doctor")
         self.assertEqual(code, 1, out + err)
         cmd = "appglass adopt %s" % self.env.tilde(p)
@@ -1147,10 +1142,10 @@ class HandHookFiles(Base):
     def test_the_named_adopt_runs_with_other_hand_units(self):
         # one hand unit adopted by path, a sibling hand unit there too: the
         # hook install that follows must not stop at the sibling
-        p = self.sb.cfg("systemd", "user", hook.VIBRANCY_UNIT)
+        p = self.sb.cfg("systemd", "user", hook.DISCORD_UNIT)
         os.makedirs(os.path.dirname(p))
         with open(p, "w") as f:
-            f.write("[Service]\nExecStart=%h/.local/bin/appglass-vibrancy\n")
+            f.write("[Path]\nPathChanged=%h/.config/Vencord\n")
         q = self.sb.cfg("systemd", "user", "appglass-discord.service")
         with open(q, "w") as f:
             f.write("[Service]\nExecStart=/usr/bin/true\n")

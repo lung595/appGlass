@@ -50,7 +50,7 @@ Measured from window screenshots composited over black and white, in nested niri
 
   TODO(adapters): a generic `NODE_OPTIONS=--require` route for Electron apps whose fuses allow it.
 
-- **Kept in step with DMS.** A matugen user template with a `post_hook` re-applies on every theme change, and a systemd path unit on `dms/windowrules.kdl` and `dms-colors.json` re-applies when the level changes. Nothing of ours runs while idle except a small reader that fades unfocused Alacritty windows.
+- **Kept in step with DMS.** A matugen user template with a `post_hook` re-applies on every theme change, and a systemd path unit on `dms/windowrules.kdl` and `dms-colors.json` re-applies when the level changes. Nothing of ours runs while idle.
 - **New and updated apps on their own.** The same path unit watches the application folders, the rpm database and the flatpak `.changed` files, and a daily timer catches apps that update themselves. One short job fingerprints the launchers with `stat` and re-routes only the apps that changed (measured on the prototype: about 25 ms per event, 1.7 s for a cold scan, once); a run with nothing to do exits in about 20 ms.
 - **A check before anything loaded into an app.** Shims, the inspector hook and the Vencord route go live only after a hidden headless check (gamescope headless, nested niri, a private D-Bus and a throwaway HOME) shows the background at the level and opaque text. After an app update, that app runs plain until it passes again; a failed check, or two launches with no window, leave it plain until its next update, with one notification. The user can switch any of them off, and turning one back on asks first.
 

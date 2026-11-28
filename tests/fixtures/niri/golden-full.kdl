@@ -15,13 +15,6 @@ window-rule {
     opacity 1.0
 }
 
-// glass apps that are not focused
-window-rule {
-    match app-id=r#"^Alacritty$"# is-active=false
-    match app-id=r#"^org\.gnome\.Nautilus$"# is-active=false
-    opacity 0.55
-}
-
 // games: opaque, no blur behind
 window-rule {
     match app-id=r#"^steam_app_\d+$"#

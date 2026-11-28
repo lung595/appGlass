@@ -7,10 +7,8 @@
   --jf-palette-AppBar-defaultBg: rgba({{surface}}, {{bar_over}}) !important;
   --jf-palette-AppBar-transparentBg: rgba({{surface}}, {{bar_over}}) !important;
 }
-html { background: rgba({{surface}}, {{content}}) !important; transition: background-color {{fade}} !important; color: rgb({{on_surface_variant}}) !important; }
-/* unfocused window (jfglass sets the class on QQuickWindow activeChanged): only the content fades */
-html.agl-inactive:not(:has(.videoPlayerContainer)) { background: rgba({{surface}}, {{inactive}}) !important; }
-html:has(.videoPlayerContainer) { background: transparent !important; transition: none !important; }
+html { background: rgba({{surface}}, {{content}}) !important; color: rgb({{on_surface_variant}}) !important; }
+html:has(.videoPlayerContainer) { background: transparent !important; }
 body, .skinBody, #reactRoot, .mainAnimatedPages, .page, .pageContainer, .libraryPage, .itemDetailPage,
 .backgroundContainer:not(.withBackdrop), .detailPageWrapperContainer, .padded-top-focusscale,
 .wizardStartForm, .ui-corner-all { background-color: transparent !important; }

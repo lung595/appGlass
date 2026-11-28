@@ -54,8 +54,9 @@ The base rules (tested in modes A and B), then the add-on (tested in mode A), th
 
 /* content level 0.60 */
 window.background, window.background:backdrop { background-color: alpha(@window_bg_color, 0.60); }
-/* Adwaita greys all window text to #919190 when unfocused (:backdrop): too faint on glass */
-window.background:backdrop { color: mix(@window_fg_color, @window_bg_color, 0.15); }
+/* Adwaita greys all window text to #919190 when unfocused (:backdrop): keep the focused colour
+   (appglass/families/gtk3.py BACKDROP_FG does the same for buttons, views, borders and tree lines) */
+window.background:backdrop { color: @theme_fg_color; }
 .view, .view:backdrop, .view:disabled, iconview, iconview:backdrop,
 .view text, .view text:backdrop, .view text:disabled, iconview text, iconview text:backdrop,
 textview text, textview text:backdrop, textview text:disabled, textview border,
@@ -232,7 +233,7 @@ Contrast (WCAG, premultiplied-correct composite over blurred wallpaper / white /
 - **Notebooks opaque without the add-on.** This is common in preferences and settings windows (2 of 6 nvidia-settings pages). Ship the add-on.
 - **Dialogs.** `GtkDialog` bodies stay opaque `#353535`, not even the DMS colour. Only their headerbar becomes glass. The proposed `dialog.background` rule is untested.
 - **Column-header text** gets too faint once the header is glass. The proposed solid colour is untested.
-- **Unfocused windows on light backgrounds.** Adwaita greys backdrop text to `#919190`. The base rules swap it for a solid mix, but on white the margin was the thinnest of all cases. Re-measure it.
+- **Unfocused windows on light backgrounds.** Adwaita greys backdrop text to `#919190`. The base rules keep the focused text colour instead (the tested file used a solid mix, whose margin on white was the thinnest of all cases), so unfocused text reads as focused.
 - **App-drawn dark content** (hard-coded dark logos or markup) is invisible on dark glass, and CSS cannot reach it.
 - **Light DMS scheme: untested.** The rules assume dark: `settings.ini` forces prefer-dark, and mode B imports `gtk-contained-dark.css`. For light, mode B would import `gtk-contained.css` and `prefer-dark` must follow the scheme. The `mix()` text colours and the contrast on light glass are unmeasured.
 - **Mode A double fade.** Every GTK3 app without a niri `opacity 1.0` rule ends up at 0.36. Prefer mode B, or keep the niri regex complete.

@@ -1,6 +1,6 @@
 """niri: one generated rules file + one include line in config.kdl.
 
-$XDG_CONFIG_HOME/niri/appglass.kdl holds up to six window-rules, in order:
+$XDG_CONFIG_HOME/niri/appglass.kdl holds up to five window-rules, in order:
 
   fallback "opaque" a catch-all ``opacity 1.0`` (browsers excluded), before
                     the glass block: windows appglass cannot glass stay sharp
@@ -13,12 +13,6 @@ $XDG_CONFIG_HOME/niri/appglass.kdl holds up to six window-rules, in order:
                     believes it and skips what is behind (black, or a
                     background that flickers)
   fallback "value"  the detected fallback apps at ``opacity <value>``
-  inactive          glass apps that are not focused, ``opacity <inactive>``:
-                    fallback.inactive (every glass app but the ones
-                    that fade their own background while the fade is
-                    on: lever families, see instant_inactive), else with
-                    inactive.instantFallback the glass apps that cannot fade
-                    their own background (instant, the text fades too)
   games             ``opacity 1.0``, blur off, popups 1.0
 
 App-ids the browserGlass plugin covers are left out of every block (its
@@ -115,12 +109,10 @@ def _num(v):
     return "1.0" if float(v) >= 1 else "%.2f" % float(v)
 
 
-def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, inactive=None,
-           inactive_ids=None, blend_ids=()):
+def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, blend_ids=()):
     """The rules file. With the defaults only the glass block (the old file);
-    games=() writes the games block with the default game app-ids;
-    inactive_ids limits the inactive block to those glass app-ids; blend_ids
-    (glass app-ids) get opacity 0.999, before the inactive block."""
+    games=() writes the games block with the default game app-ids; blend_ids
+    (glass app-ids) get opacity 0.999."""
     if fallback not in FALLBACK_MODES:
         raise ValueError("fallback mode %r" % fallback)
     glass = _ids(app_ids)
@@ -153,11 +145,6 @@ def render(app_ids, fallback="off", value=0.70, fallback_ids=(), games=None, ina
         lines += ["", "// fallback: whole-window opacity (text fades too)", "window-rule {"]
         lines += ["    match app-id=%s" % _kdl_string(a) for a in fb]
         lines += ["    opacity %s" % _num(value), "}"]
-    dim = glass if inactive_ids is None else [a for a in glass if a in inactive_ids]
-    if inactive is not None and dim:
-        lines += ["", "// glass apps that are not focused", "window-rule {"]
-        lines += ["    match app-id=%s is-active=false" % _kdl_string(a) for a in dim]
-        lines += ["    opacity %s" % _num(inactive), "}"]
     gm = [] if games is None else _ids(list(GAME_IDS) + list(games), skip=glass)
     if gm:
         lines += ["", "// games: opaque, no blur behind", "window-rule {"]
@@ -246,39 +233,6 @@ def _adopted(app):
     return sorted(p for p, r in o.get("files", {}).items() if r.get("adopted"))
 
 
-def instant_inactive(app):
-    """(opacity, app-ids) of the niri is-active=false rule: fallback.inactive
-    for every glass app but the ones that fade their own background while
-    the fade is on; else, with inactive.instantFallback, the inactive ratio
-    for the families that cannot fade their own background."""
-    from . import inactive as _inactive
-    content = getattr(getattr(app, "levels", None), "content", None)
-    # an app a lever family fades (Kate and Konsole through the Qt style)
-    # is not dimmed a second time, whichever family also lists it; with the
-    # fade off (or at the floor) nothing fades, and none is left out
-    on = content is None or _inactive.active(app.settings, content)
-    levers = set(_inactive.fading(app.state)) if on else set()
-    faded = {a for name in app.state.families() if name in levers
-             for a in app.state.owners[name].get("app_ids", [])}
-    ids = []
-    for name in app.state.families():
-        if name in levers:
-            continue
-        ids += [a for a in app.state.owners[name].get("app_ids", [])
-                if a not in ids and a not in faded]
-    fbi = app.settings.get("fallback", {}).get("inactive")
-    if fbi is not None:
-        # every glass app but the faded ones (None: all, the engine's too)
-        return fbi, (ids if faded else None)
-    p = _inactive.params(app.settings)
-    if not (p["enabled"] and p["instantFallback"]) or content is None:
-        return None, None
-    r = _inactive.ratio(content, p["factor"])
-    if r >= 1:
-        return None, None
-    return (r, ids) if ids else (None, None)
-
-
 def kept_glass(app, kept):
     """The app-ids of the apps switched off on their own whose glass is
     still there (core._niri_ids): their family applied, and their launcher
@@ -317,15 +271,12 @@ def rule_inputs(app):
     kept = getattr(app, "kept_ids", None)
     if kept is None:
         kept = rec.get("kept_ids", [])
-    dim, dim_ids = instant_inactive(app)
     blend = []
     for name in BLEND_FAMILIES:
         blend += [a for a in app.state.owners.get(name, {}).get("app_ids", []) if a not in blend]
     return {
         "fallback": fb.get("mode", "opaque"),
         "value": fb.get("value", 0.70),
-        "inactive": dim,
-        "inactive_ids": dim_ids,
         "blend_ids": blend,
         "fallback_ids": list(fallback_ids),
         "games": list(game_ids),

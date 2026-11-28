@@ -11,7 +11,7 @@ import unittest
 
 from fixtures.sandbox import REPO, Sandbox, fixture
 from fixtures.shimworld import ShimWorld
-from appglass import core, inactive, plugin, settings
+from appglass import core, plugin, settings
 
 PLUGIN = os.path.join(REPO, "dms-plugin")
 
@@ -142,9 +142,6 @@ class Manifest(unittest.TestCase):
     def test_logic_keys_match_the_schema(self):
         with open(os.path.join(PLUGIN, "components", "logic.js")) as f:
             js = f.read()
-        easings = re.search(r"var EASINGS = \[([^\]]*)\]", js).group(1)
-        self.assertEqual(sorted(re.findall(r'"([^"]+)"', easings)),
-                         sorted(inactive.EASINGS))
         modes = re.search(r"var FALLBACK_MODES = \[([^\]]*)\]", js).group(1)
         self.assertEqual(re.findall(r'"([^"]+)"', modes), list(settings.FALLBACK_MODES))
 

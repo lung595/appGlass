@@ -23,9 +23,7 @@
 //      Views on one user content manager (a related view shares the first one's) are glass
 //      together: the stylesheet on it styles all their pages.
 //   3. user stylesheet (USER level, all frames) from APPGLASS_CSS, user script from APPGLASS_JS
-//   4. with a stylesheet: a small script that sets html.agl-inactive while the page has no focus
-//      (the stylesheet fades the content background on it)
-//   5. a paint script that, two animation frames after the document, posts to the appglassShown
+//   4. a paint script that, two animation frames after the document, posts to the appglassShown
 //      message handler: the window turns app-paintable only then (load finished is not painted:
 //      the clear view would show the bare blur until its first frame; no handler: load finished)
 // Everything is resolved with dlsym, so in processes without GTK/WebKit
@@ -149,13 +147,6 @@ void webkit_settings_set_hardware_acceleration_policy(void *s, int p) {
     if (p == 2) { LOG("hardware acceleration policy never -> always"); p = 1; }
     if (f) f(s, p);
 }
-
-// Top frame only (frames see their own focus); runs once per page at document end. The class follows
-// document.hasFocus() after each window focus/blur, so nothing runs between focus changes.
-static const char FOCUS_JS[] =
-    "(function(){if(window.top!==window||window.__aglFocus)return;window.__aglFocus=1;"
-    "var d=document.documentElement,f=function(){setTimeout(function(){d.classList.toggle('agl-inactive',!document.hasFocus())},0)};"
-    "window.addEventListener('focus',f);window.addEventListener('blur',f);f();})();";
 
 // Top frame, document end: two animation frames after the document (its first frame is drawn
 // then), a message to the appglassShown handler; the window turns app-paintable on it.
@@ -475,8 +466,7 @@ static void on_hierarchy(void *view, void *prev, void *data) {
 // what a view holds of its content manager: its hold on the stylesheet (appglass-ss, see
 // add_sheet: let go while the view is left opaque) and the scripts it added (its data owns a ref;
 // they stay)
-static const char *const ITEMS[] = { "appglass-ss", "appglass-sc0", "appglass-sc1", "appglass-sc2",
-                                     "appglass-sc3" };
+static const char *const ITEMS[] = { "appglass-ss", "appglass-sc0", "appglass-sc1", "appglass-sc2" };
 
 static void *content_manager(void *view) {
     void *(*get_ucm)(void *) = sym("webkit_web_view_get_user_content_manager");
@@ -535,8 +525,8 @@ static void remove_sheet(void *view) {
 static void first_document(void *view);
 static void on_painted(void *ucm, void *value, void *view) { (void)ucm; (void)value; first_document(view); }
 
-// once per view, before its first load: the stylesheet, the page scripts, the focus script and
-// the paint script (with its handler: without one, the first document's end stands in for it)
+// once per view, before its first load: the stylesheet, the page scripts and the paint
+// script (with its handler: without one, the first document's end stands in for it)
 static void inject(void *view) {
     if (dbg()) { // console.log -> stdout of the web process (lands in the app log)
         void *(*get_settings)(void *) = sym("webkit_web_view_get_settings");
@@ -548,7 +538,7 @@ static void inject(void *view) {
     Views *vs = obj_get(ucm, "appglass-ucm-views");
     if (!vs && (vs = calloc(1, sizeof *vs))) obj_set(ucm, "appglass-ucm-views", vs, views_free);
     if (vs) views_add(vs, view);
-    int had_css = add_sheet(view) && obj_get(view, ITEMS[0]);
+    add_sheet(view);
     // a manager shared with a view seen before (a related view): its scripts and the paint handler
     // are in already (they run on this view's pages too); the end of the first load stands in for
     // this view's paint message
@@ -566,15 +556,11 @@ static void inject(void *view) {
         LOG("js injected at %s (%zu bytes)", at ? "end" : "start", strlen(js));
         free(js);
     }
-    if (had_css) {  // unfocused fade: html.agl-inactive while the page has no focus (the glass CSS eases it)
-        void *sc = sc_new(FOCUS_JS, 0, 1, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[3], sc, sc_unref);
-        LOG("focus script injected");
-    }
     gboolean (*reg)(void *, const char *) = sym("webkit_user_content_manager_register_script_message_handler");
     unsigned long (*connect_object)(void *, const char *, void *, void *, int) = sym("g_signal_connect_object");
     if (reg && connect_object && reg(ucm, "appglassShown")) {
         connect_object(ucm, "script-message-received::appglassShown", (void *)on_painted, view, 0);
-        void *sc = sc_new(PAINT_JS, 0, 1, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[4], sc, sc_unref);
+        void *sc = sc_new(PAINT_JS, 0, 1, NULL, NULL); add_sc(ucm, sc); obj_set(view, ITEMS[3], sc, sc_unref);
         obj_set(view, "appglass-paint-msg", (void *)1, NULL);
         LOG("paint script injected");
     }

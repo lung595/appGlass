@@ -3,7 +3,6 @@
  * @description appGlass layer for dank-discord.css (load AFTER it). Needs Vesktop/Equibop "Transparent window"
  *              (Vencord settings.json "transparent": true) or a stock-client hook that sets backgroundColor #00000000.
  *              Content 0.60 painted once on #app-mount, bars 0.125 over it (= 0.65), floating surfaces opaque, text untouched.
- *              Unfocused window: content at the inactive level, eased by a transition on #app-mount.
  *              matugen template: install as a second [templates.*] entry -> CONFIG_DIR/vesktop/themes/dank-discord-glass.css
  */
 :root {
@@ -12,10 +11,8 @@
     --ag-menu: {{colors.surface_container_high.default.hex}};
     --ag-modal: {{colors.surface_container_highest.default.hex}};
 }
-/* unfocused: Discord drops html.app-focused when its window loses focus; only the content fades */
-html:not(.app-focused) { --ag-content: color-mix(in srgb, {{colors.surface.default.hex}} {{appglass.inactive_pct}}%, transparent); }
 html, body { background: transparent !important; }
-#app-mount { background: var(--ag-content) !important; transition: background-color {{appglass.fade}} !important; }
+#app-mount { background: var(--ag-content) !important; }
 .theme-dark, .theme-light, .visual-refresh.theme-dark, .visual-refresh.theme-light,
 .visual-refresh .theme-dark, .visual-refresh .theme-light {
     --background-base-low: transparent !important;  --background-base-lower: transparent !important;

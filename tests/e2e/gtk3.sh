@@ -3,8 +3,7 @@
 #
 #   APPGLASS_HARNESS=<harness.sh> [APPGLASS_E2E_OUT=<dir>] [APPGLASS_E2E_LEVEL=0.80] tests/e2e/gtk3.sh
 #
-# APPGLASS_E2E_LEVEL sets the content level in the sandbox (at 0.60, the
-# DMS default, the unfocused level is the same and there is no fade to see)
+# APPGLASS_E2E_LEVEL sets the content level in the sandbox
 #
 # 1. generate appglass.kdl in a scratch sandbox, start the nested niri with
 #    the global Glass blur rule + that rule file (+ a rule for the role
@@ -21,7 +20,7 @@
 #      level and an opaque popover
 #    content glass, bars, opaque text >= 2:1
 #    * unfocused: a second role window takes the focus; the first one's
-#      background is at the inactive level (the CSS fade), its text opaque
+#      background stays at the content level (no fade), its text opaque
 # 4. appglass remove; every appglass-relevant file is byte-identical to the
 #    snapshot (the apps' own runtime files are not ours)
 
@@ -119,7 +118,7 @@ cp "$THEME" "$AG_OUT/AppGlass-gtk.css-$RUN"
 
 # expected levels and colours: dank-colors.css, then the theme's overrides; text from
 # the Adwaita stylesheet the theme imports
-read -r CONTENT8 BAR8 FG POPOVER DISABLED UNFOCUSED8 < <(python3 -I - "$AG_REPO" "$SB" "$THEME" <<'PY'
+read -r CONTENT8 BAR8 FG POPOVER DISABLED < <(python3 -I - "$AG_REPO" "$SB" "$THEME" <<'PY'
 import os, re, sys
 sys.path.insert(0, sys.argv[1])
 from appglass import core
@@ -144,14 +143,11 @@ fg = re.search(r"@define-color\s+theme_fg_color\s+(#[0-9a-fA-F]{6})", css).group
 wf, wb = c["window_fg_color"], c["window_bg_color"]
 dis = "#" + "".join("%02x" % round(int(wf[i:i + 2], 16) * 0.8 + int(wb[i:i + 2], 16) * 0.2)
                     for i in (1, 3, 5))
-from appglass import inactive, settings
-p = inactive.params(settings.load(env)[0])
-unf = inactive.level(lv.content, p["factor"]) if p["enabled"] else lv.content
-print(lv.content8, lv.bar8, fg, c["popover_bg_color"], dis, round(unf * 255))
+print(lv.content8, lv.bar8, fg, c["popover_bg_color"], dis)
 PY
 )
-[ -n "$UNFOCUSED8" ] || ag_die "could not read the expected colours"
-ag_log "expected content $CONTENT8 bar $BAR8 text $FG disabled text $DISABLED popover $POPOVER unfocused $UNFOCUSED8"
+[ -n "$DISABLED" ] || ag_die "could not read the expected colours"
+ag_log "expected content $CONTENT8 bar $BAR8 text $FG disabled text $DISABLED popover $POPOVER"
 WP=$(ag_wallpaper); WPA=(); [ -n "$WP" ] && WPA=(--wallpaper "$WP")
 BASE=(--content "$CONTENT8" --tol 6 --text "$FG" "${WPA[@]}")
 FAILS=0
@@ -210,9 +206,9 @@ ID=$(show roles-popover "$ROLES_ID" 20 env GTK_THEME=AppGlass python3 -I "$ROLES
 measure roles-popover "$(shoot roles-popover "$ID")" "${BASE[@]}" --bar "$BAR8" --popup "$POPOVER"
 closewin "$ID"
 
-# 3d. unfocused: a second role window takes the focus, the first one fades
-# its own background (window.background:backdrop, a CSS transition) and keeps
-# its text opaque, at the focused colour
+# 3d. unfocused: a second role window takes the focus, the first one keeps
+# its background at the content level and its text opaque, at the focused
+# colour (no fade, no Adwaita backdrop grey)
 ID=$(show roles-unfocused "$ROLES_ID" 20 env GTK_THEME=AppGlass python3 -I "$ROLES" plain) \
     || ag_die "no role window"
 measure roles-focused "$(shoot roles-focused "$ID")" "${BASE[@]}"
@@ -229,13 +225,7 @@ ag_harness msg "$NAME" action focus-window --id "$ID2" >/dev/null
 sleep 2
 [ "$(ag_harness msg "$NAME" -j focused-window | jq -r .id)" = "$ID2" ] \
     || ag_die "the second role window did not take the focus"
-if [ "$UNFOCUSED8" -lt "$CONTENT8" ]; then
-    measure roles-unfocused "$(shoot roles-unfocused "$ID")" --content "$UNFOCUSED8" --tol 6 --text "$FG" "${WPA[@]}"
-else
-    # no fade at this level: the old unfocused cues (Adwaita's backdrop text)
-    measure roles-unfocused "$(shoot roles-unfocused "$ID")" --content "$CONTENT8" --tol 6 --glyph-min 0 "${WPA[@]}"
-    ag_log "no fade at content $CONTENT8 (APPGLASS_E2E_LEVEL=0.80 shows it)"
-fi
+measure roles-unfocused "$(shoot roles-unfocused "$ID")" --content "$CONTENT8" --tol 6 --text "$FG" "${WPA[@]}"
 closewin "$ID2"
 closewin "$ID"
 

@@ -15,7 +15,7 @@ DOCS = os.path.join(REPO, "docs")
 NEW = ("guide.md", "engine.md", "routes.md", "plugin.md", "issue-dms.md")
 # tool names, rot13 so this file does not hold them
 TRACES = codecs.decode("pynhqr|nagubcvp", "rot13")
-TODO_OK = re.compile(r"TODO\((engine|fade|adapters)\)")
+TODO_OK = re.compile(r"TODO\((engine|adapters)\)")
 
 
 def read(*p):
@@ -170,7 +170,7 @@ class Docs(unittest.TestCase):
 
     def test_plugin_doc_names_every_rail_page_and_setting(self):
         cats, labels = index_labels()
-        self.assertEqual(cats, ["Glass", "Apps", "Fade", "Fallback", "Advanced", "About"])
+        self.assertEqual(cats, ["Glass", "Apps", "Fallback", "Advanced", "About"])
         plugin = doc("plugin.md")
         for c in cats:
             self.assertRegex(plugin, r"(?m)^#+ %s\b" % re.escape(c), c)
@@ -697,7 +697,7 @@ class OneVersion(unittest.TestCase):
 
 
 class ChangelogCommands(unittest.TestCase):
-    INTERNAL = {"sync", "vibrancy", "launch-check", "keys"}   # run by the plugin, units, wrappers
+    INTERNAL = {"sync", "launch-check", "keys"}   # run by the plugin, units, wrappers
 
     def test_the_commands_bullet_lists_the_user_commands(self):
         c = read("CHANGELOG.md")
@@ -770,7 +770,7 @@ class FeatureGifs(unittest.TestCase):
     def test_one_gif_per_row_and_the_label_is_owned_up_to(self):
         f = section(read("README.md"), "Features")
         gifs = re.findall(r"docs/media/[\w-]+\.gif", f)
-        self.assertEqual(len(set(gifs)), 3)
+        self.assertEqual(len(set(gifs)), 2)
         for line in f.splitlines():
             self.assertLessEqual(len(set(re.findall(r"docs/media/[\w-]+\.gif", line))), 1, line)
         self.assertRegex(f, r"level label[^\n]*added")
@@ -781,15 +781,15 @@ class FeatureGifs(unittest.TestCase):
         # the GIF linked to its full size
         lines = section(read("README.md"), "Features").splitlines()
         rows = [i for i, l in enumerate(lines) if re.search(r"docs/media/[\w-]+\.gif", l)]
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 2)
         for i in rows:
             self.assertRegex(lines[i], r"^\| \[!\[[^\]]+\]\((docs/media/[\w-]+\.gif)\)\]\(\1\) \|$")
             self.assertRegex(lines[i - 1], r"^\| *-+ *\|$")
             self.assertRegex(lines[i - 2], r"^\| [A-Z][^|]+ \|$")
 
     def test_glass_is_claimed_for_libadwaita_apps_only(self):
-        # gtk4.py paints --window-bg-color, which only libadwaita defines
-        self.assertIn("--window-bg-color", read("appglass", "families", "gtk4.py"))
+        # gtk4.py sets the named colours only libadwaita paints with
+        self.assertIn("@define-color window_bg_color alpha(", read("appglass", "families", "gtk4.py"))
         r = read("README.md")
         self.assertNotIn("every GTK4 app", r)
         self.assertNotIn("other GTK4 apps |", r)
@@ -826,37 +826,6 @@ class InspectorPrivacy(unittest.TestCase):
         self.assertRegex(p, r"stays open on 127\.0\.0\.1 only[^\n]*while the app runs")
         self.assertIn("inspector still open on 127.0.0.1",
                       read("shims", "electron-hook", "agl-inject.py"))
-
-
-class FadeRoutes(unittest.TestCase):
-    """inactive.py lists the routes that fade; the CHANGELOG names them and
-    the README Roadmap names the ones that do not."""
-
-    NAMES = {"gtk4": "GTK4", "gtk3": "GTK3", "obsidian": "Obsidian",
-             "alacritty": "Alacritty", "vencord": "Vencord", "feishin": "Feishin",
-             "jellyfin": "Jellyfin", "lianli": "Lian Li", "webkit": "WebKitGTK",
-             "qtstyle": "Qt"}
-
-    def test_the_changelog_names_the_routes_that_fade(self):
-        from appglass import inactive
-        listed = re.findall(r"(?m)^  (\w+) +\S", inactive.__doc__)
-        self.assertEqual(set(listed), set(self.NAMES))
-        c = read("CHANGELOG.md")
-        bullet = c[c.index("**Unfocused fade.**"):]
-        bullet = bullet[:bullet.index("\n- ")]
-        self.assertNotIn("every glass route", bullet)
-        for name in self.NAMES.values():
-            self.assertIn(name, bullet, name)
-        # w2 r2: Lian Li has the fade built in but is opaque (its check fails);
-        # and the fade is recorded only for some routes
-        self.assertRegex(bullet, r"Lian Li[^.;]*opaque")
-        self.assertRegex(bullet, r"recorded in a session for [^.]*Kiri")
-
-    def test_the_roadmap_names_dux_and_herdr(self):
-        road = section(read("README.md"), "Roadmap")
-        line = [l for l in road.splitlines() if l.startswith("- Fade for")][0]
-        for name in ("Dux", "Herdr", "Zed", "mpv", "GIMP", "VSCodium"):
-            self.assertIn(name, line, name)
 
 
 class RouteTable(unittest.TestCase):
@@ -915,38 +884,13 @@ class RouteTable(unittest.TestCase):
         self.assertRegex(r, r"Steam has no route and no switch")
 
 
-class FadeRecorded(unittest.TestCase):
-    """Each fading route says what its recorded fade did, or why none was
-    recorded (a frame-by-frame capture in a headless niri session)."""
-
-    def test_recorded_routes_give_the_curve(self):
-        r = doc("routes.md")
-        for sec in ("Qt Widgets", "Feishin and VSCodium", "Jellyfin", "LocalSend and ArtCraft"):
-            self.assertRegex(section(r, sec), r"\*\*Fade, recorded:\*\*[^\n]*0\.80", sec)
-        self.assertRegex(section(r, "LocalSend and ArtCraft"),
-                         r"Fade, recorded:\*\*[^\n]*no fade")
-
-    def test_every_fading_route_says_whether_its_fade_is_recorded(self):
-        r = doc("routes.md")
-        for sec in ("GTK3", "Qt Widgets", "Feishin and VSCodium", "Jellyfin"):
-            self.assertRegex(section(r, sec), r"\*\*Fade, recorded:\*\*[^\n]*0\.80", sec)
-        for sec in ("Alacritty", "GTK4 / libadwaita", "Obsidian", "Lian Li", "Discord (Vencord)"):
-            self.assertRegex(section(r, sec), r"\*\*Fade, not recorded[^\n]*\*\*[^\n]*unit-tested"
-                             if sec != "Discord (Vencord)" else r"\*\*Fade, not recorded:\*\*", sec)
-        self.assertRegex(section(r, "Qt Widgets"), r"\*\*Fade, not recorded for Kate and Konsole:\*\*")
-        # the summaries name the same recorded set
-        for name in ("README.md", "plugin.md"):
-            self.assertIn("GTK3, VLC, Feishin and Jellyfin", doc(name), name)
-
-    def test_discord_says_why_its_fade_is_not_recorded(self):
-        d = section(doc("routes.md"), "Discord (Vencord)")
-        self.assertRegex(d, r"\*\*Fade, not recorded:\*\*[^\n]*signed-in")
-        self.assertIn("html:not(.app-focused)", d)
+class BlendRules(unittest.TestCase):
+    """The 0.999 niri rules, each written down (docs/routes.md)."""
 
     def test_the_feishin_opaque_region_rule_is_written_down(self):
         f = section(doc("routes.md"), "Feishin and VSCodium")
         self.assertIn("set_opaque_region", f)
-        # the 0.999 rule the fade was recorded under is the one shipped
+        # the 0.999 rule is the one shipped
         self.assertRegex(f, r"appglass\.kdl[^\n]*opacity 0\.999[^\n]*Feishin and VSCodium")
         self.assertNotRegex(f, r"TODO\(engine\)[^\n]*opaque")
         self.assertEqual(niri.BLEND_FAMILIES, ("feishin", "vscodium", "obsidian", "webkit", "lianli"))
@@ -1084,7 +1028,7 @@ class FallbackOpacity(unittest.TestCase):
     def test_the_docs_give_the_fallback_opacity_as_the_page_shows_it(self):
         qml = read("dms-plugin", "components", "settings", "FallbackPage.qml")
         self.assertRegex(qml, r"minimum: 50\s+maximum: 100\s+unit: \"%\"")
-        self.assertIn('"fallbackValuePct": 70,', read("dms-plugin", "components", "logic.js"))
+        self.assertRegex(read("dms-plugin", "components", "logic.js"), r'"fallbackValuePct": 70\b')
         row = next(l for l in section(read("README.md"), "Settings").splitlines()
                    if l.startswith("| **Fallback**"))
         self.assertNotIn("0.70", row)
@@ -1110,15 +1054,15 @@ class X11Apps(unittest.TestCase):
             self.assertIn("X11 apps of other toolkits", doc(name), name)
 
 
-class FadeBullet(unittest.TestCase):
-    def test_the_features_fade_bullet_names_the_routes_that_fade(self):
-        f = section(read("README.md"), "Features")
-        line = next(l for l in f.splitlines() if l.startswith("- **Unfocused windows fade"))
-        for name in FadeRoutes.NAMES.values():
-            self.assertIn(name, line, name)
-        self.assertRegex(line, r"Lian Li[^.;]*opaque")
-        self.assertRegex(line, r"Recorded in a session: [^.]*Kiri")
-        self.assertIn("#roadmap", line)
+class NoFade(unittest.TestCase):
+    def test_no_doc_promises_an_unfocused_fade(self):
+        """The unfocused fade is gone (0.1.4): no doc offers it."""
+        for path in [("README.md",)] + [("docs", n) for n in ("README.md", "plugin.md",
+                     "guide.md", "routes.md", "engine.md", "STATUS.md")]:
+            t = read(*path)
+            for word in ("Unfocused fade", "inactive.factor", "inactive.enabled",
+                         "Fade, recorded", "appglass vibrancy"):
+                self.assertNotIn(word, t, (path, word))
 
 
 class RuleName(unittest.TestCase):

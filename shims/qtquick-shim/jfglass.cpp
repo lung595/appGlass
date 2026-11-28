@@ -8,8 +8,6 @@
 //  - MpvVideoItem 'video' (paints opaque black + the video) is visible only while a video is open,
 //    and is never hidden before its first frame (mpv's render context is created on that frame).
 //  - PlayerComponent state signals trigger an immediate re-check, so the video layer appears at load time.
-//  - QQuickWindow activeChanged sets html.agl-inactive on the page while the window is not active
-//    (the CSS fades the content background; nothing runs between focus changes).
 // Only reads one file (JFGLASS_CSS). No network, no processes, no file writes.
 #include <QQuickWindow>
 #include <QQmlApplicationEngine>
@@ -75,7 +73,6 @@ private:
         if (!win) for (QObject *r : eng->rootObjects()) if (auto *w = qobject_cast<QQuickWindow *>(r)) { win = w; break; }
         if (!win) return;
         if (win->color().alpha() != 0) { LOG("window colour -> transparent\n"); win->setColor(Qt::transparent); }
-        if (!focusHooked) { focusHooked = true; connect(win, &QWindow::activeChanged, this, &JfGlass::focus); }
         if (!video) {
             video = win->findChild<QQuickItem *>(QStringLiteral("video"));
             if (video) connect(video, SIGNAL(ready()), this, SLOT(onReady()));
@@ -119,15 +116,6 @@ private:
                                     "document.head.appendChild(s);})()").arg(c);
         QMetaObject::invokeMethod(web, "runJavaScript", Q_ARG(QString, js));
         LOG("css injected\n");
-        focus();   // a new page: put the focus class back
-    }
-    // unfocused fade: html.agl-inactive while the window is not active; the CSS transition eases it
-    void focus() {
-        if (!web || !win) return;
-        QString js = QStringLiteral("document.documentElement&&document.documentElement.classList.toggle('agl-inactive',%1)")
-                         .arg(win->isActive() ? QLatin1String("false") : QLatin1String("true"));
-        QMetaObject::invokeMethod(web, "runJavaScript", Q_ARG(QString, js));
-        LOG("window active=%d\n", win->isActive());
     }
     QQmlApplicationEngine *eng;
     QString css;
@@ -137,7 +125,7 @@ private:
     QPointer<QQuickItem> video;
     QPointer<QObject> web, player;
     QJSValue cb;
-    bool ready = false, video_open = false, focusHooked = false;
+    bool ready = false, video_open = false;
 };
 
 

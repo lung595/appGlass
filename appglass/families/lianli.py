@@ -64,8 +64,7 @@ def css(ctx):
     lv = shims.levels(ctx)
     return shims.fill(shims.source(ADAPTER, TMPL).decode("utf-8"),
                       [("content", shims.jq_pct(lv["content"])),
-                       ("bar_over", shims.jq_pct(lv["bar_over_content"])),
-                       ("inactive", shims.jq_pct(lv["inactive"])), ("fade", lv["fade"])])
+                       ("bar_over", shims.jq_pct(lv["bar_over_content"]))])
 
 
 def apply(ctx):

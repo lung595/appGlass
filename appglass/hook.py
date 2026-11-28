@@ -22,15 +22,17 @@ when one of their files changed. appglass-discord.path/.service watch
 ~/.config/discord (Discord writes there all the time): the script, with
 --discord, exits at once unless the newest Discord host dir lacks Vencord,
 and only then puts it back (while the vencord family is applied) and
-re-applies. Also shims/sync/appglass-vibrancy.service and
-~/.local/bin/appglass-vibrancy (``bin/appglass vibrancy``, the Alacritty
-inactive fade, appglass/vibrancy.py). Then ``systemctl --user daemon-reload``
+re-applies. Then ``systemctl --user daemon-reload``
 and ``enable --now`` appglass-sync.path and the timer (not in a sandbox,
-unless $APPGLASS_SYSTEMCTL names a stand-in). appglass-discord.path and
-appglass-vibrancy.service run only while their family (vencord, alacritty)
-is applied: follow(), after every run that takes the lock, enables or
-disables them (and restarts the daemon after hook install). Hand-made units
-and script are Conflicts until ``appglass adopt``.
+unless $APPGLASS_SYSTEMCTL names a stand-in). appglass-discord.path runs
+only while the vencord family is applied: follow(), after every run that
+takes the lock, enables or disables it. Hand-made units and script are
+Conflicts until ``appglass adopt``.
+
+Hooks installed before 0.1.4 also ran appglass-vibrancy.service and
+~/.local/bin/appglass-vibrancy (the Alacritty unfocused fade, now removed):
+install, refresh, follow() and remove stop that daemon once (stop_legacy),
+and a typed command reverts its files like any file the hook no longer plans.
 
 The engine (docs/engine.md) adds: PathChanged lines on the application dirs
 (user, system, flatpak exports) and the rpm database, so a new or updated app
@@ -48,7 +50,7 @@ uninstall deleted the repository.
 
 ``appglass hook remove`` restores the matugen config byte-identical, drops
 the rendered colors.json and the rescue copy, restores (or deletes) the units and the script and
-disables the path units and the vibrancy service again when they were not
+disables the path units again when they were not
 enabled before install (and enables again one that was, if follow() had
 disabled it).
 """
@@ -67,23 +69,39 @@ HOOK_ARGS = "apply --from-hook --quiet"
 _BLOCK = re.compile(r"(?ms)^\n?" + re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?")
 
 
-UNITS = ("appglass-sync.path", "appglass-sync.service", "appglass-vibrancy.service",
+UNITS = ("appglass-sync.path", "appglass-sync.service",
          "appglass-discord.path", "appglass-discord.service", "appglass-sync.timer",
          "appglass-verify.service")
 PATH_UNIT = UNITS[0]
-VIBRANCY_UNIT = UNITS[2]
-DISCORD_UNIT = UNITS[3]
-TIMER_UNIT = UNITS[5]
-VERIFY_UNIT = UNITS[6]
+DISCORD_UNIT = UNITS[2]
+TIMER_UNIT = UNITS[4]
+VERIFY_UNIT = UNITS[5]
+# the Alacritty fade daemon of hooks installed before 0.1.4 (no longer
+# written), and its unit's bytes as 0.1.3 wrote them (adopt --rescue knows it)
+LEGACY_UNIT = "appglass-vibrancy.service"
+LEGACY_UNIT_DATA = b"""[Unit]
+Description=appGlass: fade unfocused Alacritty windows (settings inactive)
+PartOf=graphical-session.target
+After=graphical-session.target
+[Service]
+ExecStart=%h/.local/bin/appglass-vibrancy
+# appglass runs reload when it changed a setting the daemon reads
+ExecReload=kill -HUP $MAINPID
+Restart=on-failure
+# a SIGHUP before the handler is set (at start) kills it: start again
+RestartForceExitStatus=SIGHUP
+RestartSec=3
+[Install]
+WantedBy=graphical-session.target
+"""
 # (state key, unit, the systemctl calls of install); remove disables a unit
 # that was not enabled before install. The family units have none: follow()
 # runs them only while their family is applied
 ENABLED = (("was_enabled", PATH_UNIT, (("enable", "--now"),)),
            ("discord_was_enabled", DISCORD_UNIT, ()),
-           ("timer_was_enabled", TIMER_UNIT, (("enable", "--now"),)),
-           ("vibrancy_was_enabled", VIBRANCY_UNIT, ()))
-# unit -> the family it serves: the Alacritty fade, the Vencord re-inject
-FAMILY_UNITS = ((VIBRANCY_UNIT, "alacritty"), (DISCORD_UNIT, "vencord"))
+           ("timer_was_enabled", TIMER_UNIT, (("enable", "--now"),)))
+# unit -> the family it serves: the Vencord re-inject
+FAMILY_UNITS = ((DISCORD_UNIT, "vencord"),)
 
 
 def repo_root():
@@ -110,16 +128,26 @@ def sync_path(env):
     return env.home_path(".local", "bin", "appglass-sync")
 
 
-def vibrancy_path(env):
-    return env.home_path(".local", "bin", "appglass-vibrancy")
+def legacy_paths(env):
+    """The old fade daemon's unit and wrapper (hooks before 0.1.4)."""
+    return (unit_path(env, LEGACY_UNIT), env.home_path(".local", "bin", "appglass-vibrancy"))
 
 
-def vibrancy_shim(env):
-    from . import shims
-    return ("#!/bin/sh\n"
-            "# appglass-vibrancy: written by appglass hook install (appglass hook remove\n"
-            "# takes it out); run by appglass-vibrancy.service.\n"
-            'exec "%s" vibrancy "$@"\n' % shims.appglass_cmd(env, bin_path()))
+def stop_legacy(app):
+    """Stop the old fade daemon, once, when the hook recorded its unit (it
+    puts the Alacritty windows back on SIGTERM); its files then go like any
+    file the hook no longer plans (an event run only marks them, so the
+    hook owner keeps legacy_stopped). True when it ran systemctl."""
+    o = app.state.owners.get("hook")
+    if (not o or o.get("legacy_stopped") or getattr(app, "dry_run", False)
+            or unit_path(app.env, LEGACY_UNIT) not in o.get("files", {})
+            or not systemctl(app.env)):
+        return False
+    if _ctl(app, "disable", "--now", LEGACY_UNIT) is None:
+        return False    # _ctl warned: the next run tries again
+    o["legacy_stopped"] = True
+    app.state.save()
+    return True
 
 
 def sync_shim(env):
@@ -263,7 +291,6 @@ def plan(app, ctx=None, keep_optout=False):
     for n in UNITS:
         ctx.write_owned(unit_path(env, n), unit_render(env, n), mode=0o644)
     ctx.write_owned(sync_path(env), sync_shim(env), mode=0o755)
-    ctx.write_owned(vibrancy_path(env), vibrancy_shim(env), mode=0o755)
     return ctx
 
 
@@ -296,6 +323,7 @@ def install(app, dry_run=False, keep_optout=False):
                  if tool else "hook: systemctl skipped (sandbox)")
         return changed
     sd = record_enabled(app, dict((app.state.owners.get("hook") or {}).get("systemd") or {}))
+    stop_legacy(app)
     changed = app.commit(ctx)
     o = app.state.owners.get("hook")
     if o is not None and tool and o.get("systemd") != sd:
@@ -326,8 +354,7 @@ def install(app, dry_run=False, keep_optout=False):
     else:
         app.info("hook: systemctl skipped (sandbox): %s not enabled"
                  % ", ".join(u for _, u, _ in ENABLED))
-    # restart: a running daemon picks up new code from the repo
-    follow(app, restart=True)
+    follow(app)
     if changed:
         app.info("hook: %s in %s" % ("updated" if had else "installed", config_path(env)))
     else:
@@ -339,29 +366,21 @@ def install(app, dry_run=False, keep_optout=False):
     return changed
 
 
-def follow(app, restart=False, nudge=False):
-    """Run appglass-vibrancy.service and appglass-discord.path only while
-    their family is applied: enable --now when it is, disable --now when it
-    is not (removed, switched off, glass off). What was last set is kept in
-    the hook owner (follow), so a run with nothing to change starts no
-    systemctl (a hook run stays cacheable, inputs.py). restart (hook install):
-    the running daemon takes the new code. nudge (the run changed a file the
-    daemon reads): systemctl reload, the daemon re-reads its settings
-    (SIGHUP). Nothing before hook install, in a dry run or without
-    systemctl."""
+def follow(app):
+    """Run appglass-discord.path only while the vencord family is applied:
+    enable --now when it is, disable --now when it is not (removed, switched
+    off, glass off). What was last set is kept in the hook owner (follow), so
+    a run with nothing to change starts no systemctl (a hook run stays
+    cacheable, inputs.py). Nothing before hook install, in a dry run or
+    without systemctl."""
     o = app.state.owners.get("hook")
-    if (getattr(app, "dry_run", False) or getattr(app, "followed", False)
-            or not installed(app) or not systemctl(app.env)):
+    if getattr(app, "dry_run", False) or not installed(app) or not systemctl(app.env):
         return
-    # once a run: after hook install's restart, no reload on the daemon's start
-    app.followed = restart
+    stop_legacy(app)    # a hook run too: the old unit would restart every 3 s
     done = dict(o.get("follow") or {})
     for unit, family in FAMILY_UNITS:
         want = family in app.state.owners
-        daemon = unit == VIBRANCY_UNIT
         if done.get(unit) == want:
-            if want and daemon and (restart or nudge):
-                _ctl(app, "restart" if restart else "reload", unit)
             continue
         args = ("enable" if want else "disable", "--now", unit)
         r = _ctl(app, *args)
@@ -371,8 +390,6 @@ def follow(app, restart=False, nudge=False):
             app.warn("hook: systemctl %s failed: %s"
                      % (" ".join(args), (r.stderr or r.stdout).strip()))
             continue
-        if want and daemon and restart:
-            _ctl(app, "restart", unit)    # enable --now leaves an old daemon running
         done[unit] = want
     if done != o.get("follow"):
         o["follow"] = done
@@ -382,23 +399,19 @@ def follow(app, restart=False, nudge=False):
 def refresh(app):
     """An update of the repo (a DMS plugin update runs no hook install): the
     hook's files follow the repo render, a section the user took out stays
-    out, then daemon-reload; a running vibrancy daemon restarts on its new
-    unit. Writes only what differs; nothing before hook install."""
+    out, then daemon-reload. Writes only what differs; nothing before hook
+    install."""
     if getattr(app, "dry_run", False) or not installed(app):
         return
     try:
         ctx = plan(app, keep_optout=True)
     except Conflict:
         return      # doctor names the hand-made file
+    legacy = stop_legacy(app)
     changed = app.commit(ctx)
     units = set(unit_path(app.env, n) for n in UNITS)
-    if not units.intersection(changed) or not systemctl(app.env):
-        return
-    _ctl(app, "daemon-reload")
-    on = ((app.state.owners.get("hook") or {}).get("follow") or {}).get(VIBRANCY_UNIT)
-    if unit_path(app.env, VIBRANCY_UNIT) in changed and on:
-        _ctl(app, "restart", VIBRANCY_UNIT)
-        app.followed = True     # no reload on top of the restart
+    if (legacy or units.intersection(changed)) and systemctl(app.env):
+        _ctl(app, "daemon-reload")
 
 
 def start_verify(app):
@@ -421,11 +434,11 @@ def remove(app):
     recs = {n: o.get("files", {}).get(unit_path(env, n)) for n in UNITS}
     for key, unit, _ in ENABLED:
         # disabled when its file goes (appglass created it) or it was off
-        # before install; stopping the vibrancy daemon puts back the
-        # Alacritty windows it faded
+        # before install
         rec = recs[unit]
         if (rec is not None and rec.get("kind") == "created") or sd.get(key) is False:
             _ctl(app, "disable", "--now", unit)
+    stop_legacy(app)
     removed = app.remove_owner("hook")
     if removed and any(recs.values()):
         _ctl(app, "daemon-reload")      # unit files deleted or restored

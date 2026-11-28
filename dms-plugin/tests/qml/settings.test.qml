@@ -132,7 +132,7 @@ Item {
     }
 
     readonly property var glassIds: ["glassToggle", "levelInfo", "summaryInfo", "reapplyButton"]
-    readonly property var fadeIds: ["inactiveToggle", "inactiveLevel", "inactiveDuration", "inactiveEasing", "instantFallback"]
+    readonly property var fallbackIds: ["fallbackMode", "fallbackValue"]
     readonly property var advancedIds: ["learnButton", "adoptButton", "reportButton", "uninstallButton"]
 
     Component.onCompleted: {
@@ -149,41 +149,25 @@ Item {
                 // --- the rail: Glass opens first, one category at a time
                 "run": () => {
                     const p = root.page;
-                    t.check("rail entries", root.findAll(p, "rail-", []).map(x => x.objectName), ["rail-glass", "rail-apps", "rail-fade", "rail-fallback", "rail-advanced", "rail-about"]);
+                    t.check("rail entries", root.findAll(p, "rail-", []).map(x => x.objectName), ["rail-glass", "rail-apps", "rail-fallback", "rail-advanced", "rail-about"]);
                     t.check("glass page open", root.shownAll(root.glassIds), [true, true, true, true]);
-                    t.check("the others closed", root.shownAll(["page-apps", "page-fade", "page-fallback", "page-advanced", "page-about", "noResults"]), [false, false, false, false, false, false]);
+                    t.check("the others closed", root.shownAll(["page-apps", "page-fallback", "page-advanced", "page-about", "noResults"]), [false, false, false, false, false]);
                     t.check("header", [root.find(p, "headerStatus").text, root.find(p, "pauseButton").text], ["Glass on, 7 apps on glass", "Pause glass"]);
                     t.check("level shown, read only", root.find(p, "levelInfo").text, "Glass level: 60% (bars 65%), from the DMS window rule opacity");
-                    t.ok("inactive at the floor explained", root.find(p, "inactiveInfo").text.indexOf("no change") > 0);
+                    t.check("no fade line (0.1.4)", root.find(p, "inactiveInfo"), null);
                     t.check("summary", root.find(p, "summaryInfo").text, "Apps on glass: 1 delegated, 5 fallback, 7 glass, 1 opaque");
                     t.check("no error shown", root.find(p, "errorInfo").visible, false);
-                    t.press(root.find(p, "rail-fade"));
-                    t.check("fade open", [root.shown("page-fade"), root.shown("page-glass")], [true, false]);
-                    t.check("fade items", root.shownAll(root.fadeIds), [true, true, true, true, true]);
-                    t.ok("the fade says a change reaches an open app on its restart", root.find(p, "inactiveToggle").description.indexOf("when they restart") > 0);
-                    t.check("defaults loaded", [root.find(p, "glassToggle").value, root.find(p, "inactiveToggle").value, root.find(p, "inactiveLevel").value, root.find(p, "inactiveDuration").value, root.find(p, "inactiveEasing").value, root.find(p, "instantFallback").value, root.find(p, "fallbackMode").value], [true, true, 10, 180, "ease-out-cubic", false, "opaque"]);
-                    // the widgets save their keys
-                    root.find(p, "inactiveLevel").value = 15;
-                    root.find(p, "inactiveDuration").value = 300;
-                    root.find(p, "inactiveEasing").choose("Linear");
-                    t.check("what the daemon will sync", Logic.settingsFromPluginData(SettingsData.getPluginSettingsForPlugin("appGlass")).inactive, {
-                        "enabled": true,
-                        "factor": 0.85,
-                        "durationMs": 300,
-                        "easing": "linear",
-                        "instantFallback": false
-                    });
-                    root.find(p, "inactiveToggle").value = false;
-                    t.check("the fade's settings hide when it is off", root.shownAll(root.fadeIds), [true, false, false, false, false]);
-                    t.check("inactive off saved", root.saved("inactiveEnabled"), false);
-                    // keyboard: down from Fade is Fallback
-                    root.find(p, "rail-fade").Keys.downPressed(null);
+                    t.press(root.find(p, "rail-apps"));
+                    t.check("apps open", [root.shown("page-apps"), root.shown("page-glass")], [true, false]);
+                    t.check("defaults loaded", [root.find(p, "glassToggle").value, root.find(p, "fallbackMode").value], [true, "opaque"]);
+                    // keyboard: down from Apps is Fallback
+                    root.find(p, "rail-apps").Keys.downPressed(null);
                 }
             },
             {
                 "run": () => {
                     const p = root.page;
-                    t.check("arrow key: next category", [root.shown("page-fallback"), root.shown("page-fade")], [true, false]);
+                    t.check("arrow key: next category", [root.shown("page-fallback"), root.shown("page-apps")], [true, false]);
                     t.check("fallback opacity hidden unless translucent", root.shownAll(["fallbackMode", "fallbackValue"]), [true, false]);
                     root.find(p, "fallbackMode").choose("Translucent (text too)");
                     t.check("fallback saved, its opacity shown", [root.saved("fallbackMode"), root.shown("fallbackValue")], ["value", true]);
@@ -191,15 +175,15 @@ Item {
                     t.check("about", root.shownAll(["versionInfo", "neverInfo", "cliInfo"]), [true, true, true]);
                     t.ok("version", root.find(p, "versionInfo").text.indexOf("appGlass " + Logic.VERSION) === 0);
                     // --- search: every category at once
-                    root.type("fade");
+                    root.type("fallback");
                 }
             },
             {
                 "run": () => {
                     const p = root.page;
-                    t.check("search: the fade settings, even those the switch hides", root.shownAll(root.fadeIds), [true, true, true, true, true]);
+                    t.check("search: the fallback settings", root.shownAll(root.fallbackIds), [true, true]);
                     t.check("search: no other category's page", root.shownAll(["page-glass", "page-about", "page-advanced", "noResults"]), [false, false, false, false]);
-                    t.check("rail counts", [root.find(p, "railCount-fade").visible, root.find(p, "railIcon-about").opacity < 1], [true, true]);
+                    t.check("rail counts", [root.find(p, "railCount-fallback").visible, root.find(p, "railIcon-about").opacity < 1], [true, true]);
                     t.check("a dimmed entry: its background and icon fade, the entry itself does not", [root.find(p, "rail-about").opacity, root.find(p, "railBg-about").opacity < 1, root.find(p, "railName-about").opacity < 1], [1, true, true]);
                     t.check("no rail entry is open while searching", root.find(p, "rail-about").on, false);
                     root.type("opacity");
@@ -208,7 +192,7 @@ Item {
             {
                 "run": () => {
                     const p = root.page;
-                    t.check("opacity: across glass and fallback", [root.shown("levelInfo"), root.shown("fallbackMode"), root.shown("glassToggle"), root.shown("inactiveLevel")], [true, true, false, false]);
+                    t.check("opacity: across glass and fallback", [root.shown("levelInfo"), root.shown("fallbackMode"), root.shown("glassToggle")], [true, true, false]);
                     root.type("xyz");
                 }
             },
@@ -216,7 +200,7 @@ Item {
                 "run": () => {
                     const p = root.page;
                     t.check("no results", [root.shown("noResults"), root.find(p, "noResults").query], [true, "xyz"]);
-                    t.check("nothing else", root.shownAll(["page-glass", "page-apps", "page-fade", "page-fallback", "page-advanced", "page-about"]), [false, false, false, false, false, false]);
+                    t.check("nothing else", root.shownAll(["page-glass", "page-apps", "page-fallback", "page-advanced", "page-about"]), [false, false, false, false, false]);
                     root.type("flatseal");
                 }
             },
@@ -411,7 +395,7 @@ Item {
                     t.press(root.find(p, "rail-apps"));
                     t.check("no rows yet", [root.findAll(p, "app:", []).length, root.shown("appListEmpty")], [0, true]);
                     root.fresh(false, {}, {
-                        "inactiveMorePct": 20,
+                        "fallbackValuePct": 80,
                         "apps": {
                             "Alacritty": {
                                 "enabled": false
@@ -425,8 +409,8 @@ Item {
                 "wait": 20,
                 "run": () => {
                     const p = root.page;
-                    t.check("saved values loaded", [root.find(p, "inactiveLevel").value, root.find(p, "glassToggle").value], [20, true]);
-                    t.check("the value label follows the saved value", root.find(p, "inactiveLevel").label, "Fade amount: 20%");
+                    t.check("saved values loaded", [root.find(p, "fallbackValue").value, root.find(p, "glassToggle").value], [80, true]);
+                    t.check("the value label follows the saved value", root.find(p, "fallbackValue").label, "Fallback opacity: 80%");
                     t.check("opening the page saves nothing", PluginService.saves, []);
                     t.press(root.find(p, "reapplyButton"));
                     t.press(root.find(p, "rail-advanced"));
@@ -449,8 +433,7 @@ Item {
                     t.check("the category title: icon and name", [root.find(p, "pageIcon-glass").name, root.find(p, "pageTitle-glass").text], ["blur_on", "Glass"]);
                     t.check("About says it once", root.find(p, "neverInfo").text.indexOf("Never touched"), -1);
                     t.check("the fallback opacity says what it is, with its value", root.find(p, "fallbackValue").label, "Fallback opacity: 70%");
-                    t.check("the fade sliders show their value at rest", [root.find(p, "inactiveLevel").label, root.find(p, "inactiveDuration").label], ["Fade amount: 10%", "Fade duration: 180 ms"]);
-                    root.type("fade");
+                    root.type("fallback");
                 }
             },
             {
@@ -529,10 +512,10 @@ Item {
             {
                 "run": () => {
                     const p = root.page;
-                    t.check("two downs: Fade open and focused", [root.shown("page-fade"), root.find(p, "rail-fade").activeFocus], [true, true]);
-                    root.find(p, "rail-fade").Keys.returnPressed(null);
-                    t.check("Enter keeps Fade", [root.shown("page-fade"), root.shown("page-glass")], [true, false]);
-                    root.find(p, "rail-fade").Keys.upPressed(null);
+                    t.check("two downs: Fallback open and focused", [root.shown("page-fallback"), root.find(p, "rail-fallback").activeFocus], [true, true]);
+                    root.find(p, "rail-fallback").Keys.returnPressed(null);
+                    t.check("Enter keeps Fallback", [root.shown("page-fallback"), root.shown("page-glass")], [true, false]);
+                    root.find(p, "rail-fallback").Keys.upPressed(null);
                     t.check("up: Apps focused", [root.shown("page-apps"), root.find(p, "rail-apps").activeFocus], [true, true]);
                     // Tab moves the focus without opening: the arrows step from the focused entry
                     root.find(p, "rail-advanced").forceActiveFocus();
@@ -546,19 +529,19 @@ Item {
                     t.check("a click focuses the entry", [root.shown("page-apps"), root.find(p, "rail-apps").activeFocus], [true, true]);
                     // --- the narrow rail: the badge stays a dot, the name shows on focus
                     root.page.width = 380;
-                    root.type("fade");
+                    root.type("fallback");
                 }
             },
             {
                 "run": () => {
                     const p = root.page;
-                    const badge = root.find(p, "railCount-fade");
-                    const entry = root.find(p, "rail-fade");
+                    const badge = root.find(p, "railCount-fallback");
+                    const entry = root.find(p, "rail-fallback");
                     t.check("narrow badge size", [badge.visible, badge.width, badge.height], [true, 20, 20]);
                     t.ok("narrow badge inside its entry", badge.y >= 0 && badge.y + badge.height <= entry.height && badge.x + badge.width <= entry.width);
-                    t.check("no name tip at rest", root.find(p, "railTip-fade").visible, false);
+                    t.check("no name tip at rest", root.find(p, "railTip-fallback").visible, false);
                     entry.forceActiveFocus();
-                    t.check("the name beside a focused icon", [root.find(p, "railTip-fade").visible, root.find(p, "railTip-fade").text], [true, "Fade"]);
+                    t.check("the name beside a focused icon", [root.find(p, "railTip-fallback").visible, root.find(p, "railTip-fallback").text], [true, "Fallback"]);
                     const about = root.find(p, "rail-about");
                     about.forceActiveFocus();
                     t.check("a dimmed entry's tip is not see-through", [about.dim, root.find(p, "railTip-about").visible, about.opacity, root.find(p, "railTip-about").opacity], [true, true, 1, 1]);
@@ -674,15 +657,13 @@ Item {
                     t.press(root.find(p, "rail-apps"));
                     const toggles = root.findAll(p, "appToggle-", []).filter(x => x.visible);
                     t.ok("the app switches are off limits", toggles.length > 0 && toggles.every(x => !x.enabled));
-                    // the fade and the fallback too: a save there would be
+                    // the fallback too: a save there would be
                     // lost to the next Set up again, or never synced
-                    t.press(root.find(p, "rail-fade"));
-                    t.check("no fade setting", root.fadeIds.map(id => root.find(p, id).enabled), root.fadeIds.map(id => false));
                     t.press(root.find(p, "rail-fallback"));
                     t.check("no fallback setting", ["fallbackMode", "fallbackValue"].map(id => root.find(p, id).enabled), [false, false]);
-                    const before = root.saved("inactiveDurationMs");
-                    root.find(p, "page-fade").saveValue("inactiveDurationMs", 333);
-                    t.check("a save while uninstalled is dropped", root.saved("inactiveDurationMs"), before);
+                    const before = root.saved("fallbackValuePct");
+                    root.find(p, "page-fallback").saveValue("fallbackValuePct", 66);
+                    t.check("a save while uninstalled is dropped", root.saved("fallbackValuePct"), before);
                     // set up again: the user's click asks the daemon
                     t.press(root.find(p, "rail-advanced"));
                     t.check("set up again offered", root.shown("reinstallButton"), true);

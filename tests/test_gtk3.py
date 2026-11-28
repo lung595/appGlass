@@ -123,9 +123,12 @@ class Gtk3(unittest.TestCase):
                 "treeview.view header button, treeview.view header button:backdrop "
                 "{ color: @window_fg_color; }"):
             self.assertIn(frag, t)
-        # colours only by name: no hex in the rules
+        # colours only by name: no hex in the rules, but Adwaita's focused
+        # literals (button edges, tree view lines: no named colour there either)
         import re
         rules = re.sub(r"/\*.*?\*/", "", t[t.index("window.background"):], flags=re.S)
+        for v in fam.ADWAITA["dark"].values():
+            rules = rules.replace(v, "")
         self.assertNotRegex(rules, r"#[0-9a-fA-F]{6}")
         self.assertNotIn("window_fg_color #", t)
 
@@ -137,9 +140,9 @@ class Gtk3(unittest.TestCase):
         self.assertIn("alpha(@headerbar_bg_color, 0.70)", t)   # bar = max(content, 0.65)
         self.assertIn("alpha(@sidebar_bg_color, 0.00)", t)
 
-    def test_inactive_backdrop_keeps_text(self):
-        # with the fade on, unfocused text keeps the focused colour: Adwaita
-        # greys it at once (no transition), which reads as a jump
+    def test_backdrop_keeps_text_and_background(self):
+        # unfocused text keeps the focused colour (Adwaita greys it), and the
+        # background stays at the level: no unfocused fade (0.1.4)
         self.sb.set_level(0.8)
         self.apply()
         t = self.theme()
@@ -150,27 +153,8 @@ class Gtk3(unittest.TestCase):
                           and "spinbutton" not in x[0]], [])
         self.assertNotIn("window.background:backdrop { color: mix(", t)
         self.assertIn("window.background:backdrop", t[t.index("text keeps"):])
-        self.sb.run("set", "inactive.enabled", "false")
-        self.apply()
-        self.assertIn("window.background:backdrop { color: mix(", self.theme())
-
-    def test_inactive_backdrop_fades(self):
-        self.sb.set_level(0.8)
-        self.apply()
-        t = self.theme()
-        rule = ("window.background:backdrop { background-color: "
-                "alpha(@window_bg_color, 0.72); }")
-        self.assertIn(rule, t.splitlines())
-        # after the content rule, so it wins for :backdrop
-        self.assertGreater(t.index(rule), t.index("alpha(@window_bg_color, 0.80)"))
-        self.assertIn("window.background, headerbar, .titlebar:not(headerbar) { transition: "
-                      "background-color 180ms cubic-bezier(0.33, 1, 0.68, 1); }", t.splitlines())
-        # the CSD headerbar is painted directly: it fades from its own bar level
-        self.assertIn("headerbar:backdrop, .titlebar:not(headerbar):backdrop { "
-                      "background-color: alpha(@headerbar_bg_color, 0.72); }", t.splitlines())
-        self.sb.run("set", "inactive.enabled", "false")
-        self.apply()
-        self.assertNotIn("transition", self.theme())
+        self.assertNotIn("transition", t)
+        self.assertNotIn("alpha(@window_bg_color, 0.72)", t)
 
     def test_light_mode_imports_light_adwaita(self):
         self.seed(light=True)
@@ -464,12 +448,11 @@ class Gtk3(unittest.TestCase):
         # GTK computes the styles: every widget's text and the headerbar button
         # edges keep their focused colour on :backdrop (Adwaita greys tabs,
         # spin buttons and button borders at once, light and dark), the window
-        # and the CSD headerbar both fade 0.80 -> 0.72, popups stay opaque
+        # and the CSD headerbar stay at 0.80, popups stay opaque
         for light in (False, True):
             with self.subTest(light=light):
                 self.seed(light=light)
                 self.sb.set_level(0.8)
-                self.sb.run("set", "inactive.durationMs", "0")    # no transition to wait for
                 self.apply()
                 self.check_backdrop()
 
@@ -495,7 +478,7 @@ class Gtk3(unittest.TestCase):
         # the window buttons (close, ...) and a flat headerbar button get no
         # ring when unfocused: with the icon or label not drawn, the pixels
         # that differ from the bar's own background are the same in both
-        # states (the bar itself fades, so the states are not byte-equal)
+        # states
         def ring(fr):
             p, n, bar = base64.b64decode(fr["rgba"]), fr["n"], fr["bar"]
             return {(i // n % fr["w"], i // n // fr["w"]) for i in range(0, len(p), n)
@@ -512,7 +495,16 @@ class Gtk3(unittest.TestCase):
         for kind in ("fg", "edge"):
             self.assertEqual({k: v for k, v in b[kind].items() if not near(v, f[kind][k])}, {},
                              "focused: %s" % f[kind])
-        for part, want in (("window", (0.8, 0.72)), ("headerbar", (0.8, 0.72)),
+        # the panel (plain button, frame, tree view: grid lines, expander,
+        # selected, insensitive and separator rows, paned separators) is the
+        # same picture in both states
+        pf, pb = f["panel"], b["panel"]
+        self.assertEqual((pf["w"], pf["h"]), (pb["w"], pb["h"]))
+        a, z = base64.b64decode(pf["rgba"]), base64.b64decode(pb["rgba"])
+        off = sorted({(i % pf["stride"] // pf["n"], i // pf["stride"])
+                      for i in range(len(a)) if abs(a[i] - z[i]) > 2})
+        self.assertEqual(off[:5], [], "%d panel pixels change when unfocused" % len(off))
+        for part, want in (("window", (0.8, 0.8)), ("headerbar", (0.8, 0.8)),
                            ("popover", (1.0, 1.0)), ("menu", (1.0, 1.0))):
             self.assertEqual((round(rgba(f["bg"][part])[3], 2), round(rgba(b["bg"][part])[3], 2)),
                              want, part)

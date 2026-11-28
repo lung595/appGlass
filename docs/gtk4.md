@@ -68,11 +68,11 @@ dialog sheet { background-color: @dialog_bg_color; }
 /* Dimmed text (.dim-label/.dimmed, pathbar, subtitles) defaults to 0.55 */
 :root { --dim-opacity: 0.80; }
 
-/* Unfocused windows: Adwaita fades bar contents with filter: opacity(0.5) */
+/* Unfocused windows: Adwaita fades bar contents with filter: opacity(0.5); keep them as focused */
 headerbar:backdrop > windowhandle,
 toolbarview > .top-bar:backdrop > windowhandle, toolbarview > .bottom-bar:backdrop > windowhandle,
 searchbar > revealer > box:backdrop > *, actionbar > revealer > box:backdrop > *,
-tabbar .box:backdrop > scrolledwindow, tabbar .box:backdrop > .start-action, tabbar .box:backdrop > .end-action { filter: opacity(0.8); }
+tabbar .box:backdrop > scrolledwindow, tabbar .box:backdrop > .start-action, tabbar .box:backdrop > .end-action { filter: none; }
 ```
 
 Notes:
@@ -173,7 +173,7 @@ Contrast: to re-measure. The composites used for the ratios in the first test ru
 - **Global file, double translucency.** Any GTK4 app not in the niri rule gets the CSS alpha and the global niri 0.60: about 0.36 background and text at 0.60. Add every GTK4 app you run to the rule. The GNOME file chooser portal is used by Chrome, Electron and other portal apps, so its rule matters most.
 - **AdwDialog sheets** paint `window_bg_color`, so without `dialog sheet { background-color: @dialog_bg_color; }` the content shows through the dialog (235-247).
 - **Dimmed text** (`.dim-label`, `.dimmed`, pathbar, row subtitles, headerbar subtitle) uses `--dim-opacity` 0.55 by default. Use 0.80.
-- **Unfocused windows** fade bar contents with `filter: opacity(0.5)`, which `--dim-opacity` does not cover. Found in the second run, not in the first. Fixed by the `:backdrop` rule above (raised to 0.8, tested).
+- **Unfocused windows** fade bar contents with `filter: opacity(0.5)`, which `--dim-opacity` does not cover. Found in the second run, not in the first. Fixed by the `:backdrop` rule above (`filter: none`: unfocused bar contents stay as focused; the first tested file raised it to 0.8).
 - **Light mode** not tested. The static file hardcodes the current dark hex values, so a DMS light/dark switch needs the matugen version, then an app restart.
 - **No live reload**, see Reload.
 - **Turning DMS GTK theming off** removes only the import line. The hardcoded glass overrides stay in `gtk.css`.

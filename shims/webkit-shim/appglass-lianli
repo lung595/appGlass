@@ -16,11 +16,8 @@ lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 [ -n "$lv" ] || lv='{"content":0.6,"bar_over_content":0.125}'
 c=$(printf '%s' "$lv" | jq -r '(.content * 1000 | round) / 10')
 b=$(printf '%s' "$lv" | jq -r '(.bar_over_content * 1000 | round) / 10')
-i=$(printf '%s' "$lv" | jq -r '((.inactive // .content) * 1000 | round) / 10')
-f=$(printf '%s' "$lv" | jq -r '.fade // "0ms linear"')
-printf '%s' "$f" | grep -qxE '[0-9]+ms (linear|cubic-bezier\([0-9., ]+\))' || f='0ms linear'   # nothing else reaches sed
 css="$LIB/lianli-glass.css"
-if [ -f "$LIB/appglass-wk.so" ] && sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" -e "s/{{inactive}}/$i/g" -e "s/{{fade}}/$f/g" "$LIB/lianli-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css"; then
+if [ -f "$LIB/appglass-wk.so" ] && sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" "$LIB/lianli-glass.css.tmpl" > "$css.tmp" && mv -f "$css.tmp" "$css"; then
 # two launches with no window on this app version: the engine pauses the glass
 command -v setsid >/dev/null 2>&1 && setsid -f "@APPGLASS@" launch-check "$AGKEY" $$ \
     >/dev/null 2>&1 </dev/null

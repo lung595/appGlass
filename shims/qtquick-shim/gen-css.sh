@@ -1,15 +1,12 @@
 #!/usr/bin/sh
 # gen-css.sh <template> <out.css>: fill the Jellyfin glass CSS template from `appglass levels`
-# and the DMS colours (~/.cache/dms/dms-colors.json). Falls back to 0.8 / built-in colours (no fade).
+# and the DMS colours (~/.cache/dms/dms-colors.json). Falls back to 0.8 / built-in colours.
 set -u
 tmpl=$1; out=$2
 COLORS="${XDG_CACHE_HOME:-$HOME/.cache}/dms/dms-colors.json"
 lv=$("@APPGLASS@" levels 2>/dev/null) || lv=''
 c=$(printf '%s' "$lv" | jq -r '.content // empty' 2>/dev/null); [ -n "$c" ] || c=0.8
 b=$(printf '%s' "$lv" | jq -r '.bar_over_content // empty' 2>/dev/null); [ -n "$b" ] || b=0
-i=$(printf '%s' "$lv" | jq -r '.inactive // empty' 2>/dev/null); [ -n "$i" ] || i=$c
-f=$(printf '%s' "$lv" | jq -r '.fade // empty' 2>/dev/null)
-printf '%s' "$f" | grep -qxE '[0-9]+ms (linear|cubic-bezier\([0-9., ]+\))' || f='0ms linear'   # nothing else reaches sed
 mode=$(jq -r '.mode // "dark"' "$COLORS" 2>/dev/null) || mode=dark
 rgb() {  # DMS colour key -> "r, g, b"
     h=$(jq -r --arg m "$mode" --arg k "$1" '.colors[$m][$k] // empty' "$COLORS" 2>/dev/null | tr -d '#')
@@ -17,7 +14,7 @@ rgb() {  # DMS colour key -> "r, g, b"
     printf '%d, %d, %d' "0x$(echo $h | cut -c1-2)" "0x$(echo $h | cut -c3-4)" "0x$(echo $h | cut -c5-6)"
 }
 os=$(rgb on_surface e4e3d6)
-sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" -e "s/{{inactive}}/$i/g" -e "s/{{fade}}/$f/g" \
+sed -e "s/{{content}}/$c/g" -e "s/{{bar_over}}/$b/g" \
     -e "s/{{surface}}/$(rgb surface 13140d)/g" -e "s/{{surface_container}}/$(rgb surface_container 21221a)/g" \
     -e "s/{{surface_container_high}}/$(rgb surface_container_high 2b2c24)/g" \
     -e "s/{{on_surface}}/$os/g" -e "s/{{on_surface_rgb}}/$os/g" \

@@ -56,7 +56,7 @@ TODO(engine): `appglass setup` will do the four steps above in one command, and 
 - **The theme.** A DMS wallpaper or scheme change re-renders the colours through the matugen hook. GTK apps pick the new colours up on their next start.
 - **A new app.** No command is needed: the sync unit watches the application folders, the rpm database and the flatpak `.changed` files, and a daily timer catches apps that update themselves. A new or updated app is routed within seconds. Re-apply in Settings > Glass, or `appglass apply --all`, does it at once.
 - **An app update.** A theme route stays. An injected route goes back to "Stale" and runs plain until its check passes again for the new version. An app that fails its check, or opens no window twice, runs plain until its next update, with one notification.
-- **Unfocused windows** fade a little more (Settings > Fade: the amount, 10 % by default; the duration, 180 ms; the easing). Only the background fades; text stays opaque. Apps with no fade of their own (see [plugin.md](plugin.md#fade)) stay as they are, unless "Dim apps that cannot fade" is on.
+- **Unfocused windows** look the same as focused ones: appglass adds no fade, and keeps GTK's unfocused grey off the text. The unfocused fade of 0.1.3 and before is gone.
 
 ## Pause
 

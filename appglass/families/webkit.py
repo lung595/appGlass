@@ -15,8 +15,7 @@ levels, rendered at every launch) and webkit-glass.js, which reads the
 page's own colours and marks it: the page colour at the content level,
 large boxes of another colour (sidebars, toolbars, cards) at the bar level,
 popups (dialogs, menus, listboxes, tooltips, floating boxes) untouched and
-opaque, text never touched. The unfocused fade: html.agl-inactive (the
-shim's focus script) eases the content to the inactive level. The window is
+opaque, text never touched. The window is
 glassed only while the view is all it draws: at its map, and again when
 any widget in it maps or unmaps, a widget mapped beside the view or a
 parent of it (a mail client's folder list) makes the shim give the view its
@@ -136,8 +135,7 @@ def css(ctx):
     lv = shims.levels(ctx)
     return shims.fill(shims.source(ADAPTER, TMPL).decode("utf-8"),
                       [("content", shims.jq_pct(lv["content"])),
-                       ("bar_over", shims.jq_pct(lv["bar_over_content"])),
-                       ("inactive", shims.jq_pct(lv["inactive"])), ("fade", lv["fade"])])
+                       ("bar_over", shims.jq_pct(lv["bar_over_content"]))])
 
 
 def launcher(text, wrapper_path, key):

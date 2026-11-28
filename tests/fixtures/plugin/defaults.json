@@ -2,16 +2,8 @@
   "apps": {},
   "enabled": true,
   "fallback": {
-    "inactive": null,
     "mode": "opaque",
     "value": 0.7
-  },
-  "inactive": {
-    "durationMs": 180,
-    "easing": "ease-out-cubic",
-    "enabled": true,
-    "factor": 0.9,
-    "instantFallback": false
   },
   "levels": {
     "bar": null,

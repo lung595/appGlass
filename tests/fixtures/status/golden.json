@@ -640,7 +640,6 @@
   },
   "enabled": true,
   "fallback": {
-    "inactive": null,
     "mode": "opaque",
     "value": 0.7
   },
@@ -1093,7 +1092,7 @@
       "owner": null,
       "path": "~/.config/systemd/user/appglass-vibrancy.service",
       "status": "absent",
-      "what": "runs appglass-vibrancy (the Alacritty inactive fade)"
+      "what": "the Alacritty unfocused fade daemon (retired: the fade is gone)"
     },
     {
       "adapter": "hook",
@@ -1117,19 +1116,9 @@
       "owner": null,
       "path": "~/.local/bin/appglass-vibrancy",
       "status": "absent",
-      "what": "the vibrancy daemon wrapper"
+      "what": "the fade daemon wrapper (retired: the fade is gone)"
     }
   ],
-  "inactive": {
-    "active": false,
-    "durationMs": 180,
-    "easing": "ease-out-cubic",
-    "enabled": true,
-    "factor": 0.9,
-    "fades": [],
-    "instantFallback": false,
-    "level": 0.6
-  },
   "levels": {
     "bar": 0.65,
     "content": 0.6

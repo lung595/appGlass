@@ -12,7 +12,7 @@ At the top:
 - a line with the state ("Glass on, N apps on glass", "Glass paused", "Uninstalled: every file restored") and the **Pause glass** / **Resume glass** button;
 - the last error, if a command failed.
 
-On the left, the rail: Glass, Apps, Fade, Fallback, Advanced, About. On a narrow window the rail shows icons only.
+On the left, the rail: Glass, Apps, Fallback, Advanced, About. On a narrow window the rail shows icons only.
 
 ### Search
 
@@ -49,20 +49,6 @@ Each app is also found by the search, by name.
 
 TODO(engine): filter chips (All, Glass, Opaque, Off, Games), the evidence behind each route, and the time of the last check (`appglass status --json` has the check's reason).
 
-## Fade
-
-Unfocused windows get a little more transparent. Only the background fades: text stays opaque.
-
-- **Fade unfocused windows**: on or off (on by default).
-- **Fade amount**: how much more transparent an unfocused window gets, 0 to 20 % (10 % by default: the unfocused level is the content level x 0.90), never below 60 %. At the default content level of 0.60 nothing changes until the content level is raised.
-- **Fade duration**: how long the fade takes, 0 to 400 ms (180 ms by default); 0 ms means no animation.
-- **Fade easing**: the curve of the fade animation: Ease out (default), Ease in and out, Linear.
-- **Dim apps that cannot fade** (off by default): a niri rule for the other apps. It is instant, and their text dims too.
-
-The apps that fade their own background: the GTK4 and GTK3 apps, Obsidian, Alacritty, Discord (Vencord), Feishin, Jellyfin, Lian Li, the WebKitGTK apps (Kiri) and the Qt style apps (VLC, Kate, Konsole's tabs and menus, and the Qt apps the engine finds). Recorded in a session: the fade of GTK3, VLC, Feishin and Jellyfin; for Kiri, the focused and unfocused levels (204 and 184 at 0.80, `tests/e2e/webkit.sh`), not the steps of the fade; for the others it is unit-tested, not recorded ([routes.md](routes.md) says so per app). The level is written into each app's files and launcher, so most open apps pick up a change when they restart.
-
-TODO(fade): the terminals other than Alacritty, Zed, mpv, GIMP, VSCodium and the colour-key apps (LocalSend, ArtCraft) do not fade yet: only "Dim apps that cannot fade" reaches them. Konsole's terminal area gets neither: the Qt style fades its tabs and menus, so the dim leaves Konsole out.
-
 ## Fallback
 
 What the apps appglass cannot glass look like.
@@ -92,7 +78,7 @@ On confirm, the plugin:
 2. runs `appglass remove`: every file restored, the matugen hook and the user units removed;
 3. runs `appglass plugin remove`: the plugin link removed. The plugins folder (`~/.config/dms/plugins`) stays, even when `appglass plugin install` made it: DMS watches that folder from its start only, so a new link in it is seen on its own.
 
-If step 2 fails, nothing is half-removed: the page says "Uninstall stopped: <error>. Glass is set up again from the current settings", and the glass comes back from a sync. If step 3 fails, the page says: "Every file is restored, but this plugin's link stays: run 'appglass plugin remove' in a terminal to finish." The bar pill then says "uninstalled". While the plugin is still loaded after an uninstall, **Set up again** brings the glass back with the settings the plugin kept (per-app choices, fade, fallback: an app switched off stays off); `appglass get` fills in only a setting it never stored. Once that sync has saved and applied them, it runs `appglass hook install`: the matugen hook and the user units come back (after the sync, so no unit applies the defaults first); if that step fails, the page says to run it in a terminal. Installing it again later (`appglass plugin install`, the guide's Install steps) does the same on its own: a full uninstall took the link out, so the plugin's next load comes from the new link and sets up again with those kept settings. Only an uninstall whose link stayed (step 3 failed) keeps the plugin inert across reloads, until Set up again. A set up again that cannot read `appglass get` (or a shell restart while it runs) tries again on the next sync or load with the same kept settings: they are never overwritten by the defaults. A plugin that DMS loads from outside appglass's link (the system plugin folder, a copy) has no link for step 3 to take out: the page says so, the plugin stays inert, and you turn it off in DMS Settings > Plugins.
+If step 2 fails, nothing is half-removed: the page says "Uninstall stopped: <error>. Glass is set up again from the current settings", and the glass comes back from a sync. If step 3 fails, the page says: "Every file is restored, but this plugin's link stays: run 'appglass plugin remove' in a terminal to finish." The bar pill then says "uninstalled". While the plugin is still loaded after an uninstall, **Set up again** brings the glass back with the settings the plugin kept (per-app choices, fallback: an app switched off stays off); `appglass get` fills in only a setting it never stored. Once that sync has saved and applied them, it runs `appglass hook install`: the matugen hook and the user units come back (after the sync, so no unit applies the defaults first); if that step fails, the page says to run it in a terminal. Installing it again later (`appglass plugin install`, the guide's Install steps) does the same on its own: a full uninstall took the link out, so the plugin's next load comes from the new link and sets up again with those kept settings. Only an uninstall whose link stayed (step 3 failed) keeps the plugin inert across reloads, until Set up again. A set up again that cannot read `appglass get` (or a shell restart while it runs) tries again on the next sync or load with the same kept settings: they are never overwritten by the defaults. A plugin that DMS loads from outside appglass's link (the system plugin folder, a copy) has no link for step 3 to take out: the page says so, the plugin stays inert, and you turn it off in DMS Settings > Plugins.
 
 If DMS reloads the plugin or restarts while step 2 runs, the plugin starts without a sync (a sync would write the glass back) and the page says "Uninstall may not have finished" (the remove may have ended meanwhile: the plugin cannot tell) and the bar pill "unfinished": **Uninstall** again finishes it, **Set up again** keeps the glass.
 

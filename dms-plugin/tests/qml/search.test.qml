@@ -18,7 +18,7 @@ Item {
     Component.onCompleted: {
         const status = JSON.parse(t.readFile("contract/status.json"));
         const cats = Index.CATEGORIES.map(c => c.id);
-        t.check("the rail", cats, ["glass", "apps", "fade", "fallback", "advanced", "about"]);
+        t.check("the rail", cats, ["glass", "apps", "fallback", "advanced", "about"]);
         t.ok("every category has an icon, a name and a help line", Index.CATEGORIES.every(c => c.icon && c.name && c.help));
         t.ok("every entry is in a category", Index.ENTRIES.every(e => cats.indexOf(e.category) >= 0 && e.label && e.help));
         const seen = {};
@@ -26,13 +26,14 @@ Item {
         t.ok("every category has an entry", cats.every(c => Index.ENTRIES.some(e => e.category === c)));
 
         // --- matching
-        const fade = Search.search(Index.ENTRIES, "fade");
-        t.check("\"fade\": the Fade page first", Index.ENTRIES.filter(e => e.category === "fade").map(e => e.id).every(id => ids(fade).indexOf(id) >= 0), true);
-        t.check("\"fade\": best match is on the Fade page", Index.ENTRIES.filter(e => e.id === fade[0].id)[0].category, "fade");
+        const fb = Search.search(Index.ENTRIES, "fallback");
+        t.check("\"fallback\": the Fallback page first", Index.ENTRIES.filter(e => e.category === "fallback").map(e => e.id).every(id => ids(fb).indexOf(id) >= 0), true);
+        t.check("\"fallback\": best match is on the Fallback page", Index.ENTRIES.filter(e => e.id === fb[0].id)[0].category, "fallback");
+        t.check("no fade setting left (0.1.4)", Index.ENTRIES.filter(e => e.id.indexOf("inactive") === 0), []);
         t.check("\"xyz\": nothing", Search.search(Index.ENTRIES, "xyz"), []);
         t.check("empty query: nothing", Search.search(Index.ENTRIES, "   "), []);
         t.check("case and prefix", ids(Search.search(Index.ENTRIES, "UNINST")), ["uninstallButton"]);
-        t.check("every word must match", ids(Search.search(Index.ENTRIES, "fade easing")), ["inactiveEasing"]);
+        t.check("every word must match", ids(Search.search(Index.ENTRIES, "fallback value")), ["fallbackValue"]);
         t.ok("a keyword finds it", ids(Search.search(Index.ENTRIES, "opacity")).indexOf("fallbackMode") >= 0);
         t.check("label beats help", ids(Search.search([{
                     "id": "b",

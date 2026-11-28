@@ -176,10 +176,10 @@ HAND_FILES = (
     (".config/systemd/user/appglass-sync.path", "hook", "watches the theme files"),
     (".config/systemd/user/appglass-sync.service", "hook", "runs appglass-sync"),
     (".config/systemd/user/appglass-vibrancy.service", "hook",
-     "runs appglass-vibrancy (the Alacritty inactive fade)"),
+     "the Alacritty unfocused fade daemon (retired: the fade is gone)"),
     (".config/systemd/user/appglass-discord.path", "hook", "watches ~/.config/discord"),
     (".config/systemd/user/appglass-discord.service", "hook", "runs appglass-sync --discord"),
-    (".local/bin/appglass-vibrancy", "hook", "the vibrancy daemon wrapper"),
+    (".local/bin/appglass-vibrancy", "hook", "the fade daemon wrapper (retired: the fade is gone)"),
 )
 
 

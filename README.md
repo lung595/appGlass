@@ -110,11 +110,6 @@ The widget is optional. The glass works without it.
 
 ## Features
 
-| Unfocused windows fade |
-| --- |
-| [![Two tiled windows: the focus moves from one to the other, and the unfocused one gets a little more transparent while its text stays sharp](docs/media/unfocused-fade.gif)](docs/media/unfocused-fade.gif) |
-| *Shown at level 0.80 with a 20 % fade amount.* |
-
 | The level follows DMS |
 | --- |
 | [![The same three windows at DMS glass levels 0.90, 0.75 and 0.60](docs/media/levels.gif)](docs/media/levels.gif) |
@@ -125,12 +120,12 @@ The widget is optional. The glass works without it.
 | [![A music app opens over the other windows, already with glass](docs/media/new-app.gif)](docs/media/new-app.gif) |
 | *The window opens with glass. No command needed.* |
 
-The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the second GIF was added afterwards. The music window is a small libadwaita demo app: it gets its glass from the GTK4 CSS that libadwaita apps read, so it needs no routing. Plain GTK4 apps without libadwaita stay opaque (not tested). Apps of other toolkits are routed by the sync unit within seconds.
+The GIFs are crossfades between real screenshots, taken in a separate test session. The level label in the first GIF was added afterwards. The music window is a small libadwaita demo app: it gets its glass from the GTK4 CSS that libadwaita apps read, so it needs no routing. Plain GTK4 apps without libadwaita stay opaque (not tested). Apps of other toolkits are routed by the sync unit within seconds.
 
 - **Only the background turns glass.** niri keeps the window at `opacity 1.0` (0.999 for the few apps whose window says it is opaque: Feishin, VSCodium, Obsidian and the WebKitGTK apps, so niri still draws what is behind them). Each app paints its own background with alpha. Text, icons and logos stay fully opaque.
 - **Three levels, from one number.** Content follows the DMS level. Bars (header bars, sidebars, tab bars) stay at `max(content, 0.65)`. Menus, popovers and dialogs stay opaque.
 - **Colours follow DMS.** A wallpaper or scheme change re-renders the app colours through the matugen hook.
-- **Unfocused windows fade a little more**, on the GTK4, GTK3 and Qt Widgets routes, Alacritty, Obsidian, Discord (Vencord), Feishin, Jellyfin and the WebKitGTK apps (Kiri; Lian Li has it built in but stays opaque unless you switch it on). Recorded in a session: the fade of GTK3, VLC, Feishin and Jellyfin; for Kiri, the focused and unfocused levels (204 and 184 at 0.80, `tests/e2e/webkit.sh`), not the steps of the fade; the others are unit-tested only ([routes.md](docs/routes.md) says so per app). Only the background fades. The text stays opaque. The other routes do not fade yet (see the [Roadmap](#roadmap)).
+- **An unfocused window looks the same as a focused one.** appglass adds no unfocused fade, and on GTK it keeps Adwaita from greying the text of an unfocused window.
 - **New and updated apps are found on their own.** A new app is routed within seconds.
 - **Safe by default.** Every file it writes or edits is recorded and backed up first. `appglass remove` puts every file back as it was: the files it created are deleted, the ones it edited get their original bytes back, and an edit you made after appglass is kept. A file appglass owns whole that you edited by hand is saved as `<file>.appglass-changed` before the next apply or hook run writes it again. One exception: while the DMS plugin is on it owns appglass's `settings.json`, and its sync saves the page's settings over a hand edit with no aside (change settings on the plugin's page, or switch the plugin off and use `appglass set`). A link you put over a file it created (to a dotfiles folder) is yours: apply, hook runs, `restore` and remove leave it as is, and its colours no longer follow DMS.
 - **Never touched:** games, root GUIs, the windows DMS draws itself, and Firefox-family browsers (those belong to [browserGlass](https://github.com/lung595/browserGlass)).
@@ -211,7 +206,7 @@ appglass remove && appglass plugin remove
 
 Every file is put back as it was (files appglass created are deleted, your edits to them too; your later edits to files appglass edited are kept). The hook and the user units go too. Your other DMS plugins are not touched.
 
-**Uninstall from DMS.** Uninstalling App Glass in DMS (Settings → Plugins, or `dms plugins uninstall`) does the same on its own. DMS deletes the plugin's clone, so `appglass hook install` keeps a copy of the CLI in `~/.local/share/appglass/cli` (`$XDG_DATA_HOME` when set; `appglass sync` refreshes it). When the plugin unloads with its `plugin.json` gone, it runs `python3 -I -B ~/.local/share/appglass/cli/bin/appglass remove --if-gone <plugin.json>`: after 4 s (`APPGLASS_SWEEP_GRACE`) it does nothing if `plugin.json` is back (an update), else it removes everything, the copy last, and a toast says how it went. If that remove fails, the copy stays: run `~/.local/share/appglass/cli/bin/appglass remove` in a terminal. Disabling the plugin or reloading the shell removes nothing. Then delete the clone if you like, and the link you made in Install:
+**Uninstall from DMS.** Uninstalling App Glass in DMS (Settings → Plugins, or `dms plugins uninstall`) does the same on its own. DMS deletes the plugin's clone, so `appglass hook install` keeps a copy of the CLI in `~/.local/share/appglass/cli` (`$XDG_DATA_HOME` when set; `appglass sync` and a typed `appglass apply` refresh it). When the plugin unloads with its `plugin.json` gone, it runs `python3 -I -B ~/.local/share/appglass/cli/bin/appglass remove --if-gone <plugin.json>`: after 4 s (`APPGLASS_SWEEP_GRACE`) it does nothing if `plugin.json` is back (an update), else it removes everything, the copy last, and a toast says how it went. If that remove fails, the copy stays: run `~/.local/share/appglass/cli/bin/appglass remove` in a terminal. Disabling the plugin or reloading the shell removes nothing. Then delete the clone if you like, and the link you made in Install:
 
 ```sh
 rm ~/.local/bin/appglass
@@ -225,12 +220,9 @@ Open **Settings → Plugins → App Glass**. A search field sits on top (**Ctrl+
 | --- | --- |
 | **Glass** | **Glass for desktop apps** (the main switch), **Glass level** (read-only, from DMS), **Follow the DMS rule** (shown when appglass's own settings hold a level), **Apps on glass**, **Re-apply** |
 | **Apps** | The **App list**: one row per app, with its status chip, route and kind, reason and switch |
-| **Fade** | **Fade unfocused windows** (on), **Fade amount** (0 to 20 %, default 10 %), **Fade duration** (0 to 400 ms, default 180 ms), **Fade easing**, **Dim apps that cannot fade** (off) |
 | **Fallback** | **Apps without glass**: Opaque (default), Translucent (text too), or DMS opacity. **Fallback opacity** (50 to 100 %, default 70 %) |
 | **Advanced** | **Learn open windows**, **Adopt hand-made files**, **Copy report**, **Uninstall appGlass** |
 | **About** | **Version**, **Never touched**, **Command line** |
-
-The fade never goes below 60 %. At the default level of 0.60 there is no visible fade until you raise the level.
 
 Full details: [docs/plugin.md](docs/plugin.md).
 
@@ -350,7 +342,6 @@ These are plans, not promises. They have no dates.
 
 - A generic Electron route through `NODE_OPTIONS`, for Electron apps with no hook.
 - `appglass report <key>`: a scrubbed record for bug reports.
-- Fade for the other terminals, Zed, mpv, GIMP, VSCodium, Dux, Herdr and the colour-key apps.
 - Filter chips and a "Run check now" button in the settings page.
 - WebKitGTK apps: re-mark only the changed part of the page when the body class or the root style changes,
   instead of the whole page.

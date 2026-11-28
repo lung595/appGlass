@@ -35,7 +35,7 @@
 #    wl_surface.set_opaque_region is nil, WAYLAND_DEBUG: at niri opacity 1.0
 #    niri would skip what is behind it), and the rule file blends it at
 #    0.999 too; at content 0.80, unfocused (another window has the
-#    focus): the content eases to the inactive level, text still opaque
+#    focus): the content stays at that level (no fade), text still opaque
 # 4. Kiri on a first start: its language dialog (role=dialog) is a popup,
 #    opaque (255) over the glass
 # 5. appglass remove: the sandbox is back to the pre-apply bytes (Kiri's own
@@ -197,23 +197,20 @@ ag_measure "$SHOT" "${args[@]}" --json "$AG_OUT/measure.json" > /dev/null || MEA
 
 kiri_down "$ID"
 
-# unfocused, at a content level the fade can lower (0.80: the inactive level
-# 0.72; at 0.60 the floor leaves it as it is): another workspace takes the
-# focus, the content eases down, text stays opaque
+# unfocused, at content 0.80: another window takes the focus, the content
+# stays at 0.80 (no unfocused fade, 0.1.4), text stays opaque
 WR=$SB/config/niri/dms/windowrules.kdl
 cp "$WR" "$AG_OUT/windowrules.kdl"
 sed -i -E '0,/opacity 0\.[0-9]+/s//opacity 0.80/' "$WR"
 LV=$(ag_appglass "$SB" levels)
 HI=$(printf '%s' "$LV" | jq -r '.content * 255 | round')
-INACT=$(printf '%s' "$LV" | jq -r '.inactive * 255 | round')
-[ "$INACT" -lt "$HI" ] || ag_die "no inactive level below the content ($LV)"
 ID=$(kiri_up)
 sleep 4
 FSHOT=$AG_OUT/kiri-focused-80.png
 ag_harness shot "$NAME" "$FSHOT" "$ID" >&2
-FADE_RC=0
+UNFOCUSED_RC=0
 ag_measure "$FSHOT" --content "$HI" --tol 6 --text "$TEXT" --min-contrast 1.5 \
-    --json "$AG_OUT/measure-focused-80.json" > /dev/null || FADE_RC=$?
+    --json "$AG_OUT/measure-focused-80.json" > /dev/null || UNFOCUSED_RC=$?
 # another window takes the focus (zenity, else an empty workspace)
 ZID=
 if command -v zenity >/dev/null; then
@@ -229,8 +226,8 @@ fi
 sleep 1.5
 USHOT=$AG_OUT/kiri-unfocused-80.png
 ag_harness shot "$NAME" "$USHOT" "$ID" >&2
-ag_measure "$USHOT" --content "$INACT" --tol 6 --text "$TEXT" --min-contrast 1.5 \
-    --json "$AG_OUT/measure-unfocused.json" > /dev/null || FADE_RC=$?
+ag_measure "$USHOT" --content "$HI" --tol 6 --text "$TEXT" --min-contrast 1.5 \
+    --json "$AG_OUT/measure-unfocused.json" > /dev/null || UNFOCUSED_RC=$?
 if [ -n "$ZID" ]; then
     ag_harness msg "$NAME" action close-window --id "$ZID" >/dev/null || true
 else
@@ -309,7 +306,7 @@ PY
 [ "$MEASURE_RC" = 0 ] || ag_die "measurements failed (see $AG_OUT/measure.json)"
 [ "$REGION_RC" != 2 ] || ag_die "no wayland requests in the app log (WAYLAND_DEBUG)"
 [ "$REGION_RC" = 0 ] || ag_die "the glass window says it is opaque (see $AG_OUT/opaque-region.txt)"
-[ "$FADE_RC" = 0 ] || ag_die "unfocused level wrong (see $AG_OUT/measure-unfocused.json)"
+[ "$UNFOCUSED_RC" = 0 ] || ag_die "unfocused level wrong (see $AG_OUT/measure-unfocused.json)"
 [ "$POPUP_RC" = 0 ] || ag_die "language dialog not opaque (see $AG_OUT/popup.json)"
 [ "$REMOVE_RC" = 0 ] || ag_die "remove left files behind"
 [ "$REAL_OK" = 1 ] || ag_die "the user's Kiri data changed"

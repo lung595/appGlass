@@ -78,6 +78,15 @@ class RescueCopy(unittest.TestCase):
         # no temp dir left beside it
         self.assertEqual(sorted(os.listdir(os.path.dirname(self.cli))), ["cli"])
 
+    def test_typed_apply_refreshes_a_stale_copy(self):
+        self.sb.seed_niri()
+        self.assertEqual(self.sb.run("hook", "install")[0], 0)
+        with open(os.path.join(self.cli, rescue.MANIFEST), "w") as fh:
+            fh.write('{"version": "0.0.1", "files": []}')
+        code, _, err = self.sb.run("apply", "--all")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(rescue.current(self.env, REPO))
+
     def test_full_remove_drops_it(self):
         self.assertEqual(self.sb.run("hook", "install")[0], 0)
         self.assertTrue(os.path.isdir(self.cli))

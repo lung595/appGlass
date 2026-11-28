@@ -19,12 +19,6 @@ var CATEGORIES = [
         "help": "one switch and route per app"
     },
     {
-        "id": "fade",
-        "icon": "gradient",
-        "name": "Fade",
-        "help": "unfocused windows"
-    },
-    {
         "id": "fallback",
         "icon": "layers",
         "name": "Fallback",
@@ -86,41 +80,6 @@ var ENTRIES = [
         "label": "App list",
         "help": "Each app's status and route, with its own switch",
         "keywords": ["apps", "applications", "per", "app", "route", "switch", "toggle", "status"]
-    },
-    {
-        "id": "inactiveToggle",
-        "category": "fade",
-        "label": "Fade unfocused windows",
-        "help": "Unfocused windows get a little more transparent; only the background fades. Open apps pick up a change when they restart",
-        "keywords": ["inactive", "unfocused", "focus", "dim", "fade"]
-    },
-    {
-        "id": "inactiveLevel",
-        "category": "fade",
-        "label": "Fade amount",
-        "help": "How much more transparent an unfocused window gets (never below 60%)",
-        "keywords": ["amount", "strength", "percent", "inactive", "fade"]
-    },
-    {
-        "id": "inactiveDuration",
-        "category": "fade",
-        "label": "Fade duration",
-        "help": "How long the fade takes; 0 ms: no animation",
-        "keywords": ["duration", "time", "animation", "speed", "ms", "fade"]
-    },
-    {
-        "id": "inactiveEasing",
-        "category": "fade",
-        "label": "Fade easing",
-        "help": "The curve of the fade animation",
-        "keywords": ["easing", "curve", "animation", "linear", "ease", "fade"]
-    },
-    {
-        "id": "instantFallback",
-        "category": "fade",
-        "label": "Dim apps that cannot fade",
-        "help": "A niri rule for the other apps: instant, and the text dims too",
-        "keywords": ["instant", "niri", "fallback", "fade", "dim"]
     },
     {
         "id": "fallbackMode",

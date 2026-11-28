@@ -33,7 +33,6 @@ import os
 import re
 import urllib.parse
 
-from .. import inactive
 from ..core import TARGET, fmt_alpha, readable
 
 NAME = "gtk3"
@@ -99,15 +98,11 @@ def find_system(dirs, *rel):
 _a = fmt_alpha   # 0.6 -> '0.60', 0.125 -> '0.125'
 
 
-# Adwaita greys all window text to #919190 when unfocused, with no transition
+# an unfocused window looks like a focused one: Adwaita greys all window text
+# to #919190 when unfocused (:backdrop); text keeps its focused colour
+# (Adwaita's own focused names)
 BACKDROP_FG = """\
-/* Adwaita greys all window text to #919190 when unfocused (:backdrop): too faint on glass */
-window.background:backdrop { color: mix(@window_fg_color, @window_bg_color, 0.15); }
-"""
-# with the inactive fade on, text keeps its focused colour (Adwaita's own
-# focused names), so only the background changes and nothing jumps
-BACKDROP_FG_FADE = """\
-/* unfocused: the background fades, text keeps its focused colour */
+/* unfocused: text keeps its focused colour (Adwaita greys it on :backdrop) */
 window.background:backdrop, button:backdrop, button:backdrop.flat,
 notebook > header > tabs > arrow:backdrop { color: @theme_fg_color; }
 .view:backdrop, iconview:backdrop, .view text:backdrop, iconview text:backdrop,
@@ -123,9 +118,49 @@ spinbutton:not(.vertical) image:backdrop, entry image:backdrop {
 headerbar button:not(.titlebutton):not(.flat):backdrop,
 .titlebar button:not(.titlebutton):not(.flat):backdrop {
   border-color: @borders; border-bottom-color: {edge}; }
+/* plain buttons keep their focused edges, gradient and shadows; the more
+   specific ones (flat, titlebutton, suggested, spin) win in both states */
+button:backdrop { border-color: {border}; border-bottom-color: {edge};
+  background-image: {button_bg}; text-shadow: {shadow}; -gtk-icon-shadow: {shadow};
+  box-shadow: {button_box}; }
+frame > border:backdrop, .frame:backdrop { border-color: {border}; }
+/* tree views: tree lines, header separators, expanders and insensitive rows
+   keep their colours */
+treeview.view:backdrop { border-left-color: {tree_lines}; }
+treeview.view header button:backdrop { border-color: {header_border}; }
+treeview.view.expander, treeview.view.expander:backdrop { color: {expander}; }
+treeview.view.expander:selected, treeview.view.expander:selected:backdrop { color: {expander_sel}; }
+treeview.view:disabled, treeview.view:disabled:backdrop { color: {insensitive}; }
+treeview.view:disabled:selected, treeview.view:disabled:selected:backdrop { color: {insensitive_sel}; }
+treeview.view.separator, treeview.view.separator:backdrop { color: {tree_separator}; }
+/* paned separators (Adwaita lightens them on :backdrop) */
+paned > separator:backdrop { background-image: image({border}); }
+paned > separator.wide:backdrop { background-image: image({border}), image({border}); }
 """
-# Adwaita's focused button bottom edge (a literal, no named colour)
-BUTTON_EDGE = {"dark": "#070707", "light": "#bfb8b1"}
+# Adwaita's focused literals (no named colour for them), per mode
+ADWAITA = {
+    "dark": {"edge": "#070707", "border": "#1b1b1b",
+             "button_bg": "linear-gradient(to top, #323232 2px, #353535)",
+             "shadow": "0 -1px rgba(0, 0, 0, 0.834353)",
+             "button_box": "inset 0 1px rgba(255, 255, 255, 0.02), 0 1px 2px rgba(0, 0, 0, 0.07)",
+             "tree_lines": "#8e8e8d", "header_border": "#545453", "expander": "silver",
+             "expander_sel": "#b9cbe2", "insensitive": "#919190", "insensitive_sel": "#7398c5",
+             "tree_separator": "#353535"},
+    "light": {"edge": "#bfb8b1", "border": "#cdc7c2",
+              "button_bg": "linear-gradient(to top, #edebe9 2px, #f6f5f4)",
+              "shadow": "0 1px rgba(255, 255, 255, 0.769231)",
+              "button_box": "inset 0 1px white, 0 1px 2px rgba(0, 0, 0, 0.07)",
+              "tree_lines": "#979a9b", "header_border": "#d7d2ce", "expander": "#4d4d4d",
+              "expander_sel": "#c2daf7", "insensitive": "#929595", "insensitive_sel": "#86b5ef",
+              "tree_separator": "#f6f5f4"},
+}
+
+
+def backdrop_fg(mode):
+    css = BACKDROP_FG
+    for k, v in ADWAITA[mode].items():
+        css = css.replace("{%s}" % k, v)
+    return css
 
 RULES = """\
 /* content level {c} */
@@ -134,7 +169,9 @@ window.background, window.background:backdrop {{ background-color: alpha(@window
 .view text, .view text:backdrop, .view text:disabled, iconview text, iconview text:backdrop,
 textview text, textview text:backdrop, textview text:disabled, textview border,
 treeview.view, treeview.view:backdrop, list, list:backdrop, scrolledwindow viewport {{ background-color: transparent; }}
-.view:selected, .view:selected:focus, treeview.view:selected, treeview.view:selected:focus, row:selected, iconview:selected {{ background-color: @accent_bg_color; color: @accent_fg_color; }}
+.view:selected, .view:selected:focus, treeview.view:selected, treeview.view:selected:focus, row:selected, iconview:selected,
+.view:selected:backdrop, treeview.view:selected:backdrop, row:selected:backdrop, row.activatable:selected,
+row.activatable:selected:backdrop, iconview:selected:backdrop {{ background-color: @accent_bg_color; color: @accent_fg_color; }}
 
 /* bar level {b}. CSD headerbar is not painted over the window background -> {b} direct */
 headerbar, headerbar:backdrop, .titlebar:not(headerbar), .titlebar:not(headerbar):backdrop {{
@@ -191,39 +228,9 @@ def render(ctx):
         lines.append("@define-color window_fg_color %s;" % rf)
         lines.append("@define-color view_fg_color %s;" % rf)
     lines.append("")
-    fade = inactive.active(ctx.settings, lv.content)
     lines.append(RULES.format(c=_a(lv.content), b=_a(lv.bar), i=_a(lv.bar_over_content),
-                              backdrop_fg=BACKDROP_FG_FADE.replace("{edge}", BUTTON_EDGE[
-                                  "light" if ctx.mode == "light" else "dark"])
-                              if fade else BACKDROP_FG))
-    lines += inactive_rule(ctx)
+                              backdrop_fg=backdrop_fg("light" if ctx.mode == "light" else "dark")))
     return "\n".join(lines)
-
-
-def inactive_rule(ctx):
-    """Unfocused windows: the window background a little more transparent,
-    faded by a transition (settings inactive). [] when off. After RULES, so
-    it wins over the content rule for :backdrop."""
-    c = ctx.levels.content
-    if not inactive.active(ctx.settings, c):
-        return []
-    p = inactive.params(ctx.settings)
-    lv = inactive.level(c, p["factor"])
-    bar = ctx.levels.bar
-    # the CSD headerbar is painted directly (not over the window): its own fade
-    bars = "headerbar, .titlebar:not(headerbar)"
-    bars_bd = "headerbar:backdrop, .titlebar:not(headerbar):backdrop"
-    tr = inactive.transition("background-color", ctx.settings)
-    return [
-        "/* inactive windows: background %s -> %s, bars %s -> %s, faded (text stays opaque) */"
-        % (_a(c), _a(lv), _a(bar), _a(inactive.level(bar, p["factor"]))),
-        "window.background, %s { transition: %s; }" % (bars, tr),
-        "window.background:backdrop { background-color: alpha(@window_bg_color, %s); }"
-        % _a(lv),
-        "%s { background-color: alpha(@headerbar_bg_color, %s); }"
-        % (bars_bd, _a(inactive.level(bar, p["factor"]))),
-        "",
-    ]
 
 
 _EXEC = re.compile(r"^(Exec\s*=\s*)(.*)$")

@@ -159,7 +159,7 @@ class Gtk4(unittest.TestCase):
                 ":root { --dim-opacity: 0.80; }"):
             self.assertIn(line, g.splitlines())
         self.assertIn(fam.BACKDROP_RULE, g)
-        self.assertIn("filter: opacity(0.8); }", g)
+        self.assertIn("filter: none; }", g)   # no unfocused fade: bar contents as focused
         # text roles are left to dank-colors.css when readable
         self.assertNotIn("_fg_color", g.replace("--dim-opacity", ""))
         self.assertEqual(self.gtk_css(),
@@ -174,67 +174,24 @@ class Gtk4(unittest.TestCase):
         self.assertIn("sidebar_bg_color alpha(%s, 0.30);"
                       % self.roles()["surface_container_high"], g)
 
-    def test_inactive_backdrop_keeps_text(self):
-        # with the fade on, only the background changes when unfocused: the
-        # header bar contents keep their focused look (no filter, no jump)
+    def test_backdrop_keeps_text_and_background(self):
+        # unfocused: the header bar contents keep their focused look (no
+        # filter), and no backdrop rule changes a background (no fade, 0.1.4)
         self.sb.set_level(0.8)
         self.apply()
         g = self.glass()
         self.assertEqual(backdrop_text_changes(g), [])
         self.assertIn("tabbar .box:backdrop > .end-action { filter: none; }", g)
-        self.run_ag("set", "inactive.enabled", "false")
-        self.apply()
-        self.assertIn("filter: opacity(0.8); }", self.glass())   # off: the old cue
-
-    def test_inactive_backdrop_reaches_libadwaita_only(self):
-        # gtk.css reaches every GTK4 app. The Default theme (no libadwaita)
-        # paints an opaque literal colour, never @window_bg_color: a backdrop
-        # rule built on @window_bg_color turned its unfocused windows into
-        # dark glass. Only libadwaita defines --window-bg-color; without it
-        # the rule falls back to the Default theme's own opaque background.
-        self.sb.set_level(0.8)
-        self.apply()
-        # only a backdrop background that differs from its focused twin is
-        # the fade (the GtkSourceView rule clears both states alike)
-        rs = css_rules(self.glass())
+        self.assertNotIn("transition", g)
+        rs = css_rules(g)
         bg = lambda d: d.get("background-color", d.get("background"))
         focused = {}
         for sel, d in rs:
             if ":backdrop" not in sel and bg(d) is not None:
                 focused.setdefault(sel, set()).add(bg(d))
-        bd = [(sel, d) for sel, d in rs
-              if ":backdrop" in sel and bg(d) is not None
-              and bg(d) not in focused.get(sel.replace(":backdrop", ""), ())]
-        self.assertEqual([sel for sel, _ in bd], ["window.background:backdrop"])
-        self.assertIn(("textview.view:backdrop", "transparent"),
-                      [(sel, bg(d)) for sel, d in rs if ":backdrop" in sel])
-        d = bd[0][1]
-        self.assertNotIn("@window_bg_color", d["background-color"])
-        self.assertIn("var(--window-bg-color)", d["--agl-backdrop-bg"])
-        self.assertEqual(d["background-color"], "var(--agl-backdrop-bg, @theme_bg_color)")
-
-    def test_inactive_backdrop_fades(self):
-        self.apply()
-        self.assertNotIn(":backdrop { background-color", self.glass())   # 0.60: the floor
-        self.sb.set_level(0.8)
-        self.apply()
-        g = self.glass()
-        self.assertIn("window.background { transition: background-color 180ms "
-                      "cubic-bezier(0.33, 1, 0.68, 1); }", g.splitlines())
-        # 0.80 x 0.90 = 0.72 net: alpha() multiplies the 0.80 window colour by 0.90
-        self.assertIn("window.background:backdrop { --agl-backdrop-bg: "
-                      "alpha(var(--window-bg-color), 0.90); "
-                      "background-color: var(--agl-backdrop-bg, @theme_bg_color); }",
-                      g.splitlines())
-        self.run_ag("set", "inactive.factor", "0.8")
-        self.run_ag("set", "inactive.durationMs", "0")
-        self.apply()
-        g = self.glass()
-        self.assertIn("alpha(var(--window-bg-color), 0.80);", g)   # 0.64 net, above the floor
-        self.assertIn("window.background { transition: none; }", g)
-        self.run_ag("set", "inactive.enabled", "false")
-        self.apply()
-        self.assertNotIn("transition", self.glass())
+        self.assertEqual([sel for sel, d in rs
+                          if ":backdrop" in sel and bg(d) is not None
+                          and bg(d) not in focused.get(sel.replace(":backdrop", ""), ())], [])
 
     def test_light_mode(self):
         self.seed(light=True)

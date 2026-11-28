@@ -6,8 +6,8 @@
 Run with GTK_THEME=AppGlass on any GDK backend (the tests use broadway, no
 compositor needed). Builds a window with a CSD headerbar (title + button),
 a notebook, a spin button, a button, a label, an entry, a popover and a
-menu, reads each node's text colour, the headerbar button edges and a few
-background colours, sets the windows to :backdrop and reads them again.
+menu, reads each node's text colour, the headerbar button edges, a few
+background colours and the pixels of a panel (button, frame, tree view), sets the windows to :backdrop and reads them again.
 Prints {"focused": {...}, "backdrop": {...}}.
 """
 
@@ -51,6 +51,36 @@ hb_flat.get_style_context().add_class("flat")
 ohb.pack_end(hb_flat)
 ow.add(ohb)
 ow.show_all()
+# a panel read as pixels: a plain button, a frame, a tree view with grid
+# and tree lines, an expanded row, a selected row, an insensitive row and a
+# separator row, and paned separators (thin and wide)
+pw = Gtk.OffscreenWindow()
+panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+panel.add(Gtk.Button(label="Plain"))
+fr = Gtk.Frame(label="Frame")
+fr.add(Gtk.Label(label="inside"))
+panel.add(fr)
+store = Gtk.TreeStore(str, bool)
+store.append(store.append(None, ["Parent", True]), ["Child", True])
+selected = store.append(None, ["Selected", True])
+store.append(None, ["Insensitive", False])
+store.append(None, ["--", True])
+tree = Gtk.TreeView(model=store)
+tree.set_grid_lines(Gtk.TreeViewGridLines.BOTH)
+tree.set_enable_tree_lines(True)
+for title in ("One", "Two"):
+    tree.append_column(Gtk.TreeViewColumn(title, Gtk.CellRendererText(), text=0, sensitive=1))
+tree.set_row_separator_func(lambda m, it: m[it][0] == "--")
+tree.expand_all()
+tree.get_selection().select_iter(selected)
+panel.add(tree)
+for wide in (False, True):
+    pn = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=wide)
+    pn.pack1(Gtk.Label(label="left"), True, False)
+    pn.pack2(Gtk.Label(label="right"), True, False)
+    panel.add(pn)
+pw.add(panel)
+pw.show_all()
 
 
 def settle(t=0.3):
@@ -133,6 +163,10 @@ def read():
         "popover": colour(popover.get_style_context(), "background-color"),
         "menu": colour(menu.get_style_context(), "background-color"),
     }
+    pb = pw.get_pixbuf()
+    out["panel"] = {"w": pb.get_width(), "h": pb.get_height(), "n": pb.get_n_channels(),
+                    "stride": pb.get_rowstride(),
+                    "rgba": base64.b64encode(pb.get_pixels()).decode()}
     return out
 
 
@@ -141,6 +175,11 @@ res = {"focused": read()}
 w.set_state_flags(Gtk.StateFlags.BACKDROP, False)
 menu.get_toplevel().set_state_flags(Gtk.StateFlags.BACKDROP, False)  # its own popup window
 ow.set_state_flags(Gtk.StateFlags.BACKDROP, False)
+pw.set_state_flags(Gtk.StateFlags.BACKDROP, False)
+settle()
+# the tree view keeps its old picture until something redraws it
+for x in panel.get_children():
+    x.queue_draw()
 settle()
 res["backdrop"] = read()
 print(json.dumps(res))

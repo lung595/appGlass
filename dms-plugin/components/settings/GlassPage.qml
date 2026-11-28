@@ -41,14 +41,6 @@ CategoryPage {
             color: Theme.surfaceVariantText
             font.pixelSize: Theme.fontSizeSmall
         }
-        StyledText {
-            objectName: "inactiveInfo"
-            width: parent.width
-            visible: text !== ""
-            text: Logic.inactiveText(page.host.status)
-            color: Theme.surfaceVariantText
-            font.pixelSize: Theme.fontSizeSmall
-        }
     }
 
     ActionRow {

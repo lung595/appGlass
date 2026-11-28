@@ -10,7 +10,7 @@ import "logic.js" as Logic
 
 // The settings page: a search field on top, then the glass state with the
 // global Pause, the categories on the left
-// (Glass, Apps, Fade, Fallback, Advanced, About), one category at a time on
+// (Glass, Apps, Fallback, Advanced, About), one category at a time on
 // the right; typing shows every matching setting across them, editable in
 // place. The setting widgets save into the plugin data (keys at the top of
 // components/logic.js), which the daemon turns into `appglass sync`; what
@@ -34,7 +34,7 @@ PluginSettings {
     // "interrupted": a reload cut the uninstall short (Uninstall again)
     readonly property string uninstallState: root.vars.uninstallState || ""
     // uninstalled: the daemon syncs nothing, so nothing here offers a change
-    // (the Fade and Fallback pages are disabled, CategoryPage drops a save)
+    // (the Fallback page is disabled, CategoryPage drops a save)
     readonly property bool gone: root.uninstallState !== ""
     // why the last Uninstall failed (kept after the sync that followed)
     readonly property string uninstallError: root.vars.uninstallError || ""
@@ -268,10 +268,6 @@ PluginSettings {
                             host: root
                         }
                         AppsPage {
-                            view: view
-                            host: root
-                        }
-                        FadePage {
                             view: view
                             host: root
                         }

@@ -14,10 +14,8 @@ By default the levels follow DMS (`levels.content` and `levels.bar` in `~/.confi
 `appglass levels` prints them. At a content level of 0.60:
 
 ```json
-{"content": 0.6, "bar": 0.65, "popup": 1.0, "bar_over_content": 0.125, "content8": 153, "bar8": 166, "popup8": 255, "inactive": 0.6, "fade_ms": 0, "fade_easing": "ease-out-cubic", "fade": "0ms cubic-bezier(0.33, 1, 0.68, 1)"}
+{"content": 0.6, "bar": 0.65, "popup": 1.0, "bar_over_content": 0.125, "content8": 153, "bar8": 166, "popup8": 255}
 ```
-
-`inactive` is the background level of an unfocused window, and `fade_ms`, `fade_easing` and `fade` (the same as a CSS transition) are its fade. At 0.60 the unfocused level is the content level, so there is no fade.
 
 `bar_over_content` is there because alphas stack. A bar drawn on top of the 0.60 content must itself be painted at `(0.65 - 0.60) / (1 - 0.60) = 0.125` to end at 0.65. Painting it at 0.65 gives 0.86.
 
@@ -70,7 +68,7 @@ A launcher whose target is gone (an Exec that is not on `PATH`, an absolute path
 ### Routes by toolkit
 
 - **GTK3:** every GTK3 app gets the `GTK_THEME=AppGlass` launcher override.
-- **Qt6 Widgets (host):** every app that needs `libQt6Widgets` and not Qt Quick gets `QT_STYLE_OVERRIDE=appglass`, with the unfocused fade. An app that also links `libQt6Quick` or `libQt6Qml` is classed Qt Quick (its QML scene does not draw through a widget style) and keeps the fallback, unless it has its own route (Dux, Jellyfin).
+- **Qt6 Widgets (host):** every app that needs `libQt6Widgets` and not Qt Quick gets `QT_STYLE_OVERRIDE=appglass`. An app that also links `libQt6Quick` or `libQt6Qml` is classed Qt Quick (its QML scene does not draw through a widget style) and keeps the fallback, unless it has its own route (Dux, Jellyfin).
 - **GTK4:** the global `gtk-4.0/gtk.css`. A GTK4 flatpak gets a launcher override that adds `--filesystem=xdg-config/gtk-4.0:ro` to that launch only. appglass never writes a persistent `flatpak override`.
 - **WebKitGTK 4.x on GTK3 (host):** every such app (Kiri and the other Tauri / wry apps) gets the WebKit shim launcher (family `webkit`); it loads code into the app, so it waits for its hidden check per app. Lian Li keeps its own family. WebKitGTK 6 (GTK4) and WebKitGTK flatpaks: no route.
 - **Electron:** only the per-app routes (Obsidian, Vencord for Discord, the Feishin and VSCodium inspector hook).
@@ -106,8 +104,8 @@ These are the status chips in Settings > Apps:
 - When a sync changed a GTK CSS file, it flips the GTK theme in your session, which makes the running GTK3 apps of the theme route (started with `GTK_THEME=AppGlass`) re-read their theme. GTK4 apps read `gtk.css` only at start: they pick the change up when they restart. Measured in a nested niri after `apply --from-hook` from 0.60 to 0.90 and the same flip: a GTK3 role window stayed at 153 until the flip and showed 230 after it; a libadwaita role window stayed at 153 through the flip and showed the new level only in a new window. The flip: `org.gnome.desktop.interface gtk-theme` goes to `''` for 0.3 s, then back. A theme you set is set back to the same name; a key you never set (no dconf value) is reset to its default, so it is not pinned. A stop during the flip (a logout) puts the theme back first. The matugen post_hook often rewrites the GTK3 theme during the sync's settle, so the sync also flips when that file changed since it started. You see it: every open GTK app redraws once, a one-frame flash, at each DMS colour change that changed GTK CSS. It never happens at idle.
 - `appglass-verify.service` runs the queued hidden checks (see [The gate](#the-gate-glass-waiting-stale-opaque-off-excluded)). A sync that queued a check starts it.
 - `appglass-discord.path` watches Discord's config, so the Vencord route survives a Discord update (with the installer CLI kept at `~/.local/share/appglass/VencordInstallerCli-linux`). It is enabled only while the vencord family is applied.
-- `appglass-vibrancy.service` is the only resident process: it fades unfocused Alacritty windows, which niri cannot do without fading the text. It is enabled and started only while the alacritty family is applied. It does not poll: it wakes on a niri event, or when an appglass run that changed its settings or the level reloads it (`systemctl --user reload`).
-- An appglass run that applies the alacritty or vencord family (apply, sync, the plugin's switch) enables and starts its unit; one that takes the family out, or switches it off, stops and disables it. `appglass hook install` enables neither while its family is not applied.
+- An appglass run that applies the vencord family (apply, sync, the plugin's switch) enables and starts its unit; one that takes the family out, or switches it off, stops and disables it. `appglass hook install` does not enable it while the family is not applied.
+- No resident process. The Alacritty fade reader of 0.1.3 and before (`appglass-vibrancy.service`) is gone: the next `appglass hook install`, sync or typed `appglass apply` stops and disables it; a typed command also takes its unit and wrapper out.
 - The DMS plugin only writes settings and runs `appglass sync`. The units and the CLI do the work, so the glass stays the same when the plugin is off.
 - `appglass hook install` also keeps a copy of the CLI (`bin/appglass` and the `appglass` package) in `~/.local/share/appglass/cli` (under `$XDG_DATA_HOME` when set), written to a temporary folder and renamed into place. `appglass sync` writes it again only when its `MANIFEST.json` (version, size and mtime of every file) differs from the running CLI. A full `appglass remove` and `appglass hook remove` take it out. When DMS uninstalls the plugin (and deletes its clone), the plugin runs this copy with `remove --if-gone <plugin.json>`: it waits `APPGLASS_SWEEP_GRACE` seconds (4), exits 3 doing nothing if `plugin.json` is back (an update re-cloned it), else removes everything, the copy last.
 
@@ -176,7 +174,7 @@ Failure always ends opaque, never half-faded:
 
 ## Cost
 
-- Idle: no process of appglass runs, except the Alacritty fade reader (`appglass-vibrancy.service`, only while the alacritty family is applied), which sleeps until a niri event. The path units and the timer are watched by the systemd user manager.
+- Idle: no process of appglass runs. The path units and the timer are watched by the systemd user manager.
 - A sync: a stat-only fingerprint pass over every launcher, and a probe only of new or changed ones. Measured on the design prototype: 86 fingerprint keys (46 launchers) in 3.0 ms, about 25 ms per event, 1.7 s for the cold scan, once.
 - A sync with nothing to do: the hook run (`apply --from-hook --quiet`) remembers every path it looked at, with its stat (`~/.cache/appglass/hook/inputs.json`), when it wrote nothing and started no program. The next such run stats those paths and appglass's own sources first; when none changed it exits before the lock, in about 20 ms with Python's start included.
 - The compiler and Qt versions in a shim's build stamp are kept in `~/.cache/appglass/toolchain.json` while the tools and the `.pc` files stay the same, so a run that builds nothing starts no compiler.

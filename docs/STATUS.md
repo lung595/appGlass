@@ -42,7 +42,7 @@ Measured in a nested test session (see [apps.md](apps.md) for the numbers):
 - App themes: Obsidian, Herdr, Dux Files, Dux Calendar (partial, see the README table).
 - Forced routes, after their hidden check: Feishin, VSCodium, Kiri (generic WebKit shim),
   Jellyfin Desktop, LocalSend, ArtCraft Launcher.
-- Unfocused fade, DMS level follow, matugen colour follow, automatic routing of new apps.
+- DMS level follow, matugen colour follow, automatic routing of new apps.
 - `appglass remove` puts every file back. Created files are deleted (with any edits you made
   to them), edited files get their original back, and your later edits to files appglass
   edited are kept.
@@ -88,8 +88,7 @@ From the last review. They are minor, and none of them blocked 0.1.0:
   a cut inside remove's undo write of a file you edited (the original comes back, the cut
   bytes are saved aside).
 - Roadmap items: `appglass setup`, `appglass pause/resume`, a per-app off for Native apps that
-  takes their files out, `appglass set` with dotted app ids, a generic Electron route, fade for
-  more routes. See the README.
+  takes their files out, `appglass set` with dotted app ids, a generic Electron route. See the README.
 
 ## How to resume
 
@@ -106,7 +105,7 @@ From the last review. They are minor, and none of them blocked 0.1.0:
    bwrap, ffmpeg, jq, the Vulkan headers, lavapipe, SPIRV-Tools or shaderc, and a few more. Six
    always skip: shared shim tests that do not apply to a family ("no rendered CSS", "nothing
    built"). On the last full run (0.1.0) 8 skipped: those six, plus luac and node missing. node is
-   now installed, so the Feishin hook test in `test_fade.py` runs (it sets `NODE_PATH` itself).
+   now installed, so the WebKit script test (`tests/test_webkit_glass_js.py`) runs.
 
 2. **End-to-end tests** (`tests/e2e/<family>.sh`) run the real apps in a nested niri session.
    They need `APPGLASS_HARNESS` set to the nested-session script, `tests/e2e/harness.sh`

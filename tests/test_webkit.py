@@ -738,12 +738,12 @@ class ShimDecision(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         return dict(l.split(" ", 1) for l in r.stdout.splitlines())
 
-    # page: the scripts the shown document ran (the page script and the focus
-    # script mark it; every glass rule is gated on those marks). The scripts
+    # page: the scripts the shown document ran (the page script marks it;
+    # every glass rule is gated on those marks). The scripts
     # stay registered while opaque: the marks are inert without the sheet, and
     # a user script runs only on a document that loads after it is added.
-    GLASS = "paintable=1 bg_alpha=0 sheets=1 scripts=3 page=3"
-    OPAQUE = "paintable=0 bg_alpha=1 sheets=0 scripts=3 page=3"
+    GLASS = "paintable=1 bg_alpha=0 sheets=1 scripts=2 page=2"
+    OPAQUE = "paintable=0 bg_alpha=1 sheets=0 scripts=2 page=2"
 
     def test_a_sidebar_shown_after_the_map_makes_it_opaque(self):
         r = self.run_driver("late")
@@ -771,7 +771,7 @@ class ShimDecision(unittest.TestCase):
         """Mapped before the page is loaded: the view is clear already but
         the window keeps its own background (not the bare blur) until then."""
         r = self.run_driver("late")
-        self.assertEqual(r["painting"], "paintable=0 bg_alpha=0 sheets=1 scripts=3 page=0")
+        self.assertEqual(r["painting"], "paintable=0 bg_alpha=0 sheets=1 scripts=2 page=0")
         self.assertEqual(r["mapped"], self.GLASS)
 
     def test_the_window_waits_for_the_first_paint(self):
@@ -779,9 +779,9 @@ class ShimDecision(unittest.TestCase):
         show the bare blur until its first frame, so app-paintable waits for
         the page's paint script (two animation frames after the document)."""
         r = self.run_driver("commit")
-        waiting = "paintable=0 bg_alpha=0 sheets=1 scripts=3 page=0"
+        waiting = "paintable=0 bg_alpha=0 sheets=1 scripts=2 page=0"
         self.assertEqual(r["committed"], waiting)
-        self.assertEqual(r["finished"], waiting.replace("page=0", "page=3"))
+        self.assertEqual(r["finished"], waiting.replace("page=0", "page=2"))
         self.assertEqual(r["painted"], self.GLASS)
 
     def test_a_border_or_a_margin_round_the_view_is_not_filling(self):
@@ -797,8 +797,8 @@ class ShimDecision(unittest.TestCase):
         the window, not only the first one seen, and a page committed while
         a sidebar is up does not glass the window."""
         r = self.run_driver("twoview")
-        self.assertEqual(r["mapped"], "paintable=0 bg_alpha=0 sheets=1 scripts=3 page=0")
-        self.assertEqual(r["shown"], "paintable=0 bg_alpha=1 sheets=0 scripts=3 page=0")
+        self.assertEqual(r["mapped"], "paintable=0 bg_alpha=0 sheets=1 scripts=2 page=0")
+        self.assertEqual(r["shown"], "paintable=0 bg_alpha=1 sheets=0 scripts=2 page=0")
         self.assertEqual(r["committed"], self.OPAQUE)
         self.assertEqual(r["hidden"], self.GLASS)
         self.assertEqual(r["page-a"], self.GLASS)

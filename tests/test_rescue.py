@@ -765,3 +765,28 @@ class UntrustedBackup(RescueBase):
         self.assertNotIn("cp ", out + err)
         self.assertIn("cannot trust", out + err)
         self.assertEqual(sb.readb(p), VLC_MINE)
+
+
+class LegacyFadeUnitStateLost(RescueBase):
+    """A 0.1.3 hook's fade daemon (unit and wrapper) with the state dir
+    lost: the rescue records both (the unit by its 0.1.3 bytes), so remove
+    takes them out with the rest of the hook."""
+
+    def test_the_old_unit_is_recorded_and_removed(self):
+        from appglass import hook
+        sb = self.sb
+        sb.write("matugen/config.toml", "[config]\n")
+        self.ok("hook", "install", fams="alacritty")
+        u = os.path.join(sb.config, "systemd", "user", hook.LEGACY_UNIT)
+        w = os.path.join(sb.home, ".local", "bin", "appglass-vibrancy")
+        with open(u, "wb") as f:
+            f.write(hook.LEGACY_UNIT_DATA)
+        with open(w, "w") as f:
+            f.write("#!/bin/sh\n# appglass-vibrancy: written by appglass hook install\n"
+                    'exec appglass vibrancy "$@"\n')
+        shutil.rmtree(self.state_dir)
+        out = self.ok("adopt", "--rescue", fams="alacritty")
+        self.assertIn("recorded ~/.config/systemd/user/" + hook.LEGACY_UNIT, out)
+        out += self.ok("remove", fams="alacritty")
+        self.assertFalse(os.path.exists(u), out)
+        self.assertFalse(os.path.exists(w), out)

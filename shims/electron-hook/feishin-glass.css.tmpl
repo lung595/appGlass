@@ -3,9 +3,7 @@
    Content painted once on #root, bars over it, menus/modals opaque, text untouched. */
 html, body, [id$="-layout"], [class*="layout-module"], [class*="main-content"], [class*="route"], [class*="page-module"],
 [class*="native-scroll"], [class*="scroll-area"], [class*="library-header"] { background: transparent !important; }
-#root { background: rgba({{surface}}, {{content}}) !important; transition: background-color {{fade}} !important; }
-/* unfocused window (agl-hook.js sets the class on BrowserWindow blur): only the content fades */
-html.agl-inactive #root { background: rgba({{surface}}, {{inactive}}) !important; }
+#root { background: rgba({{surface}}, {{content}}) !important; }
 #player-bar, [class*="player-bar-module"], [class*="page-header-module-container"], [class*="sidebar"], [class*="titlebar"], [class*="window-bar"], [class*="top-bar"]
 { background: rgba({{surface_container}}, {{bar_over}}) !important; }
 section[class*="modal"], [class*="mantine-Menu-dropdown"], [class*="mantine-Popover-dropdown"], [class*="mantine-Select-dropdown"],

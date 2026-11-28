@@ -31,15 +31,7 @@ APPEARANCE = json.dumps({"theme": "obsidian", "accentColor": "",
 
 
 def css_vars(css):
-    """The focused-window vars (the inactive section 5 left out)."""
-    css = css.split("/* 5. inactive window")[0]
     return dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", css))
-
-
-def inactive_vars(css):
-    if "/* 5. inactive window" not in css:
-        return None
-    return dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", css.split("/* 5. inactive window")[1]))
 
 
 class Obsidian(unittest.TestCase):
@@ -744,23 +736,27 @@ class Obsidian(unittest.TestCase):
         self.assertEqual(v["ag-bar-over-content"], "rgba(30, 34, 38, 0.00)")
         self._check_readable("#101418", "#1e2226", "#e0e2e8", 0.8, 0.8)
 
-    def test_inactive_window_fades(self):
-        # default content 0.60 is the floor: no inactive section
-        self.apply()
-        self.assertIsNone(inactive_vars(self.css()))
+    def test_no_unfocused_fade(self):
+        # an unfocused window looks the same as a focused one (0.1.4)
         self.sb.set_level(0.8)
         self.apply()
         css = self.css()
-        iv = inactive_vars(css)
-        self.assertEqual(iv["ag-content"], "rgba(16, 20, 24, 0.72)")
-        self.assertEqual(iv["ag-bar"], "rgba(30, 34, 38, 0.72)")
-        self.assertIn("body.theme-dark:not(.is-focused)", css)
-        self.assertIn("transition: background-color 180ms cubic-bezier(0.33, 1, 0.68, 1);", css)
-        # text colours are not touched by the inactive section
-        self.assertEqual(set(iv), {"ag-content", "ag-bar", "ag-bar-over-content"})
-        self.sb.run("set", "inactive.enabled", "false")
-        self.apply()
-        self.assertIsNone(inactive_vars(self.css()))
+        self.assertNotIn(":not(.is-focused)", css)
+        self.assertNotIn("transition", css)
+        # Obsidian's own focused-window text rules (app.css, body.is-focused
+        # ...) hold without the class too, so dropping it changes nothing
+        for sel, colour in (
+                (".titlebar-inner", "--titlebar-text-color-focused"),
+                (".workspace-leaf.mod-active .view-header-title", "--text-normal"),
+                (".workspace-tab-header-container .workspace-tab-header", "--tab-text-color-focused"),
+                (".workspace-tab-header-container .workspace-tab-header.is-active",
+                 "--tab-text-color-focused-active"),
+                (".workspace-tab-header.is-active .workspace-tab-header-inner-title",
+                 "--tab-text-color-focused-active-current"),
+                (".workspace-tab-header.is-highlighted .workspace-tab-header-inner-title",
+                 "--tab-text-color-focused-highlighted")):
+            self.assertRegex(css, r"body [^{]*%s[,\s][^{]*\{\s*color: var\(%s\);" % (
+                re.escape(sel), re.escape(colour)))
 
     @unittest.skipUnless(shutil.which("niri"), "niri not installed")
     def test_niri_rule(self):

@@ -4,6 +4,19 @@ All notable changes to appGlass are listed here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- **The unfocused fade is gone.** An unfocused window now looks the same as a focused one: no app background turns more transparent when its window loses focus. The Fade page of the settings, its settings (`inactive`, `fallback.inactive`), `appglass vibrancy` and `appglass-vibrancy.service` are gone. Old settings that still hold those keys load without error, and the keys are dropped.
+- The GTK files still keep Adwaita's own unfocused cues off: unfocused text keeps its focused colour. In GTK3 this now also covers selected and insensitive tree view rows, expanders, tree lines, column header separators, frame borders, plain buttons, separator rows and paned separators (Solaar, nvidia-settings).
+- Obsidian no longer dims its tab titles and the note title when its window loses focus: the snippet keeps Obsidian's focused text colours in both states.
+
+### Changed
+
+- The next `appglass hook install`, plugin sync or typed `appglass apply` stops and disables an old `appglass-vibrancy.service`. A typed command also takes its unit and wrapper out.
+- A typed `appglass apply` now also refreshes the CLI copy used by the DMS uninstall sweep (`~/.local/share/appglass/cli`), as `appglass sync` does.
+
 ## [0.1.3] - 2026-11-27
 
 ### Changed

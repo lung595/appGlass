@@ -4,9 +4,6 @@
 //         header, dock title) painted OVER it : same colour at APPGLASS_BAR (0.125) -> ~0.65 effective
 //   menus, combo popups, tooltips, dialogs    : opaque (APPGLASS_DIALOGS=glass makes dialogs glass too)
 //   text roles                                : always opaque
-//   unfocused top-level window                : content eases to APPGLASS_INACTIVE in APPGLASS_FADE_MS
-//                                               (APPGLASS_FADE_EASING: ease-out-cubic, ease-in-out, linear);
-//                                               a QVariantAnimation per window, stopped between focus changes
 // Load: QT_PLUGIN_PATH=<dir containing styles/> QT_STYLE_OVERRIDE=appglass
 // Colours: APPGLASS_COLORS (default ~/.cache/dms/dms-colors.json, "mode" picks dark/light).
 // Environment: the style reads its variables once (env()) and takes them out of the process
@@ -24,7 +21,7 @@
 extern char **environ;
 
 namespace {
-struct Env { QString colors; double content, bar, inactive; int fadeMs; QEasingCurve::Type curve;
+struct Env { QString colors; double content, bar;
              bool dialogs, debug, debug2; QStringList opaque; };
 
 double envF(const char *n, double d) { bool ok; double v = qEnvironmentVariable(n).toDouble(&ok); return ok ? v : d; }
@@ -69,12 +66,8 @@ void scrubXdg() {
 // one hop only: the levels are kept here, the variables leave the environment
 const Env &env() {
     static const Env e = [] {
-        const double content = envF("APPGLASS_CONTENT", 0.60);
-        const QString ease = qEnvironmentVariable("APPGLASS_FADE_EASING");
         Env v{qEnvironmentVariable("APPGLASS_COLORS", QDir::homePath() + "/.cache/dms/dms-colors.json"),
-              content, envF("APPGLASS_BAR", 0.125), envF("APPGLASS_INACTIVE", content),
-              int(envF("APPGLASS_FADE_MS", 0)),
-              ease == "linear" ? QEasingCurve::Linear : ease == "ease-in-out" ? QEasingCurve::InOutCubic : QEasingCurve::OutCubic,
+              envF("APPGLASS_CONTENT", 0.60), envF("APPGLASS_BAR", 0.125),
               qEnvironmentVariable("APPGLASS_DIALOGS") == "glass", qEnvironmentVariableIsSet("APPGLASS_DEBUG"),
               qEnvironmentVariable("APPGLASS_DEBUG") == "2",
               qEnvironmentVariable("APPGLASS_OPAQUE").split(',', Qt::SkipEmptyParts)};
@@ -118,9 +111,6 @@ public:
     GlassStyle() : QProxyStyle(QStyleFactory::create("Fusion")), pal(loadPal()) {
         content = env().content;
         bar = env().bar;
-        inactive = env().inactive;
-        fadeMs = env().fadeMs;
-        curve = env().curve;
         glassDialogs = env().dialogs;
         dbg2 = env().debug2; if (dbg2) qApp->installEventFilter(this);
         opaqueApps = env().opaque;
@@ -199,32 +189,7 @@ public:
     }
     void unpolish(QWidget *w) override { w->removeEventFilter(this); QProxyStyle::unpolish(w); }
 
-    // the window's content level now: the running fade, else its focus state
-    double level(const QWidget *w) const {
-        QVariant v = w->property("appglass_a");
-        return v.isValid() ? v.toDouble() : (w->isActiveWindow() ? content : inactive);
-    }
-    void fade(QWidget *w, bool active) {
-        double from = level(w), to = active ? content : inactive;
-        auto *a = w->findChild<QVariantAnimation *>("appglass_fade", Qt::FindDirectChildrenOnly);
-        if (a) a->stop();
-        if (fadeMs <= 0 || qFuzzyCompare(from, to)) { w->setProperty("appglass_a", to); w->update(); return; }
-        if (!a) {
-            a = new QVariantAnimation(w); a->setObjectName("appglass_fade");
-            QObject::connect(a, &QVariantAnimation::valueChanged, w,
-                             [w](const QVariant &v) { w->setProperty("appglass_a", v); w->update(); });
-        }
-        a->setStartValue(from); a->setEndValue(to); a->setDuration(fadeMs); a->setEasingCurve(curve);
-        a->start();
-    }
-
     bool eventFilter(QObject *o, QEvent *e) override {
-        if ((e->type() == QEvent::WindowActivate || e->type() == QEvent::WindowDeactivate) && o->isWidgetType()
-            && o->property("appglass_f").toBool()) {
-            auto *w = static_cast<QWidget *>(o);
-            if (w->isWindow() && w->testAttribute(Qt::WA_TranslucentBackground))
-                fade(w, e->type() == QEvent::WindowActivate);
-        }
         if (e->type() == QEvent::Paint && dbg2 && o->isWidgetType()) {
             auto *w = static_cast<QWidget *>(o);
             if (w->width() > 400 && w->height() > 300 && !seen.contains(w)) { seen.insert(w);
@@ -240,7 +205,7 @@ public:
             QColor c;
             QRect r = w->rect();
             if (w->isWindow() && w->testAttribute(Qt::WA_TranslucentBackground)) {
-                c = withA(pal.win, level(w));
+                c = withA(pal.win, content);
                 p.setCompositionMode(QPainter::CompositionMode_Source);  // define the alpha exactly once
                 p.fillRect(static_cast<QPaintEvent *>(e)->rect(), c);
                 return false;
@@ -281,7 +246,7 @@ public:
         QProxyStyle::drawPrimitive(pe, opt, p, w);
     }
 private:
-    Pal pal; double content, bar, inactive; int fadeMs; QEasingCurve::Type curve; bool glassDialogs; QStringList opaqueApps; bool dbg2 = false; mutable QSet<QObject*> seen;
+    Pal pal; double content, bar; bool glassDialogs; QStringList opaqueApps; bool dbg2 = false; mutable QSet<QObject*> seen;
 };
 
 class GlassStylePlugin : public QStylePlugin {

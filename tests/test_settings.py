@@ -29,7 +29,6 @@ class Schema(unittest.TestCase):
             {"levels": {"x": 1}},
             {"fallback": {"mode": "dim"}},
             {"fallback": {"value": 0.2}},
-            {"fallback": {"inactive": 2}},
             {"apps": {"bad key": {}}},
             {"apps": {"steam": {"enabled": 1}}},
             {"apps": {"steam": {"route": "a b"}}},
@@ -45,10 +44,19 @@ class Schema(unittest.TestCase):
         s = settings.validate({"fallback": {"mode": "0.70", "value": 0.7},
                                "levels": {"content": 0.8},
                                "apps": {"steam": {"enabled": False, "route": "cdp"}}})
-        self.assertEqual(s["fallback"], {"mode": "value", "value": 0.7, "inactive": None})
+        self.assertEqual(s["fallback"], {"mode": "value", "value": 0.7})
         self.assertEqual(s["levels"], {"content": 0.8, "bar": None})
         self.assertEqual(s["apps"]["steam"], {"enabled": False, "route": "cdp"})
         self.assertEqual(settings.validate(s), s)
+
+    def test_old_fade_keys_load_and_drop(self):
+        # settings of 0.1.3 and before held the unfocused fade (0.1.4 drops it)
+        s = settings.validate({"inactive": {"enabled": True, "factor": 0.9, "durationMs": 180,
+                                            "easing": "ease-out-cubic"},
+                               "fallback": {"mode": "off", "inactive": 0.55}})
+        self.assertNotIn("inactive", s)
+        self.assertNotIn("inactive", s["fallback"])
+        self.assertEqual(s, settings.validate({"fallback": {"mode": "off"}}))
 
     def test_set_key(self):
         s = settings.validate({})

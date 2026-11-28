@@ -10,17 +10,13 @@
 //                             DMS keeps its own plugin switch under that key.
 //   fallbackMode              "opaque" | "value" | "off"
 //   fallbackValuePct          50..100 (fallback.value x 100)
-//   inactiveEnabled           bool, default true
-//   inactiveMorePct           0..20: how much more transparent an unfocused
-//                             window gets (factor = 1 - pct/100), default 10
-//   inactiveDurationMs        0..400, default 180
-//   inactiveEasing            "ease-out-cubic" | "ease-in-out" | "linear"
-//   inactiveInstantFallback   bool, default false
 //   apps                      {key: {enabled, route?}} (the app list toggles)
-//   levels, fallbackInactive  kept as appglass had them (the levels follow
-//                             the DMS window rule unless set from the CLI)
+//   levels                    kept as appglass had them (they follow the
+//                             DMS window rule unless set from the CLI)
 //   seeded                    true once the data was taken from `appglass get`
 //   appglassBin               optional path of the appglass command
+// The unfocused fade keys of 0.1.3 and before (inactive*, fallbackInactive)
+// may still be stored: they are no longer read or synced.
 
 var PLUGIN_ID = "appGlass";
 // = plugin.json "version" (logic.test.qml checks)
@@ -44,19 +40,13 @@ var UNLINK_ID = "appGlass.unlink";
 var HOOK_ID = "appGlass.hook";
 
 var FALLBACK_MODES = ["opaque", "value", "off"];
-var EASINGS = ["ease-out-cubic", "ease-in-out", "linear"];
 var KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
 var ROUTE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 var DEFAULTS = {
     "glassEnabled": true,
     "fallbackMode": "opaque",
-    "fallbackValuePct": 70,
-    "inactiveEnabled": true,
-    "inactiveMorePct": 10,
-    "inactiveDurationMs": 180,
-    "inactiveEasing": "ease-out-cubic",
-    "inactiveInstantFallback": false
+    "fallbackValuePct": 70
 };
 
 // The kind of a route (shown next to it in the app list), from its tier
@@ -100,20 +90,6 @@ function _level(v, lo, hi) {
     return Math.min(hi, Math.max(lo, Math.round(v * 10000) / 10000));
 }
 
-function _round2(x) {
-    return Math.round(x * 100) / 100;
-}
-
-function factorFromPct(pct) {
-    return _round2(1 - _int(pct, 0, 20, DEFAULTS.inactiveMorePct) / 100);
-}
-
-function pctFromFactor(factor) {
-    if (typeof factor !== "number" || !isFinite(factor))
-        return DEFAULTS.inactiveMorePct;
-    return _int((1 - factor) * 100, 0, 20, DEFAULTS.inactiveMorePct);
-}
-
 function _apps(v) {
     var out = {};
     if (!v || typeof v !== "object" || Array.isArray(v))
@@ -143,7 +119,6 @@ function settingsFromPluginData(data) {
     if (content !== null && bar !== null && bar < content)
         bar = content;
     var mode = FALLBACK_MODES.indexOf(d.fallbackMode) >= 0 ? d.fallbackMode : DEFAULTS.fallbackMode;
-    var easing = EASINGS.indexOf(d.inactiveEasing) >= 0 ? d.inactiveEasing : DEFAULTS.inactiveEasing;
     return {
         "version": 1,
         "enabled": _bool(d.glassEnabled, true),
@@ -153,15 +128,7 @@ function settingsFromPluginData(data) {
         },
         "fallback": {
             "mode": mode,
-            "value": _int(d.fallbackValuePct, 50, 100, DEFAULTS.fallbackValuePct) / 100,
-            "inactive": _level(d.fallbackInactive, 0.3, 1.0)
-        },
-        "inactive": {
-            "enabled": _bool(d.inactiveEnabled, true),
-            "factor": factorFromPct(d.inactiveMorePct),
-            "durationMs": _int(d.inactiveDurationMs, 0, 400, DEFAULTS.inactiveDurationMs),
-            "easing": easing,
-            "instantFallback": _bool(d.inactiveInstantFallback, false)
+            "value": _int(d.fallbackValuePct, 50, 100, DEFAULTS.fallbackValuePct) / 100
         },
         "apps": _apps(d.apps)
     };
@@ -171,7 +138,6 @@ function settingsFromPluginData(data) {
 function pluginDataFromSettings(s) {
     var o = s && typeof s === "object" ? s : {};
     var fb = o.fallback || {};
-    var ia = o.inactive || {};
     var lv = o.levels || {};
     return {
         "glassEnabled": _bool(o.enabled, true),
@@ -181,12 +147,6 @@ function pluginDataFromSettings(s) {
         },
         "fallbackMode": FALLBACK_MODES.indexOf(fb.mode) >= 0 ? fb.mode : DEFAULTS.fallbackMode,
         "fallbackValuePct": typeof fb.value === "number" ? _int(fb.value * 100, 50, 100, 70) : 70,
-        "fallbackInactive": _level(fb.inactive, 0.3, 1.0),
-        "inactiveEnabled": _bool(ia.enabled, true),
-        "inactiveMorePct": pctFromFactor(ia.factor),
-        "inactiveDurationMs": _int(ia.durationMs, 0, 400, DEFAULTS.inactiveDurationMs),
-        "inactiveEasing": EASINGS.indexOf(ia.easing) >= 0 ? ia.easing : DEFAULTS.inactiveEasing,
-        "inactiveInstantFallback": _bool(ia.instantFallback, false),
         "apps": _apps(o.apps)
     };
 }
@@ -654,17 +614,6 @@ function levelText(status, levels) {
     if (_level(lv.bar, 0.2, 1.0) !== null)
         return head + "from the DMS window rule opacity; bars set in appglass's own settings (levels.bar)";
     return head + "from the DMS window rule opacity";
-}
-
-function inactiveText(status) {
-    var ia = status && status.inactive;
-    if (!ia)
-        return "";
-    if (!ia.enabled)
-        return "Unfocused windows: off";
-    if (!ia.active)
-        return "Unfocused windows: no change at this glass level (it is at or under 60%)";
-    return "Unfocused windows: " + Math.round(Number(ia.level) * 100) + "%";
 }
 
 function summaryText(status) {

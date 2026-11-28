@@ -839,8 +839,7 @@ def _fsync_dir(d):
 
 
 def _umask():
-    """The process umask, read without setting it (os.umask would change
-    it for a moment under the vibrancy threads)."""
+    """The process umask, read from /proc without setting it."""
     try:
         with open("/proc/self/status") as f:
             for line in f:
@@ -2825,14 +2824,6 @@ def hand_files(app):
     return out
 
 
-def _inactive_doc(app):
-    from . import inactive
-    p = inactive.params(app.settings)
-    return dict(p, level=inactive.level(app.levels.content, p["factor"]),
-                active=inactive.active(app.settings, app.levels.content),
-                fades=inactive.fading(app.state))
-
-
 def status_doc(app):
     from . import adapters, engine
     st, lv = app.state, app.levels
@@ -2881,7 +2872,6 @@ def status_doc(app):
         "settings_error": app.settings_error,
         "levels": {"content": lv.content, "bar": lv.bar},
         "fallback": app.settings["fallback"],
-        "inactive": _inactive_doc(app),
         "families": fams,
         "core": core_owners,
         "apps": apps,
@@ -3265,6 +3255,7 @@ def cmd_apply_all(app, dry_run=False, adopt=False):
 # section, the shims and units, the launchers it points at a wrapper or
 # starts with its environment); a hand file counts only as the stub of an
 # adopted one
+# (-vibrancy: the old fade daemon's wrapper, hooks before 0.1.4)
 MARK = re.compile(rb"(?i)appglass(?::|-sync:|-vibrancy:| for | hook)"
                   rb"|(?-i:\bAPPGLASS_[A-Z]+=)|/bin/appglass-[A-Za-z0-9]")
 ADOPTED_MARK = b"appglass adopted it"
@@ -3460,7 +3451,9 @@ def _engine_ops(app):
     for n in hook.UNITS:
         paths[hook.unit_path(env, n)] = ("hook", "owned", None, None,
                                          hook.unit_render(env, n), None)
-    for p in (hook.sync_path(env), hook.vibrancy_path(env)):
+    legacy_unit, legacy_bin = hook.legacy_paths(env)
+    paths[legacy_unit] = ("hook", "owned", None, None, hook.LEGACY_UNIT_DATA, None)
+    for p in (hook.sync_path(env), legacy_bin):
         paths[p] = ("hook", "owned", None, None, b"", None)
     block = hook.section(env)
     paths[hook.config_path(env)] = ("hook", "edit", hook.strip,
@@ -3863,8 +3856,8 @@ def _rescue_claims(app, backups=()):
     cfg = hook.config_path(env)
     hook_on = (os.path.isfile(cfg) and hook.BEGIN.encode() in (_read(cfg) or b"")) or any(
         os.path.isfile(p) and HOOK_MARK in (_read(p) or b"")
-        for p in (hook.sync_path(env), hook.vibrancy_path(env)))
-    units = {hook.unit_path(env, n) for n in hook.UNITS}
+        for p in (hook.sync_path(env), hook.legacy_paths(env)[1]))
+    units = {hook.unit_path(env, n) for n in hook.UNITS + (hook.LEGACY_UNIT,)}
     # one inode at two paths appglass writes, or at a path it writes and a
     # file it reads: neither path tells whose file it is
     inodes = {}
@@ -4983,8 +4976,6 @@ def main(argv=None, environ=None, out=None, err=None):
     rs = sub.add_parser("restore", help="put back a backup ring entry (files and state.json)")
     rs.add_argument("id", nargs="?", help="the entry (default: the newest)")
     rs.add_argument("--list", action="store_true", help="list the ring, newest first")
-    sub.add_parser("vibrancy", help="daemon: fade unfocused Alacritty windows (settings "
-                                    "inactive; run by appglass-vibrancy.service)")
     vf = sub.add_parser("verify", help="check an app's glass in a hidden session")
     vf.add_argument("key", nargs="?")
     vf.add_argument("--queue", action="store_true", help="check every queued app")
@@ -5023,9 +5014,6 @@ def main(argv=None, environ=None, out=None, err=None):
             if inputs.fresh(env, sys.argv[1:]):
                 return 0
             inputs.start(env)
-        if args.cmd == "vibrancy":
-            from . import vibrancy
-            return vibrancy.run(env, err=err)
         if args.cmd in ("keys", "launch-check"):
             # wrappers: never the lock while polling, never an error to the app
             from . import verify
@@ -5060,9 +5048,6 @@ def main(argv=None, environ=None, out=None, err=None):
                                       "hook", "plugin")
                          and not getattr(args, "from_hook", False))
         rc = 0
-        if lockf is not None:
-            from . import vibrancy
-            seen = vibrancy.settings_stamp(env)
         if args.cmd == "apply" and args.all:
             cmd_apply_all(app, dry_run=args.dry_run, adopt=args.adopt)
         elif args.cmd == "apply":
@@ -5084,9 +5069,7 @@ def main(argv=None, environ=None, out=None, err=None):
             else:
                 cmd_status(app)
         elif args.cmd == "levels":
-            from . import inactive
-            lv = dict(app.levels.as_dict(), **inactive.fields(app.settings, app.levels.content))
-            print(json.dumps(lv), file=app.out)
+            print(json.dumps(app.levels.as_dict()), file=app.out)
         elif args.cmd == "detect":
             cmd_detect(app, as_json=args.json)
         elif args.cmd == "learn":
@@ -5124,14 +5107,19 @@ def main(argv=None, environ=None, out=None, err=None):
                 raise AppglassError("hook: --dry-run goes with install")
             else:
                 hook.remove(app)
+        if args.cmd == "apply" and app.typed and not args.dry_run:
+            from . import hook
+            hook.refresh(app)   # the hook's files follow the repo (an old fade daemon goes)
+            if hook.installed(app):
+                from . import rescue
+                rescue.refresh(app)     # the sweep's CLI copy follows the repo too
         if args.cmd == "apply" and args.list_changed and not args.dry_run:
             for p in app.changed:
                 print(p, file=app.out)
         if lockf is not None:
-            # the family units follow what is applied now; the daemon
-            # re-reads its settings when this run changed what it reads
+            # the family units follow what is applied now
             from . import hook
-            hook.follow(app, nudge=bool(app.changed) or vibrancy.settings_stamp(env) != seen)
+            hook.follow(app)
             _unlock(env, lockf, created, app)
             lockf = None
         if hookrun:

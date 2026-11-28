@@ -5,7 +5,7 @@ A registry install of the DMS plugin clones the whole repository into
 uninstall deletes that clone, and with it the CLI that could take the glass
 files out. ``appglass hook install`` keeps a copy of what ``appglass
 remove`` needs (bin/appglass and the appglass package, no __pycache__),
-``appglass sync`` refreshes it when it differs from the running CLI (the
+``appglass sync`` and a typed ``appglass apply`` refresh it when it differs from the running CLI (the
 version and the size and mtime of every file, in MANIFEST), and a full
 ``appglass remove`` and ``appglass hook remove`` take it out. The plugin's
 sweep runs ``python3 -I -B <copy>/bin/appglass remove --if-gone
@@ -131,7 +131,7 @@ def _import_all(root):
 
 
 def refresh(app):
-    """hook install and sync: the copy kept in step, a failure only a warning
+    """hook install, sync and a typed apply: the copy kept in step, a failure only a warning
     (the glass does not depend on it)."""
     try:
         if write(app):

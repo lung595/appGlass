@@ -20,25 +20,29 @@ Item {
         t.check("empty plugin data = the appglass defaults", Logic.settingsFromPluginData({}), defaults);
         t.check("the defaults round-trip", Logic.settingsFromPluginData(Logic.pluginDataFromSettings(defaults)), defaults);
         t.check("DEFAULTS give the defaults", Logic.settingsFromPluginData(Logic.DEFAULTS), defaults);
-        // a visible unfocused fade by default: 10 % more -> factor 0.90 (0.80 -> 0.72), 180 ms, ease-out-cubic
-        t.check("default fade", [Logic.DEFAULTS.inactiveEnabled, Logic.DEFAULTS.inactiveMorePct, Logic.factorFromPct(Logic.DEFAULTS.inactiveMorePct), Logic.DEFAULTS.inactiveDurationMs, Logic.DEFAULTS.inactiveEasing], [true, 10, 0.9, 180, "ease-out-cubic"]);
-        t.check("default fade of 0.80", Math.round(0.8 * Logic.factorFromPct(Logic.DEFAULTS.inactiveMorePct) * 100) / 100, 0.72);
-        t.check("no plugin data: the default fade", Logic.pluginDataFromSettings(defaults).inactiveMorePct, 10);
+        // the unfocused fade is gone (0.1.4): its old keys are neither read nor synced
+        t.check("old fade keys dropped", Logic.settingsFromPluginData({
+            "inactiveEnabled": false,
+            "inactiveMorePct": 15,
+            "fallbackInactive": 0.5
+        }), defaults);
+        t.check("no fade key from appglass", Object.keys(Logic.pluginDataFromSettings({
+            "inactive": {
+                "factor": 0.9
+            },
+            "fallback": {
+                "inactive": 0.5
+            }
+        })).filter(k => k.indexOf("nactive") >= 0), []);
 
         const s = Logic.settingsFromPluginData({
             "glassEnabled": false,
             "fallbackMode": "value",
             "fallbackValuePct": 85,
-            "inactiveEnabled": false,
-            "inactiveMorePct": 15,
-            "inactiveDurationMs": 250,
-            "inactiveEasing": "linear",
-            "inactiveInstantFallback": true,
             "levels": {
                 "content": 0.8,
                 "bar": 0.7
             },
-            "fallbackInactive": 0.5,
             "apps": {
                 "Alacritty": {
                     "enabled": false
@@ -56,15 +60,7 @@ Item {
         t.check("enabled", s.enabled, false);
         t.check("fallback", s.fallback, {
             "mode": "value",
-            "value": 0.85,
-            "inactive": 0.5
-        });
-        t.check("inactive", s.inactive, {
-            "enabled": false,
-            "factor": 0.85,
-            "durationMs": 250,
-            "easing": "linear",
-            "instantFallback": true
+            "value": 0.85
         });
         t.check("levels kept, bar never under content", s.levels, {
             "content": 0.8,
@@ -84,17 +80,13 @@ Item {
         const clamped = Logic.settingsFromPluginData({
             "fallbackMode": "dim",
             "fallbackValuePct": 10,
-            "inactiveMorePct": 90,
-            "inactiveDurationMs": 9999,
-            "inactiveEasing": "bounce",
             "glassEnabled": "yes",
             "levels": {
                 "content": "0.8"
             }
         });
-        t.check("out of range values clamped or defaulted", [clamped.fallback.mode, clamped.fallback.value, clamped.inactive.factor, clamped.inactive.durationMs, clamped.inactive.easing, clamped.enabled, clamped.levels.content], ["opaque", 0.5, 0.8, 400, "ease-out-cubic", true, null]);
+        t.check("out of range values clamped or defaulted", [clamped.fallback.mode, clamped.fallback.value, clamped.enabled, clamped.levels.content], ["opaque", 0.5, true, null]);
 
-        t.check("factor <-> percent", [Logic.factorFromPct(0), Logic.factorFromPct(10), Logic.factorFromPct(20), Logic.pctFromFactor(0.9), Logic.pctFromFactor(0.8), Logic.pctFromFactor(1)], [1, 0.9, 0.8, 10, 20, 0]);
         t.ok("settingsText ends with a newline", Logic.settingsText({}).endsWith("}\n"));
         t.check("stableJson sorts keys", Logic.stableJson({
             "b": 1,
@@ -394,14 +386,6 @@ Item {
             }), Logic.ownLevels({
                 "bar": 0.7
             })], [false, false, false, true, true]);
-        t.ok("inactive text at the floor", Logic.inactiveText(status).indexOf("no change") > 0);
-        t.check("inactive text", Logic.inactiveText({
-            "inactive": {
-                "enabled": true,
-                "active": true,
-                "level": 0.72
-            }
-        }), "Unfocused windows: 72%");
         t.ok("summary text", Logic.summaryText(status).indexOf("glass") >= 0);
         t.check("on/off words", ["on", "OFF", "true", "0", "maybe"].map(Logic.parseOnOff), [true, false, true, false, null]);
         t.finish();

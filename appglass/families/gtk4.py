@@ -56,7 +56,6 @@ selected sidebar row (DMS paints it opaque secondary_container: half alpha).
 import os
 import re
 
-from .. import inactive
 from ..core import TARGET, Conflict, fmt_alpha, readable
 
 NAME = "gtk4"
@@ -104,13 +103,10 @@ headerbar:backdrop > windowhandle,
 toolbarview > .top-bar:backdrop > windowhandle, toolbarview > .bottom-bar:backdrop > windowhandle,
 searchbar > revealer > box:backdrop > *, actionbar > revealer > box:backdrop > *,
 tabbar .box:backdrop > scrolledwindow, tabbar .box:backdrop > .start-action, tabbar .box:backdrop > .end-action"""
+# an unfocused window looks like a focused one: Adwaita's filter: opacity(0.5)
+# on the bar contents (titles, icons) is taken off
 BACKDROP_RULE = (
-    "/* Unfocused windows: Adwaita fades bar contents with filter: opacity(0.5) */\n"
-    + BACKDROP_SELECTORS + " { filter: opacity(0.8); }\n")
-# with the inactive fade on, the bar contents (titles, icons) keep their
-# focused look: the filter has no transition, so it would jump and fade text
-BACKDROP_RULE_FADE = (
-    "/* Unfocused windows: the background fades, bar contents stay as focused */\n"
+    "/* Unfocused windows: bar contents stay as focused (Adwaita fades them) */\n"
     + BACKDROP_SELECTORS + " { filter: none; }\n")
 
 SOURCEVIEW_RULE = """\
@@ -218,7 +214,7 @@ def render(ctx):
         "/* Dimmed text (.dim-label/.dimmed, pathbar, subtitles) defaults to 0.55 */",
         ":root { --dim-opacity: 0.80; }",
         "",
-        BACKDROP_RULE_FADE if inactive.active(ctx.settings, c) else BACKDROP_RULE,
+        BACKDROP_RULE,
         SOURCEVIEW_RULE,
         NESTED_VIEW_RULE,
         "/* the selected sidebar row: DMS paints it opaque */",
@@ -227,32 +223,7 @@ def render(ctx):
         % ctx.colors("secondary_container"),
         "",
     ]
-    lines += inactive_rule(ctx)
     return "\n".join(lines)
-
-
-def inactive_rule(ctx):
-    """Unfocused windows: the window background a little more transparent,
-    faded by a transition (settings inactive). [] when off."""
-    c = ctx.levels.content
-    if not inactive.active(ctx.settings, c):
-        return []
-    p = inactive.params(ctx.settings)
-    r = inactive.ratio(c, p["factor"])
-    return [
-        "/* inactive windows: background %s -> %s, faded (text stays opaque) */"
-        % (_a(c), _a(inactive.level(c, p["factor"]))),
-        "window.background { transition: %s; }" % inactive.transition("background-color",
-                                                                       ctx.settings),
-        # libadwaita only: the Default theme paints an opaque literal, never
-        # @window_bg_color, so alpha(@window_bg_color) would turn plain GTK4
-        # windows into glass when unfocused. --window-bg-color exists only
-        # under libadwaita; elsewhere the var() falls back to the Default
-        # theme's own opaque background.
-        "window.background:backdrop { --agl-backdrop-bg: alpha(var(--window-bg-color), %s); "
-        "background-color: var(--agl-backdrop-bg, @theme_bg_color); }" % _a(r),
-        "",
-    ]
 
 
 def _lines(text):

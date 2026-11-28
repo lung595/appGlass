@@ -134,7 +134,7 @@
 
   function themeSig() {
     var b = document.body;
-    var cls = function (e) { return e ? (e.getAttribute("class") || "").replace(/\bagl-inactive\b/, "") : ""; };
+    var cls = function (e) { return e ? e.getAttribute("class") || "" : ""; };
     var data = function (e) {
       if (!e) return "";
       var s = "";
@@ -161,12 +161,9 @@
       Array.prototype.forEach.call(document.querySelectorAll("[data-agl-cover],[data-agl-under]"), function (e) {
         e.removeAttribute("data-agl-cover"); e.removeAttribute("data-agl-under");
       });
-      d.setAttribute("data-agl-still", "");   // findRoot shows the page's own colour for a moment
       root = findRoot();
       d.style.setProperty("--agl-root", str(root));
       d.setAttribute("data-agl-root", "");
-      getComputedStyle(d).backgroundColor;   // settled without a fade, then the fade is back
-      d.removeAttribute("data-agl-still");
       if (document.body) walk(document.body);
     } else {
       var todo = [];
@@ -198,8 +195,6 @@
     for (var i = 0; i < ms.length; i++) {
       var m = ms[i];
       if (m.type === "attributes" && /^data-agl/.test(m.attributeName)) continue;
-      if (m.type === "attributes" && m.target === d && m.attributeName === "class" &&
-          (m.oldValue || "").replace(/\s*\bagl-inactive\b/, "") === (d.getAttribute("class") || "").replace(/\s*\bagl-inactive\b/, "")) continue;
       if (m.type === "attributes" && m.target.hasAttribute("data-agl-cover")) { all = true; continue; }
       for (var j = 0; j < m.removedNodes.length; j++) {
         var x = m.removedNodes[j];
@@ -210,7 +205,7 @@
     if (all) { later(true); return; }
     if (queue.length) later(false);
   });
-  obs.observe(d, { subtree: true, childList: true, attributes: true, attributeOldValue: true,
+  obs.observe(d, { subtree: true, childList: true, attributes: true,
                    attributeFilter: ["class", "style", "hidden", "open", "data-theme"] });
   try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () { later(true); }); } catch (e) {}
   addEventListener("resize", function () { later(true); });

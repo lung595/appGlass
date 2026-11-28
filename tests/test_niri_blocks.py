@@ -1,4 +1,4 @@
-"""niri: the fallback / glass / inactive / games blocks and the browserGlass
+"""niri: the fallback / glass / games blocks and the browserGlass
 exclusion (golden KDL, niri validate on the rendered file)."""
 
 import os
@@ -21,7 +21,7 @@ def golden(name):
 
 FULL = dict(app_ids=[r"^Alacritty$", r"^firefox$", r"^org\.gnome\.Nautilus$"],
             fallback="opaque", fallback_ids=[r"^google-chrome$"],
-            games=[r"^Pinball\.exe$"], inactive=0.55)
+            games=[r"^Pinball\.exe$"])
 VALUE = dict(app_ids=[r"^Alacritty$"], fallback="value", value=0.7,
              fallback_ids=[r"^google-chrome$", r"^Alacritty$", r"^librewolf$"], games=[])
 
@@ -36,11 +36,11 @@ class Render(unittest.TestCase):
     def test_order_and_blocks(self):
         t = niri.render(**FULL)
         i_fb, i_gl = t.index("exclude app-id"), t.index('match app-id=r#"^Alacritty$"#\n')
-        i_in, i_gm = t.index("is-active=false"), t.index("steam_app_")
+        i_gm = t.index("steam_app_")
         self.assertLess(i_fb, i_gl)
-        self.assertLess(i_gl, i_in)
-        self.assertLess(i_in, i_gm)
-        self.assertEqual(t.count("window-rule {"), 4)
+        self.assertLess(i_gl, i_gm)
+        self.assertEqual(t.count("window-rule {"), 3)
+        self.assertNotIn("is-active", t)     # no unfocused rule (0.1.4)
         # opaque mode: the per-app fallback list is not needed
         self.assertNotIn("google-chrome", t)
         self.assertIn("blur false", t)
@@ -65,7 +65,7 @@ class Render(unittest.TestCase):
     def test_electron_hook_apps_are_blended(self):
         # Chromium says the window is opaque: at 1.0 niri can draw black
         # behind it (docs/routes.md, Feishin); 0.999 makes niri blend it
-        t = niri.render([r"^Alacritty$", r"^feishin$"], inactive=0.72,
+        t = niri.render([r"^Alacritty$", r"^feishin$"],
                         blend_ids=[r"^feishin$", r"^code$"])
         blk = t[t.index("says it is opaque"):]
         blk = blk[:blk.index("}")]
@@ -74,8 +74,6 @@ class Render(unittest.TestCase):
         # only glass apps, never one that is not applied
         self.assertNotIn("^code$", t)
         self.assertNotIn("^Alacritty$", blk)
-        # before the inactive block, so an unfocused window still fades
-        self.assertLess(t.index("opacity 0.999"), t.index("is-active=false"))
         self.assertNotIn("0.999", niri.render([r"^Alacritty$"], blend_ids=[r"^feishin$"]))
 
     def test_rule_inputs_blend_the_hook_families(self):
@@ -168,13 +166,11 @@ class Sync(unittest.TestCase):
     def test_settings_switch_mode(self):
         self.apply()
         self.sb.run("set", "fallback.mode", "off")
-        self.sb.run("set", "fallback.inactive", "0.55")
         code, out, err = self.apply()
         self.assertEqual(code, 0, err)
         t = self.rules()
         self.assertNotIn("exclude app-id", t)
-        self.assertIn("is-active=false", t)
-        self.assertIn("opacity 0.55", t)
+        self.assertNotIn("is-active", t)
 
     def test_settings_without_apps_writes_rules(self):
         self.sb.run("set", "fallback.mode", "opaque")
@@ -189,7 +185,6 @@ class Sync(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_NIRI, "niri not installed")
     def test_validates(self):
-        self.sb.run("set", "fallback.inactive", "0.55")
         self.apply()
         r = subprocess.run(["niri", "validate", "-c", self.sb.cfg("niri", "config.kdl")],
                            capture_output=True, text=True)

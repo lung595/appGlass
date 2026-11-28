@@ -1,17 +1,11 @@
 /* appGlass for any WebKitGTK app, injected as a WebKit USER stylesheet by appglass-wk.so.
-   Rendered at launch by appglass-webkit: {{content}} / {{bar_over}} / {{inactive}} / {{fade}}
+   Rendered at launch by appglass-webkit: {{content}} / {{bar_over}}
    come from `appglass levels` (DMS). webkit-glass.js marks the elements with the page's own
    colours (light and dark both work). Text is never alpha'd; popups are never marked. */
 /* content: the page colour, the only root with alpha */
 html[data-agl-root] {
   background-color: color-mix(in srgb, rgb(var(--agl-root)) {{content}}%, transparent) !important;
-  background-image: none !important;
-  transition: background-color {{fade}} !important; }
-/* while webkit-glass.js reads the page's own colour: no fade from it (a full re-mark flashed opaque) */
-html[data-agl-still] { transition: none !important; }
-/* unfocused window (appglass-wk.so sets the class when the page loses focus): only the content fades */
-html[data-agl-root].agl-inactive {
-  background-color: color-mix(in srgb, rgb(var(--agl-root)) {{inactive}}%, transparent) !important; }
+  background-image: none !important; }
 /* the page colour elsewhere (body, an app shell): clear, the content shows through */
 html[data-agl-root] [data-agl="clear"] { background-color: transparent !important; }
 /* bars and in-page cards drawn over the content */

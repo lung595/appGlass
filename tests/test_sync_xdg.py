@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 from fixtures.sandbox import REPO
@@ -77,6 +78,11 @@ class PostHookRace(unittest.TestCase):
                     APPGLASS_SYNC_SETTLE="3", **env)
         p = subprocess.Popen([os.path.join(REPO, "bin", "appglass-sync")], env=senv,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        # the sync's start mark first: a CSS written before it is no "change during the settle"
+        mark = os.path.join(senv["APPGLASS_SANDBOX"], "appglass-sync.start.%d" % p.pid)
+        deadline = time.monotonic() + 30
+        while not os.path.exists(mark) and time.monotonic() < deadline:
+            time.sleep(0.05)
         # the matugen post_hook writes the new CSS first; the sync's own
         # apply then finds nothing to change
         self.assertEqual(self.w.run("apply", "--from-hook", "--quiet", env=env)[0], 0)

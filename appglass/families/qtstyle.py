@@ -5,15 +5,12 @@ shims/qt-style/glassstyle.cpp is built with the host Qt 6 into
 the Qt6Widgets version: a Qt update rebuilds it). The style paints the
 window and view backgrounds with the DMS surface colours at the glass
 levels, bars at the bar level, menus and popups opaque, text untouched.
-An unfocused top-level window eases its background to the inactive level
-(QVariantAnimation on WindowActivate/WindowDeactivate, idle in between).
 
 The launcher override ~/.local/share/applications/vlc.desktop (generated
 from the system one on every apply) starts VLC with
 
     env QT_PLUGIN_PATH=~/.local/lib/appglass/qt6 QT_STYLE_OVERRIDE=appglass
-        APPGLASS_COLORS=<cache>/dms/dms-colors.json APPGLASS_CONTENT=<level>
-        APPGLASS_INACTIVE=<unfocused level> APPGLASS_FADE_MS=<ms> APPGLASS_FADE_EASING=<name> vlc
+        APPGLASS_COLORS=<cache>/dms/dms-colors.json APPGLASS_CONTENT=<level> vlc
 
 The style reads the colours from APPGLASS_COLORS at start; the level is
 written into the launcher, and the sync unit / matugen hook re-apply when it
@@ -40,7 +37,7 @@ inherit them.
 import os
 import re
 
-from .. import detect, inactive, shims
+from .. import detect, shims
 from ..core import Conflict
 from . import kate
 
@@ -126,19 +123,15 @@ def _steps(tc, d):
     return [moc, cxx]
 
 
-def _env_prefix(env, content, fade):
-    """The ``env ..`` words a launcher's Exec= gets (fade: inactive.fields(),
-    none: no fade)."""
-    fade = fade or {"inactive": content, "fade_ms": 0, "fade_easing": "linear"}
+def _env_prefix(env, content):
+    """The ``env ..`` words a launcher's Exec= gets."""
     return ("env QT_PLUGIN_PATH=%s QT_STYLE_OVERRIDE=appglass APPGLASS_COLORS=%s "
-            "APPGLASS_CONTENT=%s APPGLASS_INACTIVE=%s APPGLASS_FADE_MS=%d APPGLASS_FADE_EASING=%s "
-            % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"), shims.jq_raw(content),
-               shims.jq_raw(fade["inactive"]), int(fade["fade_ms"]), fade["fade_easing"]))
+            "APPGLASS_CONTENT=%s "
+            % (plugin_dir(env), env.cache_path("dms", "dms-colors.json"), shims.jq_raw(content)))
 
 
-def launcher(env, text, cmd, content, fade=None):
-    """``fade``: inactive.fields() (the unfocused level and the fade); none: no fade."""
-    pre = _env_prefix(env, content, fade)
+def launcher(env, text, cmd, content):
+    pre = _env_prefix(env, content)
     out = []
     for line in text.splitlines(True):
         if line.startswith("Exec=") and not line.startswith("Exec=env QT_PLUGIN_PATH="):
@@ -149,9 +142,7 @@ def launcher(env, text, cmd, content, fade=None):
     return "".join(out)
 
 
-def flatpak_launcher(env, text, levels, app=None, fade=None):
-    """``fade``: inactive.fields(), as for ``launcher``; none: no fade."""
-    fade = fade or {"inactive": levels.content, "fade_ms": 0, "fade_easing": "linear"}
+def flatpak_launcher(env, text, levels, app=None):
     pd = plugin_dir(env)
     colors = env.cache_path("dms", "dms-colors.json")
     flags = [
@@ -159,10 +150,7 @@ def flatpak_launcher(env, text, levels, app=None, fade=None):
         "--env=QT_PLUGIN_PATH=%s:%s" % (pd, RUNTIME_PLUGINS), MARK,
         "--env=APPGLASS_COLORS=%s" % colors,
         "--env=APPGLASS_CONTENT=%s" % shims.jq_raw(levels.content),
-        "--env=APPGLASS_BAR=%s" % shims.jq_raw(round(levels.bar_over_content, 4)),
-        "--env=APPGLASS_INACTIVE=%s" % shims.jq_raw(fade["inactive"]),
-        "--env=APPGLASS_FADE_MS=%d" % int(fade["fade_ms"]),
-        "--env=APPGLASS_FADE_EASING=%s" % fade["fade_easing"]]
+        "--env=APPGLASS_BAR=%s" % shims.jq_raw(round(levels.bar_over_content, 4))]
     if app == kate.FLATPAK:  # the glass start's katerc (kate family), never the user's
         flags.append("--env=XDG_CONFIG_DIRS=%s:%s" % (kate.xdg_dir(env), RUNTIME_XDG))
     flags = " ".join(flags)
@@ -176,10 +164,10 @@ def flatpak_launcher(env, text, levels, app=None, fade=None):
     return "".join(out)
 
 
-def launcher_any(env, text, content, fade=None):
+def launcher_any(env, text, content):
     """launcher() for an app found by the engine: every Exec= line (its
     first word may be a full path or a wrapper name)."""
-    pre = _env_prefix(env, content, fade)
+    pre = _env_prefix(env, content)
     out = []
     for line in text.splitlines(True):
         if line.startswith("Exec=") and not line.startswith("Exec=env QT_PLUGIN_PATH=") \
@@ -195,7 +183,6 @@ def apply(ctx):
     paths = [shims.build(ctx, ADAPTER, style_path(env), src, _steps,
                          ("cxx", "moc", "pkgconfig"), qt=MODULES)]
     ids = []
-    fade = inactive.fields(ctx.settings, ctx.levels.content)
     # held opaque by the engine (S7): a launcher written before goes back to
     # the system text (no style variables) until the next fingerprint
     plain = {r["desktop_id"]: r for r in ctx.records(plain=True)}
@@ -208,7 +195,7 @@ def apply(ctx):
         if desktop_id in plain:
             continue
         p = ctx.desktop_override(desktop_id,
-                                 lambda t, c=cmd: launcher(env, t, c, ctx.levels.content, fade))
+                                 lambda t, c=cmd: launcher(env, t, c, ctx.levels.content))
         if p:
             paths.append(p)
             ids.append(r"^%s$" % desktop_id[:-len(".desktop")])
@@ -226,7 +213,7 @@ def apply(ctx):
                     paths.append(p)
             ctx.warn("%s: %s" % (app, why))
             continue
-        p = ctx.desktop_override(desktop_id, lambda t, a=app: flatpak_launcher(env, t, ctx.levels, a, fade))
+        p = ctx.desktop_override(desktop_id, lambda t, a=app: flatpak_launcher(env, t, ctx.levels, a))
         if p:
             paths.append(p)
             ids.append(r"^%s$" % app.replace(".", r"\."))
@@ -239,7 +226,7 @@ def apply(ctx):
             continue
         try:
             p = ctx.desktop_override(rec["desktop_id"],
-                                     lambda t: launcher_any(env, t, ctx.levels.content, fade))
+                                     lambda t: launcher_any(env, t, ctx.levels.content))
         except Conflict as ex:
             ctx.warn("%s: %s" % (rec["key"], ex))
             continue

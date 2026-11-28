@@ -3,7 +3,7 @@ confirmed sheet in Settings > Advanced), `appglass remove` typed in a
 terminal, or an uninstall in DMS (UninstallSweep, once plugin.json is gone:
 SWEEP_ROOT) reaches `appglass remove` / core.cmd_remove. Events are the
 plugin's teardown, timers, file watches, IPC handlers, its sync and status
-runs, the path units, the matugen post_hook and the vibrancy daemon.
+runs, the path units and the matugen post_hook.
 
 The checks are static: the plugin QML/JS is cut into handlers and
 functions and walked from every event root; the Python package is walked
@@ -396,11 +396,11 @@ PY_SINKS = {("core", "cmd_remove"), ("hook", "remove"), ("plugin", "remove"),
             # absent deleted), adopt --rescue moves originals no file names
             ("core", "cmd_restore"), ("core", "cmd_rescue")}
 # event entry points: the matugen post_hook and the sync units (apply
-# --from-hook), the plugin's sync and status runs (its start too), the
-# vibrancy daemon, and doctor (it repairs, it never takes anything out); the
+# --from-hook), the plugin's sync and status runs (its start too), and
+# doctor (it repairs, it never takes anything out); the
 # dispatcher every one of them goes through (main) and its lock release
 PY_ROOTS = [("core", "cmd_apply"), ("core", "cmd_apply_all"), ("core", "cmd_sync"),
-            ("core", "status_doc"), ("core", "cmd_doctor"), ("vibrancy", "run"),
+            ("core", "status_doc"), ("core", "cmd_doctor"),
             ("core", "main"), ("core", "_unlock")]
 # The edges to a sink that are the user's own switch, each allowed only when
 # every use of the sink in the caller sits under a guard (an `if` test, one
@@ -1107,7 +1107,7 @@ class PythonInvariant(unittest.TestCase):
             # a function passed on or renamed
             ("core", "cmd_apply_all", "f = cmd_remove; f(app)"),
             ("core", "status_doc", "list(map(cmd_remove, [app]))"),
-            ("vibrancy", "run", "subprocess.run(['appglass', 'remove'])"),
+            ("core", "cmd_sync", "subprocess.run(['appglass', 'remove'])"),
             ("core", "cmd_apply_all", "app.state.destroy()"),
             # the dispatcher and the lock release run on every event too
             ("core", "main", "if args.from_hook: cmd_remove(app)"),
@@ -1117,11 +1117,11 @@ class PythonInvariant(unittest.TestCase):
             ("core", "cmd_sync", "getattr(hook, 'remove')(app)"),
             ("core", "cmd_sync", "getattr(app, 'remove_owner')('hook')"),
             # a remove command built, not written as a list
-            ("vibrancy", "run", "a = 'remove'; subprocess.run([sys.argv[0], a])"),
-            ("vibrancy", "run", "os.system('appglass remove')"),
-            ("vibrancy", "run", "os.system('%s remove' % sys.argv[0])"),
+            ("core", "cmd_sync", "a = 'remove'; subprocess.run([sys.argv[0], a])"),
+            ("core", "cmd_sync", "os.system('appglass remove')"),
+            ("core", "cmd_sync", "os.system('%s remove' % sys.argv[0])"),
             # the remove word put together from literals
-            ("vibrancy", "run", "subprocess.run([sys.argv[0], 're' + 'move'])"),
+            ("core", "cmd_sync", "subprocess.run([sys.argv[0], 're' + 'move'])"),
             ("core", "cmd_sync", "getattr(app, 'remove' + '_owner')('hook')"),
             ("core", "cmd_sync", "subprocess.run([sys.argv[0], ''.join(['re', 'move'])])"),
             # files or the state dir taken out by hand, not through a sink
@@ -1152,7 +1152,7 @@ class PythonInvariant(unittest.TestCase):
             # the user's own switch taken outside its two sites
             ("core", "cmd_apply_all", "with app.user_action(): app._drop_backup({})"),
             # a remove word built from a variable
-            ("vibrancy", "run", "w = 're'; subprocess.run([sys.argv[0], w + 'move'])"),
+            ("core", "cmd_sync", "w = 're'; subprocess.run([sys.argv[0], w + 'move'])"),
             # a revert done by writing an original back
             ("core", "App.commit", "_inplace_write(next(iter(ctx.ops)), self.backup_bytes({}))"),
             ("core", "App.commit", "orig = self.backup_bytes({}); _atomic_write('x', orig)"),

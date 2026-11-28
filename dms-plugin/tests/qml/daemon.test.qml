@@ -110,7 +110,7 @@ Item {
                 "run": () => {
                     const cli = JSON.parse(JSON.stringify(root.defaults));
                     cli.levels.content = 0.8;
-                    cli.inactive.factor = 0.85;
+                    cli.fallback.value = 0.85;
                     cli.apps = {
                         "steam": {
                             "enabled": true,
@@ -122,7 +122,7 @@ Item {
                     t.check("nothing synced before the seed", root.syncs().length, 0);
                     Proc.flush();       // get
                     const pd = root.pdata();
-                    t.check("seeded", [pd.seeded, pd.inactiveMorePct, pd.levels.content, pd.apps], [true, 15, 0.8, {
+                    t.check("seeded", [pd.seeded, pd.fallbackValuePct, pd.levels.content, pd.apps], [true, 85, 0.8, {
                             "steam": {
                                 "enabled": true,
                                 "route": "cdp"
@@ -153,11 +153,11 @@ Item {
                     Proc.flush();
                     root.mark = root.syncs().length;
                     // the same settings saved again: nothing to do
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 10);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 70);
                     t.check("nothing owed after the start sync", PluginService.loadPluginData("appGlass", "syncPending", false), false);
                     // two changes close together: one sync
-                    PluginService.savePluginData("appGlass", "inactiveDurationMs", 250);
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 20);
+                    PluginService.savePluginData("appGlass", "fallbackMode", "value");
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 80);
                     // owed at once, before the debounce: a restart now keeps it
                     t.check("a change waiting for its sync is owed", PluginService.loadPluginData("appGlass", "syncPending", false), true);
                 }
@@ -180,8 +180,8 @@ Item {
                     Proc.flush();
                     Proc.flush();
                     root.mark = root.syncs().length;
-                    PluginService.savePluginData("appGlass", "inactiveDurationMs", 250);
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 20);
+                    PluginService.savePluginData("appGlass", "fallbackMode", "value");
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 80);
                 }
             },
             {
@@ -189,12 +189,12 @@ Item {
                 "run": () => {
                     t.check("debounced into one launch request", Proc.pendingIds(), [Logic.SYNC_ID]);
                     // a change while it runs: one more sync after it
-                    PluginService.savePluginData("appGlass", "inactiveEnabled", false);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 90);
                     Proc.flush();
-                    t.check("first sync read both changes", [root.syncs().length - root.mark, root.lastSyncSettings().inactive.durationMs, root.lastSyncSettings().inactive.factor, root.lastSyncSettings().inactive.enabled], [1, 250, 0.8, true]);
+                    t.check("first sync read both changes", [root.syncs().length - root.mark, root.lastSyncSettings().fallback.mode, root.lastSyncSettings().fallback.value], [1, "value", 0.8]);
                     t.check("the next one waits for nothing more", Proc.pendingIds(), [Logic.SYNC_ID]);
                     Proc.flush();
-                    t.check("then the change made meanwhile", [root.syncs().length - root.mark, root.lastSyncSettings().inactive.enabled], [2, false]);
+                    t.check("then the change made meanwhile", [root.syncs().length - root.mark, root.lastSyncSettings().fallback.value], [2, 0.9]);
                     t.check("one status after the run", Proc.pendingIds(), [Logic.STATUS_ID]);
                     Proc.flush();
                 }
@@ -369,7 +369,7 @@ Item {
                     t.check("seed again on a new install", root.pdata().seeded, false);
                     t.check("the uninstall is kept in the plugin data", root.pdata().uninstallState, "removed");
                     t.check("uninstall toast", ToastService.ofLevel("info").map(x => x.message).slice(-1), ["appGlass: uninstalled, every file restored"]);
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 5);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 55);
                     t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
                     t.check("the other IPC changes after it", ["toggle", "pause", "resume"].map(c => IpcRegistry.call("appGlass", c)).concat([IpcRegistry.call("appGlass", "app", "Alacritty", "off")]), ["uninstalled", "uninstalled", "uninstalled", "uninstalled"]);
                     t.check("the page learns it is gone", root.vars().uninstallState, "removed");
@@ -429,12 +429,12 @@ Item {
                     Proc.flush();
                     Proc.flush();
                     root.mark = root.syncs().length;
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 5);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 55);
                     t.check("a sync waits", root.vars().syncing, true);
                     t.check("uninstall starts", root.d.runAction("uninstall"), true);
                     t.check("the waiting sync dropped", [Proc.pendingIds(), root.vars().syncing], [[Logic.ACTION_IDS.uninstall], false]);
                     // the page stays editable while it runs
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 7);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 57);
                     t.check("IPC sync while it runs", IpcRegistry.call("appGlass", "sync"), "uninstalling");
                     const before = JSON.stringify(root.pdata());
                     t.check("the other IPC changes while it runs", ["toggle", "pause", "resume"].map(c => IpcRegistry.call("appGlass", c)).concat([IpcRegistry.call("appGlass", "app", "Alacritty", "off")]), ["uninstalling", "uninstalling", "uninstalling", "uninstalling"]);
@@ -460,7 +460,7 @@ Item {
                     root.fresh(true);
                     root.mark = root.syncs().length;
                     t.check("a sync running", Proc.pendingIds(), [Logic.SYNC_ID]);
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 6);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 56);
                     t.check("uninstall accepted", root.d.runAction("uninstall"), true);
                     t.check("held: not launched beside the sync", Proc.pendingIds(), [Logic.SYNC_ID]);
                     t.check("the action shows at once", root.vars().action, "uninstall");
@@ -496,7 +496,7 @@ Item {
                     t.check("the page learns the link stays", root.vars().uninstallState, "linkStays");
                     t.check("and so does the plugin data", root.pdata().uninstallState, "linkStays");
                     t.check("no second uninstall", root.d.runAction("uninstall"), false);
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 9);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 59);
                     t.check("IPC sync after it", IpcRegistry.call("appGlass", "sync"), "uninstalled");
                 }
             },
@@ -528,7 +528,7 @@ Item {
                     t.check("a reload after an uninstall stays uninstalled", [root.d.uninstalled, root.vars().uninstallState], [true, "linkStays"]);
                     t.check("IPC after the reload", ["sync", "toggle", "pause", "resume"].map(c => IpcRegistry.call("appGlass", c)), ["uninstalled", "uninstalled", "uninstalled", "uninstalled"]);
                     t.check("no action after the reload", root.d.runAction("learn"), false);
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 4);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 54);
                 }
             },
             {
@@ -618,13 +618,13 @@ Item {
                     Proc.setResult(Logic.ACTION_IDS.uninstall, "appglass: remove: boom\n", 1);
                     root.d.runAction("uninstall");
                     // a change while it runs: kept for after
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 11);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 61);
                     t.check("not run beside the remove", Proc.pendingIds(), [Logic.ACTION_IDS.uninstall]);
                     Proc.flush();
                     t.check("a failed remove: not uninstalled, no unlink, a sync at once", [root.d.uninstalled, Proc.pendingIds(), root.vars().uninstallState || ""], [false, [Logic.SYNC_ID], ""]);
                     t.ok("the remove error said", ToastService.ofLevel("error").slice(-1)[0].message.indexOf("boom") > 0);
                     Proc.flush();
-                    t.check("the sync carries the change made during the remove", root.lastSyncSettings().inactive.factor, 0.89);
+                    t.check("the sync carries the change made during the remove", root.lastSyncSettings().fallback.value, 0.61);
                     t.ok("the remove error stays after that sync", (root.vars().uninstallError || "").indexOf("boom") >= 0);
                     // a remove that stops can have restored some files already:
                     // the text says it stopped, not that nothing was removed
@@ -670,7 +670,7 @@ Item {
                     t.check("it says the uninstall may not have finished", [root.vars().uninstallState, IpcRegistry.call("appGlass", "sync"), IpcRegistry.call("appGlass", "pause")], ["interrupted", "uninstalling", "uninstalling"]);
                     t.ok("and how to go on", (root.vars().uninstallError || "").indexOf("Uninstall again") >= 0);
                     t.ok("never that it surely stopped (the remove may have ended)", (root.vars().uninstallError || "").indexOf("may not have finished") >= 0);
-                    PluginService.savePluginData("appGlass", "inactiveMorePct", 7);
+                    PluginService.savePluginData("appGlass", "fallbackValuePct", 57);
                     t.check("no other action", root.d.runAction("learn"), false);
                 }
             },
@@ -717,20 +717,20 @@ Item {
                                 "enabled": false
                             }
                         },
-                        "inactiveDurationMs": 250
+                        "fallbackMode": "value"
                     });
                     t.check("set up again", root.d.uninstalled, false);
                     Proc.flush();       // get
                     const pd = root.pdata();
-                    t.check("the stored choices survive", [pd.apps, pd.inactiveDurationMs, pd.seeded], [{
+                    t.check("the stored choices survive", [pd.apps, pd.fallbackMode, pd.seeded], [{
                             "gtk3": {
                                 "enabled": false
                             }
-                        }, 250, true]);
-                    t.check("a key never stored is seeded", pd.inactiveEasing, Logic.pluginDataFromSettings(root.defaults).inactiveEasing);
+                        }, "value", true]);
+                    t.check("a key never stored is seeded", pd.fallbackValuePct, Logic.pluginDataFromSettings(root.defaults).fallbackValuePct);
                     Proc.flush();       // sync
                     const s = root.lastSyncSettings();
-                    t.check("the sync carries them", [s.apps.gtk3.enabled, s.inactive.durationMs], [false, 250]);
+                    t.check("the sync carries them", [s.apps.gtk3.enabled, s.fallback.mode], [false, "value"]);
                     Proc.flush();
                     root.drop();
                 }
@@ -742,7 +742,7 @@ Item {
                     // sync), they are not overwritten by `get`'s defaults
                     root.fresh(false, undefined, {
                         "uninstallState": "removed",
-                        "inactiveMorePct": 4,
+                        "fallbackValuePct": 54,
                         "apps": {
                             "vlc": {
                                 "enabled": false
@@ -756,11 +756,11 @@ Item {
                     t.check("an IPC sync seeds again", IpcRegistry.call("appGlass", "sync"), "not ready");
                     Proc.flush();       // get
                     const pd = root.pdata();
-                    t.check("kept choices survive a failed first seed", [pd.apps, pd.inactiveMorePct, pd.seeded, pd.seedKeep], [{
+                    t.check("kept choices survive a failed first seed", [pd.apps, pd.fallbackValuePct, pd.seeded, pd.seedKeep], [{
                             "vlc": {
                                 "enabled": false
                             }
-                        }, 4, true, false]);
+                        }, 54, true, false]);
                     Proc.flush();
                     Proc.flush();
                     root.drop();
